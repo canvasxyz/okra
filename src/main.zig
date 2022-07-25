@@ -123,17 +123,41 @@ const Page = packed struct {
     @panic("internal error finding insert index");
   }
 
-  fn update_digest(self: *const Page, digest: *Sha256) void {
-    if (self.height == 0) {
-      for (self.leaf_content()) |leaf| {
+  fn leaf_scan(self: *const Page, target: *const Leaf, digest: *Sha256) u8 {
+    for (self.leaf_content()) |leaf, i| {
+      if (target.leq(leaf)) {
+        return @intCast(u8, i);
+      } else {
         digest.update(leaf.value[0..32]);
       }
-    } else {
-      for (self.node_content()) |node| {
+    }
+
+    return self.count;
+  }
+
+  fn node_scan(self: *const Page, target: *const Leaf, digest: *Sha256) u8 {
+    for (self.node_content()) |node, i| {
+      if (target.leq(node.leaf)) {
+        return @intCast(u8, i);
+      } else {
         digest.update(node.hash[0..32]);
       }
     }
+
+    return self.count;
   }
+
+  // fn update_digest(self: *const Page, digest: *Sha256) void {
+  //   if (self.height == 0) {
+  //     for (self.leaf_content()) |leaf| {
+  //       digest.update(leaf.value[0..32]);
+  //     }
+  //   } else {
+  //     for (self.node_content()) |node| {
+  //       digest.update(node.hash[0..32]);
+  //     }
+  //   }
+  // }
 };
 
 test "validate page sizes" {
@@ -269,22 +293,51 @@ pub const Tree = struct {
     // The linked list is just length 1 on expectation but we gotta do it anyway.
     var target_page_id = page_id;
     var target_page = try self.open_page_buffer(page_id);
-    while (target_page.next_id != 0) {
+    if (target_page.next_id == 0) {
       const last_leaf = target_page.get_last_leaf();
       if (leaf.leq(last_leaf)) {
-        break;
+        return target_page_id;
       } else {
-        target_page.update_digest(&digest);
-        target_page_id = target_page.next_id;
-        target_page = try self.open_page_buffer(target_page.next_id);
+        @panic("internal error: linked list scan failed");
       }
-    }
+    } else {
+      while (target_page.next_id != 0) {
+        const last_leaf = target_page.get_last_leaf();
+        if (leaf.leq(last_leaf)) {
+          return target_page_id;
+        } else {
+          target_page.update_digest(digest);
+          target_page_id = target_page.next_id;
+          target_page = try self.open_page_buffer(target_page.next_id);
+        }
+      }
 
-    return target_page_id;
+      @panic("internal error: linked list scan failed");
+    }
   }
 
-  fn insert_leaf(self: *Tree, page_id: u64, leaf: *const Leaf, page_hash: *[32]u8) !void {
+  fn insert_leaf(self: *Tree, page_id: u64, new_leaf: *const Leaf, page_hash: *[32]u8) !void {
+    var digest = Sha256.init(.{});
 
+    var target_page_id = page_id;
+    var target_page = try self.open_page_buffer(page_id);
+    
+    
+    const index = while (true) {
+      const i = target_page.leaf_scan(leaf, &digest);
+      if (i == target_page.count) {
+        assert(target_page.next_id != 0);
+        target_page_id = target_page.next_id;
+        target_page = try self.open_page_buffer(target_page_id);
+      } else {
+        break i;
+      }
+    } else {
+
+    }
+    while (target_page.next_id != 0) {
+      
+    }
   }
 
   fn insert_node(self: *Tree, page_id: u64, leaf: *const Leaf) ![]Node {
@@ -342,8 +395,6 @@ pub const Tree = struct {
     if (height == 0) {
 
     }
-
-
 
     if (index < capacity) {
       const count = target_page.count;
