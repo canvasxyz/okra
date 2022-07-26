@@ -2,8 +2,6 @@ const std = @import("std");
 const expect = std.testing.expect;
 const assert = std.debug.assert;
 
-var hex_buffer: [64]u8 = undefined;
-
 // e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 const empty_hash = [_]u8{
   0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14,
@@ -19,41 +17,30 @@ pub const ZERO_HASH = [_]u8{
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
-pub fn print_hash(hash: [32]u8) ![]u8 {
-  const formatter = std.fmt.fmtSliceHexLower(hash[0..32]);
-  return std.fmt.bufPrint(hex_buffer[0..64], "{x}", .{ formatter });
+var print_hash_buffer: [64]u8 = undefined;
+
+pub fn print_hash(hash: []const u8) ![]u8 {
+  const formatter = std.fmt.fmtSliceHexLower(hash);
+  return std.fmt.bufPrint(print_hash_buffer[0..(hash.len * 2)], "{x}", .{ formatter });
 }
 
-test "test printing hashes" {
-  const hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-  const result = try print_hash(empty_hash);
-  try expect(std.mem.eql(u8, hash, result));
+test "test print_hash" {
+  const result = try print_hash(&empty_hash);
+  try expect(std.mem.eql(u8, result, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
 }
 
 pub fn parse_hash(input: []const u8) ![32]u8 {
-  assert(input.len == 64);
-  var result: [32]u8 = undefined;
-  _ = try std.fmt.hexToBytes(result[0..32], input);
+  assert(input.len <= 64);
+  assert(input.len % 2 == 0);
+
+  var result: [32]u8 = ZERO_HASH;
+  _ = try std.fmt.hexToBytes(result[(32-input.len/2)..32], input);
   return result;
 }
 
 test "test parsing hashes" {
   const bytes = try parse_hash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
-  try expect(bytes.len == empty_hash.len);
   try expect(std.mem.eql(u8, bytes[0..32], empty_hash[0..32]));
-}
-
-pub fn hash_leq(a: *const [32]u8, b: *const [32]u8) bool {
-  var i: u8 = 0;
-  while (i < 32) : (i += 1) {
-    if (a[i] < b[i]) {
-      return true;
-    } else if (a[i] > b[i]) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 fn splice(
