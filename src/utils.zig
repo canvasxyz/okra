@@ -43,6 +43,25 @@ test "test parsing hashes" {
   try expect(std.mem.eql(u8, bytes[0..32], empty_hash[0..32]));
 }
 
+fn swap(comptime T: type, comptime capacity: u8, content: *[capacity]T, buffer: *[capacity]T) void {
+  @setRuntimeSafety(false);
+  var v: T = undefined;
+  var i: u8 = 0;
+  while (i < capacity) : (i += 1) {
+      v = buffer[i];
+      buffer[i] = content[i];
+      content[i] = v;
+  }
+}
+
+test "test swap" {
+  var a = [_]u8{ 1, 2, 3 };
+  var b = [_]u8{ 7, 8, 9 };
+  swap(u8, 3, &a, &b);
+  try expect(std.mem.eql(u8, &a, &[_]u8{ 7, 8, 9 }));
+  try expect(std.mem.eql(u8, &b, &[_]u8{ 1, 2, 3 }));
+}
+
 fn splice(
   comptime T: type,
   comptime capacity: u8,
