@@ -26,7 +26,7 @@ pub const Header = packed struct {
     self.fanout_threshhold = fanout_threshhold;
     self.set_root_id(1);
     self.set_leaf_count(1);
-    self.set_page_count(1);
+    self.set_page_count(0);
     self.set_height(1);
     self.set_tombstone_count(0);
   }

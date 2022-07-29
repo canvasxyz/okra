@@ -2,6 +2,8 @@ const std = @import("std");
 const expect = std.testing.expect;
 const assert = std.debug.assert;
 
+const constants = @import("./constants.zig");
+
 // e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 const empty_hash = [_]u8{
   0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14,
@@ -26,7 +28,7 @@ pub fn parse_hash(input: []const u8) ![32]u8 {
   assert(input.len <= 64);
   assert(input.len % 2 == 0);
 
-  var result: [32]u8 = undefined;
+  var result: [32]u8 = constants.ZERO_HASH;
   _ = try std.fmt.hexToBytes(result[(32-input.len/2)..32], input);
   return result;
 }

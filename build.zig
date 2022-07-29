@@ -5,11 +5,11 @@ pub fn build(b: *std.build.Builder) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     const mode = b.standardReleaseOptions();
 
-    const lib = b.addStaticLibrary("mst", "src/main.zig");
+    const lib = b.addStaticLibrary("mst", "src/tree.zig");
     lib.setBuildMode(mode);
     lib.install();
 
-    const main_tests = b.addTest("src/main.zig");
+    const main_tests = b.addTest("src/tree.zig");
     main_tests.setBuildMode(mode);
 
     const test_step = b.step("test", "Run library tests");

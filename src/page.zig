@@ -10,11 +10,28 @@ const Leaf = @import("./leaf.zig").Leaf;
 
 pub const Page = packed struct {
   meta_bytes: [2]u8,
-  sequence_bytes: [8]u8,
+  padding: [8]u8,
   height: u8,
   count: u8,
   content: [constants.PAGE_CONTENT_SIZE]u8,
   next_id_bytes: [4]u8,
+
+  // allocates on the stack; used mostly by test runners
+  pub fn create(comptime T: type, height: u8, content: []const T, next_id: u32) Page {
+    var page = Page {
+      .meta_bytes = [_]u8{ 0, 0 },
+      .padding = undefined,
+      .height = height,
+      .count = @intCast(u8, content.len),
+      .content = undefined,
+      .next_id_bytes = undefined,
+    };
+    
+    const page_content = @ptrCast(*[@divExact(constants.PAGE_CONTENT_SIZE, @sizeOf(T))]T, &page.content);
+    std.mem.copy(T, page_content[0..content.len], content);
+    page.set_next_id(next_id);
+    return page;
+  }
 
   pub fn get_meta(self: *const Page) u16 {
     return std.mem.readIntLittle(u16, &self.meta_bytes);
@@ -23,14 +40,6 @@ pub const Page = packed struct {
   pub fn set_meta(self: *Page, meta: u16) void {
     std.mem.writeIntLittle(u16, &self.meta_bytes, meta);
   }
-
-  // fn get_sequence(self: *const Page) u64 {
-  //   return std.mem.readIntLittle(u32, &self.sequence_bytes);
-  // }
-
-  // fn set_sequence(self: *Page, sequence: u64) void {
-  //   std.mem.writeIntLittle(u64, &self.sequence_bytes, sequence);
-  // }
 
   pub fn get_next_id(self: *const Page) u32 {
     return std.mem.readIntLittle(u32, &self.next_id_bytes);
@@ -75,6 +84,10 @@ pub const Page = packed struct {
     }
 
     return self.count;
+  }
+
+  pub fn eql(a: *const Page, b: *const Page) bool {
+    return ((a.get_meta() == b.get_meta()) and a.height == b.height and a.count == b.count and a.get_next_id() == b.get_next_id()); 
   }
 
   // fn node_scan(self: *const Page, a: u64, a_value: []const u8, digest: *Sha256) u8 {

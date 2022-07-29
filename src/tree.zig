@@ -14,14 +14,12 @@ const Leaf = @import("./leaf.zig").Leaf;
 
 const allocator = std.heap.c_allocator;
 
-const TERMINAL_LEAF = Leaf {
+pub const TERMINAL_LEAF = Leaf {
   .value = constants.ZERO_HASH,
   .timestamp_bytes = [_]u8{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff },
 };
 
-const FANOUT_THRESHHOLD: u8 = 0x18;
-
-
+const FANOUT_THRESHHOLD: u8 = 0x16;
 
 pub const Tree = struct {
   header: *Header,
@@ -137,6 +135,9 @@ pub const Tree = struct {
   }
 
   fn create_page(self: *Tree, page_id: u32, height: u8, count: u8, next_id: u32) !void {
+    std.log.info("creating page with page_id {d}", .{ page_id });
+    self.header.set_page_count(self.header.get_page_count() + 1);
+
     if (self.memory_store) |memory_store| {
       self.page = try memory_store.create_page(allocator, page_id);
     }
@@ -151,9 +152,7 @@ pub const Tree = struct {
   fn get_new_page_id(self: *Tree) u32 {
     const tombstone = self.header.get_tombstone();
     if (tombstone == 0) {
-      const new_page_id = self.header.get_page_count() + 1;
-      self.header.set_page_count(new_page_id);
-      return new_page_id;
+      return self.header.get_page_count() + 1;
     } else {
       return tombstone;
     }
@@ -180,7 +179,6 @@ pub const Tree = struct {
       const leaf_count = self.header.get_leaf_count();
       self.header.set_leaf_count(leaf_count + 1);
 
-      std.log.info("we sure did insert the shit outta that: {d}", .{ splice.len });
       if (splice.len == 1) {
         self.header.root_id_bytes = splice[0].page_id_bytes;
         self.header.root_hash = splice[0].hash;
@@ -209,7 +207,7 @@ pub const Tree = struct {
 
     digest.update(&target.value);
 
-    std.log.info("page id: {d}, index: {d}", .{ target_page_id, target_index });
+    std.log.info("inserting leaf into page {d} at index {d}", .{ target_page_id, target_index });
   
     // now that we've found the place, we take different code paths
     // depending on whether the leaf is a split or not.
@@ -246,11 +244,14 @@ pub const Tree = struct {
 
       return self.splice_buffer[0..2];
     } else {
+      // if we're not splitting, then the only node in the splice buffer
+      // will be the existing node we're inserting into, with only the hash
+      // changing.
       self.splice_buffer[0].page_id_bytes = node.page_id_bytes;
       self.splice_buffer[0].leaf_timestamp_bytes = node.leaf_timestamp_bytes;
       self.splice_buffer[0].leaf_value_prefix = node.leaf_value_prefix;
       
-      const content = self.page.leaf_content();
+      var content = self.page.leaf_content();
       var next_id = self.page.get_next_id();
 
       if (self.page.count < constants.PAGE_LEAF_CAPACITY) {
@@ -267,53 +268,80 @@ pub const Tree = struct {
       } else {
         const buffer = self.leaf_buffer();
         buffer[0] = content[constants.PAGE_LEAF_CAPACITY-1];
-        std.mem.copyBackwards(Leaf, content[target_index+1..self.page.count+1], content[target_index..self.page.count]);
-        try self.flush_page();
+        std.mem.copyBackwards(Leaf, content[target_index+1..constants.PAGE_LEAF_CAPACITY], content[target_index..constants.PAGE_LEAF_CAPACITY-1]);
+        content[target_index].value = target.value;
+        content[target_index].timestamp_bytes = target.timestamp_bytes;
 
-        while (next_id != 0) {
-          try self.open_page(next_id);
-          next_id = self.page.get_next_id();
+        // this is awkward and confusing and we also have to do it again for splits.
+        // what's happening is that we need to know the page's new next_id before we flush it.
+        // if next_id is currently zero, then the new next_id is a new page id, but if it's
+        // not currently zero, then it doesn't change.
+        if (next_id == 0) {
+          const new_page_id = self.get_new_page_id();
+          self.page.set_next_id(new_page_id);
+          try self.flush_page();
 
-          if (self.page.count < constants.PAGE_LEAF_CAPACITY) {
-            assert(next_id == 0);
-            std.mem.copyBackwards(Leaf, content[1..self.page.count+1], content[0..self.page.count]);
-            content[0] = buffer[0];
-            self.page.count += 1;
-            try self.flush_page();
+          for (content[target_index+1..constants.PAGE_LEAF_CAPACITY]) |leaf| {
+            digest.update(&leaf.value);
+          }
 
-            for (content[0..self.page.count]) |leaf| {
-              digest.update(&leaf.value);
+          try self.create_page(new_page_id, 0, 1, 0);
+          content = self.page.leaf_content();
+          content[0] = buffer[0];
+          try self.flush_page();
+
+          digest.update(&content[0].value);
+        } else {
+          try self.flush_page();
+          while (next_id != 0) {
+            try self.open_page(next_id);
+            content = self.page.leaf_content();
+            next_id = self.page.get_next_id();
+
+            if (self.page.count < constants.PAGE_LEAF_CAPACITY) {
+              assert(next_id == 0);
+              std.mem.copyBackwards(Leaf, content[1..self.page.count+1], content[0..self.page.count]);
+              content[0] = buffer[0];
+              self.page.count += 1;
+              try self.flush_page();
+
+              for (content[0..self.page.count]) |leaf| {
+                digest.update(&leaf.value);
+              }
+            } else if (next_id == 0) {
+              buffer[1] = content[constants.PAGE_LEAF_CAPACITY-1];
+              std.mem.copyBackwards(Leaf, content[1..constants.PAGE_LEAF_CAPACITY], content[0..constants.PAGE_LEAF_CAPACITY-1]);
+              content[0] = buffer[0];
+              
+              const new_page_id = self.get_new_page_id();
+              self.page.set_next_id(new_page_id);
+              try self.flush_page();
+
+              for (content) |leaf| {
+                digest.update(&leaf.value);
+              }
+
+              try self.create_page(new_page_id, 0, 1, 0);
+              content = self.page.leaf_content();
+              content[0] = buffer[1];
+              try self.flush_page();
+
+              digest.update(&content[0].value);
+            } else {
+              buffer[1] = content[constants.PAGE_LEAF_CAPACITY-1];
+              std.mem.copyBackwards(Leaf, content[1..constants.PAGE_LEAF_CAPACITY], content[0..constants.PAGE_LEAF_CAPACITY-1]);
+              content[0] = buffer[0];
+              try self.flush_page();
+
+              for (content) |leaf| {
+                digest.update(&leaf.value);
+              }
+
+              buffer[0] = buffer[1];
             }
-          } else if (next_id == 0) {
-            const new_page_id = self.get_new_page_id();
-            self.page.set_next_id(new_page_id);
-            buffer[1] = content[constants.PAGE_LEAF_CAPACITY-1];
-            std.mem.copyBackwards(Leaf, content[1..constants.PAGE_LEAF_CAPACITY], content[0..constants.PAGE_LEAF_CAPACITY-1]);
-            content[0] = buffer[0];
-            try self.flush_page();
-
-            for (content) |leaf| {
-              digest.update(&leaf.value);
-            }
-
-            try self.create_page(new_page_id, 0, 1, 0);
-            content[0] = buffer[1];
-            try self.flush_page();
-
-            digest.update(&content[0].value);
-          } else {
-            buffer[1] = content[constants.PAGE_LEAF_CAPACITY-1];
-            std.mem.copyBackwards(Leaf, content[1..constants.PAGE_LEAF_CAPACITY], content[0..constants.PAGE_LEAF_CAPACITY-1]);
-            content[0] = buffer[0];
-            try self.flush_page();
-
-            for (content) |leaf| {
-              digest.update(&leaf.value);
-            }
-
-            buffer[0] = buffer[1];
           }
         }
+
       }
 
       digest.final(&self.splice_buffer[0].hash);
@@ -460,29 +488,13 @@ pub const Tree = struct {
   //   const buffer_length = splice(Leaf, content, page.count, index, values, buffer);
   // }
 
-  // fn get_page_id(self: *Tree) u32 {
-  //   if (self.header.graveyard_size > 0) {
-  //     const tombstone_index = self.header.graveyard_size - 1;
-  //     self.header.graveyard_size -= 1;
-  //     const tombstone_id = self.header.graveyard[tombstone_index];
-  //     self.header.graveyard[tombstone_index] = 0;
-  //     return tombstone_id;
-  //   } else {
-  //     return self.header.page_count + 1;
-  //   }
-  // }
-
-  // fn node_buffer(self: *Tree) *[PAGE_NODE_CAPACITY] {
-  //   return @ptrCast(*[PAGE_NODE_CAPACITY]Node, self.content_buffer);
-  // }
+  fn node_buffer(self: *Tree) *[constants.PAGE_NODE_CAPACITY]Node {
+    return @ptrCast(*[constants.PAGE_NODE_CAPACITY]Node, self.content_buffer);
+  }
 
   fn leaf_buffer(self: *Tree) *[constants.PAGE_LEAF_CAPACITY]Leaf {
     return @ptrCast(*[constants.PAGE_LEAF_CAPACITY]Leaf, self.content_buffer);
   }
-
-  // fn is_split(self: *Tree, leaf: *Leaf) bool {
-  //   return leaf.value[0] < self.header.fanout_threshhold;
-  // }
 
   pub fn print_pages(self: *Tree) !void {
 
