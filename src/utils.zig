@@ -10,13 +10,6 @@ const empty_hash = [_]u8{
   0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55,
 };
 
-pub const ZERO_HASH = [_]u8{
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-};
-
 var print_hash_buffer: [64]u8 = undefined;
 
 pub fn print_hash(hash: []const u8) ![]u8 {
@@ -33,7 +26,7 @@ pub fn parse_hash(input: []const u8) ![32]u8 {
   assert(input.len <= 64);
   assert(input.len % 2 == 0);
 
-  var result: [32]u8 = ZERO_HASH;
+  var result: [32]u8 = undefined;
   _ = try std.fmt.hexToBytes(result[(32-input.len/2)..32], input);
   return result;
 }
@@ -41,25 +34,6 @@ pub fn parse_hash(input: []const u8) ![32]u8 {
 test "test parsing hashes" {
   const bytes = try parse_hash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
   try expect(std.mem.eql(u8, bytes[0..32], empty_hash[0..32]));
-}
-
-fn swap(comptime T: type, comptime capacity: u8, content: *[capacity]T, buffer: *[capacity]T) void {
-  @setRuntimeSafety(false);
-  var v: T = undefined;
-  var i: u8 = 0;
-  while (i < capacity) : (i += 1) {
-      v = buffer[i];
-      buffer[i] = content[i];
-      content[i] = v;
-  }
-}
-
-test "test swap" {
-  var a = [_]u8{ 1, 2, 3 };
-  var b = [_]u8{ 7, 8, 9 };
-  swap(u8, 3, &a, &b);
-  try expect(std.mem.eql(u8, &a, &[_]u8{ 7, 8, 9 }));
-  try expect(std.mem.eql(u8, &b, &[_]u8{ 1, 2, 3 }));
 }
 
 fn splice(
