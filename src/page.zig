@@ -10,18 +10,18 @@ const Leaf = @import("./leaf.zig").Leaf;
 
 pub const Page = packed struct {
   meta_bytes: [2]u8,
-  padding: [8]u8,
-  height: u8,
+  sequence_bytes: [8]u8,
+  level: u8,
   count: u8,
   content: [constants.PAGE_CONTENT_SIZE]u8,
   next_id_bytes: [4]u8,
 
   // allocates on the stack; used mostly by test runners
-  pub fn create(comptime T: type, height: u8, content: []const T, next_id: u32) Page {
+  pub fn create(comptime T: type, level: u8, content: []const T, next_id: u32) Page {
     var page = Page {
       .meta_bytes = [_]u8{ 0, 0 },
-      .padding = undefined,
-      .height = height,
+      .sequence_bytes = undefined,
+      .level = level,
       .count = @intCast(u8, content.len),
       .content = undefined,
       .next_id_bytes = undefined,
@@ -50,7 +50,7 @@ pub const Page = packed struct {
   }
 
   pub fn capacity(self: *const Page) u8 {
-    if (self.height == 0) {
+    if (self.level == 0) {
       return constants.PAGE_LEAF_CAPACITY;
     } else {
       return constants.PAGE_NODE_CAPACITY;
@@ -73,10 +73,11 @@ pub const Page = packed struct {
     return self.node_content()[0..self.count];
   }
 
-  pub fn leaf_scan(self: *Page, a: u64, a_value: []const u8, digest: *Sha256) u8 {
+  pub fn leaf_scan(self: *Page, target: *const Leaf, digest: *Sha256) u8 {
+    const a = target.get_timestamp();
     for (self.leaf_content()) |leaf, i| {
       const b = leaf.get_timestamp();
-      if ((a < b) or ((a == b) and std.mem.lessThan(u8, a_value, leaf.value[0..32]))) {
+      if ((a < b) or ((a == b) and std.mem.lessThan(u8, &target.value, &leaf.value))) {
         return @intCast(u8, i);
       } else {
         digest.update(&leaf.value);
@@ -87,9 +88,10 @@ pub const Page = packed struct {
   }
 
   pub fn eql(a: *const Page, b: *const Page) bool {
-    return ((a.get_meta() == b.get_meta()) and a.height == b.height and a.count == b.count and a.get_next_id() == b.get_next_id()); 
+    return ((a.get_meta() == b.get_meta()) and a.level == b.level and a.count == b.count and a.get_next_id() == b.get_next_id()); 
   }
 
+  // fn node_scan(self: *const Page, target: *const Leaf, digest: *Sha256) u8 {
   // fn node_scan(self: *const Page, a: u64, a_value: []const u8, digest: *Sha256) u8 {
   //   for (self.node_content()) |node, i| {
   //     const b = node.get_leaf_timestamp();

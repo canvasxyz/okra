@@ -1,6 +1,8 @@
 const std = @import("std");
 const expect = std.testing.expect;
 
+const Node = @import("./node.zig").Node;
+
 const constants = @import("./constants.zig");
 const utils = @import("./utils.zig");
 
@@ -31,6 +33,13 @@ pub const Leaf = packed struct {
     } else {
       return LeafParseError.DelimiterNotFound;
     }
+  }
+
+  pub fn derive_node(self: *const Leaf, id: u32) Node {
+    var node = Node.create(id);
+    node.leaf_timestamp_bytes = self.timestamp_bytes;
+    std.mem.copy(u8, &node.leaf_value_prefix, self.value[0..4]);
+    return node;
   }
 };
 

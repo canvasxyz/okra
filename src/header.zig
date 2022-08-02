@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const assert = std.debug.assert;
 
 const constants = @import("./constants.zig");
 
@@ -9,6 +10,7 @@ pub const Header = packed struct {
   minor_version: u8,
   patch_version: u8,
   fanout_threshhold: u8,
+  sequence_bytes: [8]u8,
   root_id_bytes: [4]u8,
   root_hash: [32]u8,
   page_count_bytes: [4]u8,
@@ -16,18 +18,18 @@ pub const Header = packed struct {
   leaf_count_bytes: [8]u8,
   tombstone_count_bytes: [4]u8,
   tombstones: [constants.TOMBSTONE_CAPACITY][4]u8,
-  // padding: [2048]u8,
+  padding: [2040]u8,
 
-  pub fn init(self: *Header, fanout_threshhold: u8) void {
+  pub fn init(self: *Header) void {
     self.magic = constants.MAGIC;
     self.major_version = constants.MAJOR_VERSION;
     self.minor_version = constants.MINOR_VERSION;
     self.patch_version = constants.PATCH_VERSION;
-    self.fanout_threshhold = fanout_threshhold;
-    self.set_root_id(1);
-    self.set_leaf_count(1);
-    self.set_page_count(0);
-    self.set_height(1);
+    self.fanout_threshhold = constants.FANOUT_THRESHHOLD;
+    self.set_root_id(0);
+    self.set_leaf_count(0);
+    self.set_page_count(1);
+    self.set_height(0);
     self.set_tombstone_count(0);
   }
 
@@ -71,7 +73,7 @@ pub const Header = packed struct {
     std.mem.writeIntLittle(u32, &self.tombstone_count_bytes, tombstone_count);
   }
 
-  pub fn get_tombstone(self: *Header) u32 {
+  pub fn pop_tombstone(self: *Header) u32 {
     const count = self.get_tombstone_count();
     if (count > 0) {
       const index = count - 1;
@@ -81,6 +83,14 @@ pub const Header = packed struct {
     } else {
       return 0;
     }
+  }
+
+  pub fn push_tombstone(self: *Header, id: u32) void {
+    const count = self.get_tombstone_count();
+    assert(count < constants.TOMBSTONE_CAPACITY);
+
+    std.mem.writeIntLittle(u32, &self.tombstones[count], id);
+    self.set_tombstone_count(count + 1);
   }
 };
 

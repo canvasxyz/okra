@@ -1,5 +1,5 @@
 # mst
 
 ```
-$ zig test test.zig
+$ zig test src/tree.zig
 ```

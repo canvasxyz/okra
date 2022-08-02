@@ -5,8 +5,8 @@ const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const constants = @import("./constants.zig");
 const utils = @import("./utils.zig");
-const store = @import("./store.zig");
 
+const Store = @import("./store.zig").Store;
 const Header = @import("./header.zig").Header;
 const Page = @import("./page.zig").Page;
 const Node = @import("./node.zig").Node;
@@ -19,140 +19,67 @@ pub const TERMINAL_LEAF = Leaf {
   .timestamp_bytes = [_]u8{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff },
 };
 
-const FANOUT_THRESHHOLD: u8 = 0x16;
+const NodeList = std.ArrayList(Node);
 
 pub const Tree = struct {
+  pub const Error = std.mem.Allocator.Error || Store.Error;
+
+  store: Store,
   header: *Header,
-  page_id: u32,
-  page: *Page,
   content_buffer: *[constants.PAGE_CONTENT_SIZE]u8,
-  splice_buffer: []Node,
 
-  memory_store: ?*store.MemoryStore,
-  file_store: ?*store.FileStore,
+  pub fn open(path: ?[]const u8) Error!Tree {
+    var store = try Store.open(allocator, path);
+    const header_page = try store.get(0);
+    const header = @ptrCast(*Header, header_page);
 
-  pub fn temp(memory_limit: u32) !*Tree {
-    const tree: *Tree = try allocator.create(Tree);
-    tree.file_store = null;
-    tree.memory_store = try store.MemoryStore.create(allocator, memory_limit);
-    
-    tree.header = try allocator.create(Header);
-    tree.header.init(FANOUT_THRESHHOLD);
+    if (store.created()) {
+      header.init();
+      const root_id = 1;
+      const root_page = try store.get(root_id);
+      const root = @ptrCast(*Page, root_page);
+      root.set_meta(0x0000);
+      root.level = 0;
+      root.count = 1;
+      root.leaf_content()[0] = TERMINAL_LEAF;
+      root.set_next_id(0);
 
-    try tree.create_page(tree.header.get_root_id(), 0, 1, 0);
+      header.set_root_id(root_id);
+      header.set_leaf_count(1);
+      header.set_page_count(1);
+      header.set_height(1);
+      Sha256.hash(TERMINAL_LEAF.value[0..32], &header.root_hash, .{});
+    } else {
+      assert(std.mem.eql(u8, &header.magic, &constants.MAGIC));
+    }
 
-    tree.content_buffer = try allocator.create([constants.PAGE_CONTENT_SIZE]u8);
-    tree.splice_buffer = try allocator.create([16]Node);
+    const content_buffer = try allocator.create([constants.PAGE_CONTENT_SIZE]u8);
 
-    const content = tree.page.leaf_content();
-    content[0] = TERMINAL_LEAF;
-
-    Sha256.hash(TERMINAL_LEAF.value[0..32], &tree.header.root_hash, .{});
-
-    return tree;
-  }
-
-  pub fn open(path: []const u8) !*Tree {
-    const tree: *Tree = try allocator.create(Tree);
-    tree.header = try allocator.create(Header);
-    tree.page = try allocator.create(Page);
-    tree.file_store = try store.FileStore.open(allocator, path, tree.header, tree.page);
-    tree.memory_store = null;
-
-    assert(tree.header.magic == constants.MAGIC);
-    
-    tree.content_buffer = try allocator.create([constants.PAGE_CONTENT_SIZE]u8);
-    tree.splice_buffer = try allocator.create([16]Node);
-
-    return tree;
-  }
-
-  pub fn create(path: []const u8) !*Tree {
-    const tree: *Tree = try allocator.create(Tree);
-    tree.file_store = try store.FileStore.create(allocator, path);
-    tree.memory_store = null;
-
-    tree.header = try allocator.create(Header);
-    tree.header.init(FANOUT_THRESHHOLD);
-
-    tree.page = try allocator.create(Page);
-    try tree.create_page(tree.header.get_root_id(), 0, 1, 0);
-
-    tree.content_buffer = try allocator.create([constants.PAGE_CONTENT_SIZE]u8);
-    tree.splice_buffer = try allocator.create([16]Node);
-
-    const content = tree.page.leaf_content();
-    content[0] = TERMINAL_LEAF;
-
-    Sha256.hash(TERMINAL_LEAF.value[0..32], &tree.header.root_hash, .{});
-
-    try tree.flush_header();
-    try tree.flush_page();
-
-    return tree;
+    return Tree{
+      .store = store,
+      .header = header,
+      .content_buffer = content_buffer,
+    };
   }
 
   pub fn close(self: *Tree) void {
-    if (self.memory_store) |memory_store| {
-      memory_store.close(allocator);
-    } else if (self.file_store) |file_store| {
-      file_store.close(allocator);
-      allocator.destroy(self.page);
-    } else {
-      @panic("no store configured");
-    }
-
-    allocator.destroy(self.header);
+    self.store.close();
     allocator.destroy(self.content_buffer);
-    allocator.destroy(self.splice_buffer.ptr);
-    allocator.destroy(self);
   }
 
-  fn flush_header(self: *Tree) !void {
-    if (self.file_store) |file_store| {
-      try file_store.file.seekTo(0);
-      const bytes = @ptrCast(*[constants.PAGE_SIZE]u8, self.header);
-      try file_store.file.writeAll(bytes);
-    }
-  }
-
-  fn flush_page(self: *Tree) !void {
-    if (self.file_store) |file_store| {
-      try file_store.write_page(self.page_id, self.page);
-    }
-  }
-
-  fn open_page(self: *Tree, page_id: u32) !void {
-    if (self.page_id != page_id) {
-      if (self.file_store) |file_store| {
-        try file_store.open_page(page_id, self.page);
-      } else if (self.memory_store) |memory_store| {
-        self.page = memory_store.get_page(page_id);
-      }
-
-      self.page_id = page_id;
-    }
-  }
-
-  fn create_page(self: *Tree, page_id: u32, height: u8, count: u8, next_id: u32) !void {
-    std.log.info("creating page with page_id {d}", .{ page_id });
-    self.header.set_page_count(self.header.get_page_count() + 1);
-
-    if (self.memory_store) |memory_store| {
-      self.page = try memory_store.create_page(allocator, page_id);
-    }
-
-    self.page.set_meta(0x0000);
-    self.page.height = height;
-    self.page.count = count;
-    self.page.set_next_id(next_id);
-    self.page_id = page_id;
+  fn get(self: *Tree, id: u32) Store.Error!*Page {
+    assert(id > 0);
+    assert(id <= self.header.get_page_count());
+    const page = try self.store.get(id);
+    return @ptrCast(*Page, page);
   }
 
   fn get_new_page_id(self: *Tree) u32 {
-    const tombstone = self.header.get_tombstone();
+    const tombstone = self.header.pop_tombstone();
     if (tombstone == 0) {
-      return self.header.get_page_count() + 1;
+      const id = self.header.get_page_count() + 1;
+      self.header.set_page_count(id);
+      return id;
     } else {
       return tombstone;
     }
@@ -162,331 +89,191 @@ pub const Tree = struct {
     return leaf.value[0] < self.header.fanout_threshhold;
   }
 
-  pub fn insert(self: *Tree, leaf: *const Leaf) !void {
+  pub fn insert(self: *Tree, leaf: *const Leaf) Error!void {
+    const leaf_count = self.header.get_leaf_count();
     const height = self.header.get_height();
+
+    var dst = NodeList.init(allocator);
+    try dst.append(Node {
+      .page_id_bytes = self.header.root_id_bytes,
+      .hash = self.header.root_hash,
+      .leaf_timestamp_bytes = TERMINAL_LEAF.timestamp_bytes,
+      .leaf_value_prefix = [_]u8{ 0, 0, 0, 0 },
+    });
 
     if (height > 1) {
       @panic("not implemented");
     } else {
-      const node = Node {
-        .page_id_bytes = self.header.root_id_bytes,
-        .hash = self.header.root_hash,
-        .leaf_timestamp_bytes = TERMINAL_LEAF.timestamp_bytes,
-        .leaf_value_prefix = [_]u8{ 0, 0, 0, 0 },
-      };
-
-      const splice = try self.insert_leaf(&node, leaf);
-      const leaf_count = self.header.get_leaf_count();
-      self.header.set_leaf_count(leaf_count + 1);
-
-      if (splice.len == 1) {
-        self.header.root_id_bytes = splice[0].page_id_bytes;
-        self.header.root_hash = splice[0].hash;
+      try self.insert_leaf(&dst, leaf);
+      if (dst.items.len == 1) {
+        self.header.set_leaf_count(leaf_count + 1);
+        self.header.root_id_bytes = dst.items[0].page_id_bytes;
+        self.header.root_hash = dst.items[0].hash;
       } else {
         @panic("not implemented");
       }
     }
 
-    try self.flush_header();
+    dst.deinit();
   }
 
-  fn insert_leaf(self: *Tree, node: *const Node, target: *const Leaf, ) ![]Node {
-    const target_timestamp = target.get_timestamp();
+  fn create_page(self: *Tree, id: u32, level: u8, count: u8, next_id: u32) Store.Error!*Page {
+    const page = try self.get(id);
+    page.set_meta(0x0000);
+    page.level = level;
+    page.count = count;
+    page.set_next_id(next_id);
+    return page;
+  }
 
-    var digest = Sha256.init(.{});
-    var target_page_id = node.get_page_id();
-    const target_index = while (target_page_id != 0) {
-      try self.open_page(target_page_id);
-      const i = self.page.leaf_scan(target_timestamp, &target.value, &digest);
-      if (i < self.page.count) {
-        break i;
-      } else {
-        target_page_id = self.page.get_next_id();
-      }
-    } else unreachable;
+  fn copy_page(self: *Tree, new_id: u32, old_id: u32) Store.Error!*Page {
+    assert(old_id > 0);
+    assert(new_id > 0);
 
-    digest.update(&target.value);
+    self.header.push_tombstone(old_id);
 
-    std.log.info("inserting leaf into page {d} at index {d}", .{ target_page_id, target_index });
-  
-    // now that we've found the place, we take different code paths
-    // depending on whether the leaf is a split or not.
-    if (self.is_split(target)) {
-      // the special case of target_index == 0 and target_page_id == page_id
-      // is worth handling separately:
-      if ((target_page_id == node.get_page_id()) and (target_index == 0)) {
-        // create a new page with the target as the only leaf
-        try self.create_page(self.get_new_page_id(), 0, 1, 0);
+    const old_page = try self.get(old_id);
+    const new_page = try self.get(new_id);
+    new_page.set_meta(0x0000);
+    new_page.level = old_page.level;
+    new_page.count = old_page.count;
 
-        const content = self.page.leaf_content();
-        content[0].value = target.value;
-        content[0].timestamp_bytes = target.timestamp_bytes;
-        try self.flush_page();
-
-        // hash the single-leaf page
-        const new_node = &self.splice_buffer[0];
-        new_node.set_page_id(self.page_id);
-        new_node.set_leaf_timestamp(target_timestamp);
-        Sha256.hash(target.value[0..32], &new_node.hash, .{});
-        std.mem.copy(u8, new_node.leaf_value_prefix[0..4], target.value[0..4]);
-
-        // copy the original node verbatim into the second slot
-        self.splice_buffer[1] = node.*;
-      } else {
-        const split_node = &self.splice_buffer[1];
-        var split_digest = Sha256.init(.{});
-        const split_page_id = try self.split_leaf_page(target_index, target, &split_digest);
-        split_node.set_page_id(split_page_id);
-        split_digest.final(&split_node.hash);
-        split_node.leaf_timestamp_bytes = node.leaf_timestamp_bytes;
-        split_node.leaf_value_prefix = node.leaf_value_prefix;
-      }
-
-      return self.splice_buffer[0..2];
+    if (new_page.level == 0) {
+      const old_content = old_page.leaf_content();
+      const new_content = new_page.leaf_content();
+      std.mem.copy(Leaf, new_content[0..new_page.count], old_content[0..old_page.count]);
     } else {
-      // if we're not splitting, then the only node in the splice buffer
-      // will be the existing node we're inserting into, with only the hash
-      // changing.
-      self.splice_buffer[0].page_id_bytes = node.page_id_bytes;
-      self.splice_buffer[0].leaf_timestamp_bytes = node.leaf_timestamp_bytes;
-      self.splice_buffer[0].leaf_value_prefix = node.leaf_value_prefix;
+      const old_content = old_page.node_content();
+      const new_content = new_page.node_content();
+      std.mem.copy(Node, new_content[0..new_page.count], old_content[0..old_page.count]);
+    }
+
+    new_page.next_id_bytes = old_page.next_id_bytes;
+
+    return new_page;
+  }
+
+  // found it easier to write this recursively than with loops since
+  // there are essentially two separate base cases.
+  fn shift_leaf_list(self: *Tree, head_id: u32, tail_length: u8, next_id: u32, digest: *Sha256) Store.Error!void {
+    const capacity = constants.PAGE_LEAF_CAPACITY;
+    const buffer = self.leaf_buffer();
+    if (next_id == 0) {
+      const page = try self.create_page(head_id, 0, tail_length, 0);
+      const content = page.leaf_content();
+      std.mem.copy(Leaf, content, buffer[0..tail_length]);
       
-      var content = self.page.leaf_content();
-      var next_id = self.page.get_next_id();
+      for (content[0..page.count]) |leaf| {
+        digest.update(&leaf.value);
+      }
+    } else {
+      const page = try self.copy_page(head_id, next_id);
+      const content = page.leaf_content();
+      if (page.count + tail_length <= capacity) {
+        assert(page.get_next_id() == 0);
+        std.mem.copyBackwards(Leaf, content[tail_length..tail_length+page.count], content[0..page.count]);
+        std.mem.copy(Leaf, content[0..tail_length], buffer[0..tail_length]);
+        page.count += tail_length;
 
-      if (self.page.count < constants.PAGE_LEAF_CAPACITY) {
-        assert(next_id == 0);
-        std.mem.copyBackwards(Leaf, content[target_index+1..self.page.count+1], content[target_index..self.page.count]);
-        content[target_index].value = target.value;
-        content[target_index].timestamp_bytes = target.timestamp_bytes;
-        self.page.count += 1;
-        try self.flush_page();
-
-        for (content[target_index+1..self.page.count]) |leaf| {
+        for (content[0..page.count]) |leaf| {
           digest.update(&leaf.value);
         }
       } else {
-        const buffer = self.leaf_buffer();
-        buffer[0] = content[constants.PAGE_LEAF_CAPACITY-1];
-        std.mem.copyBackwards(Leaf, content[target_index+1..constants.PAGE_LEAF_CAPACITY], content[target_index..constants.PAGE_LEAF_CAPACITY-1]);
-        content[target_index].value = target.value;
-        content[target_index].timestamp_bytes = target.timestamp_bytes;
+        const new_next_id = page.get_next_id();
 
-        // this is awkward and confusing and we also have to do it again for splits.
-        // what's happening is that we need to know the page's new next_id before we flush it.
-        // if next_id is currently zero, then the new next_id is a new page id, but if it's
-        // not currently zero, then it doesn't change.
-        if (next_id == 0) {
-          const new_page_id = self.get_new_page_id();
-          self.page.set_next_id(new_page_id);
-          try self.flush_page();
+        utils.swap(Leaf, content, buffer);
+        const remaining_capacity = capacity - tail_length;
+        std.mem.copy(Leaf, content[tail_length..capacity], buffer[0..remaining_capacity]);
+        const new_tail_length = page.count - remaining_capacity;
+        std.mem.copy(Leaf, buffer[0..new_tail_length], buffer[remaining_capacity..page.count]);
+        page.count = capacity;
 
-          for (content[target_index+1..constants.PAGE_LEAF_CAPACITY]) |leaf| {
-            digest.update(&leaf.value);
-          }
-
-          try self.create_page(new_page_id, 0, 1, 0);
-          content = self.page.leaf_content();
-          content[0] = buffer[0];
-          try self.flush_page();
-
-          digest.update(&content[0].value);
-        } else {
-          try self.flush_page();
-          while (next_id != 0) {
-            try self.open_page(next_id);
-            content = self.page.leaf_content();
-            next_id = self.page.get_next_id();
-
-            if (self.page.count < constants.PAGE_LEAF_CAPACITY) {
-              assert(next_id == 0);
-              std.mem.copyBackwards(Leaf, content[1..self.page.count+1], content[0..self.page.count]);
-              content[0] = buffer[0];
-              self.page.count += 1;
-              try self.flush_page();
-
-              for (content[0..self.page.count]) |leaf| {
-                digest.update(&leaf.value);
-              }
-            } else if (next_id == 0) {
-              buffer[1] = content[constants.PAGE_LEAF_CAPACITY-1];
-              std.mem.copyBackwards(Leaf, content[1..constants.PAGE_LEAF_CAPACITY], content[0..constants.PAGE_LEAF_CAPACITY-1]);
-              content[0] = buffer[0];
-              
-              const new_page_id = self.get_new_page_id();
-              self.page.set_next_id(new_page_id);
-              try self.flush_page();
-
-              for (content) |leaf| {
-                digest.update(&leaf.value);
-              }
-
-              try self.create_page(new_page_id, 0, 1, 0);
-              content = self.page.leaf_content();
-              content[0] = buffer[1];
-              try self.flush_page();
-
-              digest.update(&content[0].value);
-            } else {
-              buffer[1] = content[constants.PAGE_LEAF_CAPACITY-1];
-              std.mem.copyBackwards(Leaf, content[1..constants.PAGE_LEAF_CAPACITY], content[0..constants.PAGE_LEAF_CAPACITY-1]);
-              content[0] = buffer[0];
-              try self.flush_page();
-
-              for (content) |leaf| {
-                digest.update(&leaf.value);
-              }
-
-              buffer[0] = buffer[1];
-            }
-          }
+        const tail_id = self.get_new_page_id();
+        page.set_next_id(tail_id);
+        
+        for (content[0..page.count]) |leaf| {
+          digest.update(&leaf.value);
         }
-
+        
+        try self.shift_leaf_list(tail_id, new_tail_length, new_next_id, digest);
       }
-
-      digest.final(&self.splice_buffer[0].hash);
-
-      return self.splice_buffer[0..1];
     }
   }
 
-  fn split_leaf_page(self: *Tree, target_index: u8, target: *const Leaf, digest: *Sha256) !u32 {
-    assert(self.page.height == 0);
+  fn insert_leaf(self: *Tree, nodes: *NodeList, target: *const Leaf) Error!void {
+    assert(nodes.items.len == 1);
+    const node = nodes.pop();
+
+    var digest = Sha256.init(.{});
+
+    const first_id = self.get_new_page_id();
+    var page = try self.copy_page(first_id, node.get_page_id());
+    var target_index = page.leaf_scan(target, &digest);
+    while (target_index == page.count) {
+      const old_next_id = page.get_next_id();
+      const new_next_id = self.get_new_page_id();
+      page.set_next_id(new_next_id);
+      page = try self.copy_page(new_next_id, old_next_id);
+      target_index = page.leaf_scan(target, &digest);
+    }
+
+    digest.update(&target.value);
 
     const buffer = self.leaf_buffer();
-    var content = self.page.leaf_content();
+    const content = page.leaf_content();
+    const next_id = page.get_next_id();
+    const capacity = constants.PAGE_LEAF_CAPACITY;
 
-    // save any page data we'll need later
-    var next_id = self.page.get_next_id();
-    var count = self.page.count;
+    if (self.is_split(target)) {
+      var tail_length = page.count - target_index;
+      page.count = target_index + 1;
+      std.mem.copy(Leaf, buffer[0..tail_length], content[target_index..page.count]);
+      content[target_index] = target.*;
 
-    // 1. copy remainder of current page into start of buffer and start tracking a new hash
-    var tail_length = count - target_index;
-    for (content[target_index..count]) |leaf, i| {
-      buffer[i] = leaf;
-      digest.update(leaf.value[0..32]);
-    }
+      page.set_next_id(0);
 
-    // 2. write the new leaf and update the page count.
-    content[target_index].timestamp_bytes = target.timestamp_bytes;
-    content[target_index].value = target.value;
-    self.page.count = target_index + 1;
-    self.page.set_next_id(0);
+      var first_node = target.derive_node(first_id);
+      digest.final(&first_node.hash);
 
-    // 3. flush the current page
-    try self.flush_page();
-    
-    // 5a. there are no more pages in the list; we must create a new one.
-    // this could *probably* be merged with the while loop in 5b but it felt
-    // easier to write them separately here.
-    if (next_id == 0) {
-      const new_page_id = self.get_new_page_id();
-      try self.create_page(new_page_id, 0, tail_length, 0);
-      content = self.page.leaf_content();
+      digest = Sha256.init(.{});
+      const second_id = self.get_new_page_id();
+      try self.shift_leaf_list(second_id, tail_length, next_id, &digest);
+      
+      var second_node = node.derive_node(second_id);
+      digest.final(&second_node.hash);
 
-      for (buffer[0..tail_length]) |leaf, i| {
-        content[i].timestamp_bytes = leaf.timestamp_bytes;
-        content[i].value = leaf.value;
-        digest.update(leaf.value[0..32]);
-      }
+      try nodes.append(first_node);
+      try nodes.append(second_node);
+    } else {
+      if (page.count == capacity) {
+        buffer[0] = content[capacity-1];
+        std.mem.copyBackwards(Leaf, content[target_index+1..capacity], content[target_index..capacity-1]);
+        content[target_index] = target.*;
+        
+        const tail_id = self.get_new_page_id();
+        page.set_next_id(tail_id);
 
-      try self.flush_page();
+        for (content[target_index+1..capacity]) |leaf| {
+          digest.update(&leaf.value);
+        }
 
-      return new_page_id;
-    }
-
-    
-    // 5b. if there are more pages in the list, we have to shift their content backwards,
-    // possibly writing a new page at the end.
-
-    const split_page_id = next_id;
-
-    // at this point, the buffer holds tail_length leaves from the previous page.
-    while (next_id != 0) {
-      try self.open_page(next_id);
-      count = self.page.count;
-      next_id = self.page.get_next_id();
-
-      // swap content and buffer values; update the new digest
-      for (content[0..count]) |leaf, i| {
-        digest.update(&leaf.value);
-        content[i] = buffer[i];
-        buffer[i] = leaf;
-      }
-
-      // now the page content starts with the tail_length leaves from the previous page.
-      // we want to write the head of the buffer back to the tail of the page.
-      const remaining_capacity = constants.PAGE_LEAF_CAPACITY - tail_length;
-      if (count <= remaining_capacity) {
-        assert(next_id == 0);
-        std.mem.copy(Leaf, content[tail_length..tail_length+count], buffer[0..count]);
-        self.page.count = tail_length + count;
-        try self.flush_page();
+        try self.shift_leaf_list(tail_id, 1, next_id, &digest);
       } else {
-        std.mem.copy(Leaf, content[tail_length..constants.PAGE_LEAF_CAPACITY], buffer[0..remaining_capacity]);
-        self.page.count = constants.PAGE_LEAF_CAPACITY;
-        tail_length = count - remaining_capacity;
-        std.mem.copy(Leaf, buffer[0..tail_length], buffer[remaining_capacity..count]);
+        assert(next_id == 0);
+        std.mem.copyBackwards(Leaf, content[target_index+1..page.count+1], content[target_index..page.count]);
+        content[target_index] = target.*;
+        page.count += 1;
 
-        if ((next_id == 0) and (tail_length > 0)) {
-          const new_page_id = self.get_new_page_id();
-
-          self.page.set_next_id(new_page_id);
-          try self.flush_page();
-
-          try self.create_page(new_page_id, 0, tail_length, 0);
-          content = self.page.leaf_content();
-          std.mem.copy(Leaf, content[0..tail_length], buffer[0..tail_length]);
-          try self.flush_page();
-        } else {
-          try self.flush_page();
+        for (content[target_index+1..page.count]) |leaf| {
+          digest.update(&leaf.value);
         }
       }
+
+      var first_node = node.derive_node(first_id);
+      digest.final(&first_node.hash);
+      try nodes.append(first_node);
     }
-
-    return split_page_id;
   }
-
-  // fn insert_node(self: *Tree, page_id: u64, leaf: *const Leaf) ![]Node {
-  //   var digest = Sha256.init(.{});
-
-  //   const target_page_id = self.scan_page_list(page_id, leaf, digest);
-  //   var target_page = self.page();
-
-  //   const height = target_page.height;
-  //   const capacity = target_page.capacity();
-
-  //   // Alright - at this point, we've scanned forward through the linked
-  //   // list of pages and found the one that we're going to insert into.
-  //   // Now we have to find the right index within the page.
-  //   const index = target_page.find_insert_index(leaf);
-
-  //   if (height > 0) {
-  //     const node = target_page.node_content()[index];
-  //     const splice = try self.insert_node(node.page_id, leaf, &node.hash);
-  //     // const  = @ptrCast(*[PAGE_NODE_CAPACITY]Node, self.content_buffer)[0..spliced_count];
-
-  //     target_page = try self.open_page(target_page_id);
-  //   }
-  // }
-
-  // fn node_splice(self: *Tree, page_id: u64, index: u8, values: []Node) !void {
-  //   const page = self.page();
-  //   assert(page.height > 0);
-
-  //   const content = @bitCast([PAGE_NODE_CAPACITY]Node, page.content);
-  //   const buffer = self.node_buffer();
-  //   const buffer_length = splice(Node, content, page.count, index, values, buffer);
-  // }
-
-  // fn leaf_splice(self: *Tree, page_id: u64, index: u8, values: []Leaf) !void {
-  //   const page = self.page();
-  //   assert(page.height == 0);
-
-  //   const content = @bitCast([PAGE_LEAF_CAPACITY]Leaf, page.content);
-  //   const buffer = self.leaf_buffer();
-  //   const buffer_length = splice(Leaf, content, page.count, index, values, buffer);
-  // }
 
   fn node_buffer(self: *Tree) *[constants.PAGE_NODE_CAPACITY]Node {
     return @ptrCast(*[constants.PAGE_NODE_CAPACITY]Node, self.content_buffer);
@@ -497,18 +284,8 @@ pub const Tree = struct {
   }
 
   pub fn print_pages(self: *Tree) !void {
-
-    if (self.file_store) |file_store| {
-      const stat = try file_store.file.stat();
-      assert(stat.size % constants.PAGE_SIZE == 0);
-      assert(stat.size >= constants.PAGE_SIZE * 2);
-
-      std.log.info("----------------------------------", .{});
-      std.log.info("{d} bytes", .{ stat.size });
-    }
-    
     std.log.info("HEADER ---------------------------", .{});
-    std.log.info("  magic: 0x{X}{X}{X}{X}", .{ self.header.magic[0], self.header.magic[1], self.header.magic[2], self.header.magic[3] });
+    std.log.info("  magic: 0x{s}", .{ utils.print_hash(&self.header.magic) });
     std.log.info("  major_version: {d}", .{ self.header.major_version });
     std.log.info("  minor_version: {d}", .{ self.header.minor_version });
     std.log.info("  patch_version: {d}", .{ self.header.patch_version });
@@ -520,8 +297,6 @@ pub const Tree = struct {
     std.log.info("  leaf_count: {d}", .{ self.header.get_leaf_count() });
     std.log.info("  tombstone_count: {d}", .{ self.header.get_tombstone_count() });
 
-    
-
     const tombstone_count = self.header.get_tombstone_count();
     var tombstone_index: u32 = 0;
     while (tombstone_index < tombstone_count) : (tombstone_index += 1) {
@@ -531,38 +306,102 @@ pub const Tree = struct {
 
     std.log.info("END OF HEADER --------------------", .{});
     
-    var page_id: u32 = 1;
-    while (page_id <= self.header.get_page_count()) : (page_id += 1) {
-      try self.open_page(page_id);
-      if (self.page.get_meta() == constants.TOMBSTONE) {
-        std.log.info("PAGE {d} (deleted)", .{ page_id });
+    var id: u32 = 1;
+    while (id <= self.header.get_page_count()) : (id += 1) {
+      const page = try self.get(id);
+      if (page.get_meta() == constants.TOMBSTONE) {
+        std.log.info("PAGE {d} (deleted)", .{ id });
         continue;
       }
 
-      const count = self.page.count;
-      std.log.info("PAGE {d} | level {d} | {d} cells", .{ page_id, self.page.height, count });
-      if (self.page.height == 0) {
+      const count = page.count;
+      std.log.info("PAGE {d} | level {d} | {d} cells", .{ id, page.level, count });
+      if (page.level == 0) {
         assert(count <= constants.PAGE_LEAF_CAPACITY);
-        for (self.page.leafs()) |leaf| {
+        for (page.leafs()) |leaf| {
           const value = try utils.print_hash(&leaf.value);
           std.log.info("  0x{s} @ {d}", .{ value, leaf.get_timestamp() });
         }
       } else {
         assert(count <= constants.PAGE_NODE_CAPACITY);
-        for (self.page.nodes()) |node| {
+        for (page.nodes()) |node| {
           const hash = try utils.print_hash(&node.hash);
           const value = try utils.print_hash(&node.leaf_value_prefix);
           std.log.info("  0x{s} -> {d} ({d}:{s}...)", .{ hash, node.get_page_id(), node.get_leaf_timestamp(), value });
         }
       }
 
-      const next_id = self.page.get_next_id();
+      const next_id = page.get_next_id();
       if (next_id > 0) {
         std.log.info("CONTINUED IN PAGE {d}", .{ next_id });
       }
 
-      std.log.info("END OF PAGE {d}", .{ page_id });
+      std.log.info("END OF PAGE {d}", .{ id });
     }
   }
 };
 
+test "insert leaves into a single page" {
+  const a = try Leaf.parse("01:ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb");
+  const b = try Leaf.parse("02:3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d");
+  const c = try Leaf.parse("03:2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6");
+
+  const z = try Leaf.parse("18446744073709551615:00");
+
+  var tree = try Tree.open(null);
+
+  try tree.insert(&b);
+  try tree.insert(&a);
+  try tree.insert(&c);
+
+  // try expect(tree.header.get_page_count() == 1);
+  try expect(tree.header.get_leaf_count() == 4);
+
+  const root = try tree.get(tree.header.get_root_id());
+  try expect(root.eql(&Page.create(Leaf, 0, &[_]Leaf{a, b, c, z}, 0)));
+
+  tree.close();
+}
+
+test "insert leaves into a list of pages" {
+  var tree = try Tree.open(null);
+
+  const a = try Leaf.parse("01:ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb");
+  const b = try Leaf.parse("02:3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d");
+  const c = try Leaf.parse("03:2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6");
+  const d = try Leaf.parse("04:18ac3e7343f016890c510e93f935261169d9e3f565436429830faf0934f4f8e4");
+  const e = try Leaf.parse("05:3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea");
+  const f = try Leaf.parse("06:252f10c83610ebca1a059c0bae8255eba2f95be4d1d7bcfa89d7248a82d9f111");
+  const g = try Leaf.parse("07:cd0aa9856147b6c5b4ff2b7dfee5da20aa38253099ef1b4a64aced233c9afe29");
+  const h = try Leaf.parse("08:aaa9402664f1a41f40ebbc52c9993eb66aeb366602958fdfaa283b71e64db123");
+  const i = try Leaf.parse("09:de7d1b721a1e0632b7cf04edf5032c8ecffa9f9a08492152b926f1a5a7e765d7");
+  const j = try Leaf.parse("10:189f40034be7a199f1fa9891668ee3ab6049f82d38c68be70f596eab2e1857b7");
+  const k = try Leaf.parse("11:8254c329a92850f6d539dd376f4816ee2764517da5e0235514af433164480d7a");
+  const l = try Leaf.parse("12:acac86c0e609ca906f632b0e2dacccb2b77d22b0621f20ebece1a4835b93f6f0");
+  const m = try Leaf.parse("13:62c66a7a5dd70c3146618063c344e531e6d4b59e379808443ce962b3abd63c5a");
+
+  const z = try Leaf.parse("18446744073709551615:00");
+
+  try tree.insert(&e);
+  try tree.insert(&c);
+  try tree.insert(&m);
+  try tree.insert(&g);
+  try tree.insert(&b);
+  try tree.insert(&f);
+  try tree.insert(&k);
+  try tree.insert(&d);
+  try tree.insert(&h);
+  try tree.insert(&a);
+  try tree.insert(&j);
+  try tree.insert(&l);
+  try tree.insert(&i);
+  
+  // try expect(tree.header.get_page_count() == 3);
+  try expect(tree.header.get_leaf_count() == 14);
+
+  const content =  &[_]Leaf{ a, b, c, d, e, f, g, h, i, j, k, l, m, z };
+  const root = try tree.get(tree.header.get_root_id());
+  try expect(root.eql(&Page.create(Leaf, 0, content, 0)));
+
+  tree.close();
+}
