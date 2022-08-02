@@ -27,6 +27,7 @@ pub const Tree = struct {
   store: Store,
   header: *Header,
   content_buffer: *[constants.PAGE_CONTENT_SIZE]u8,
+  splice: NodeList,
 
   pub fn open(path: ?[]const u8) Error!Tree {
     var store = try Store.open(allocator, path);
@@ -59,11 +60,13 @@ pub const Tree = struct {
       .store = store,
       .header = header,
       .content_buffer = content_buffer,
+      .splice = NodeList.init(allocator),
     };
   }
 
   pub fn close(self: *Tree) void {
     self.store.close();
+    self.splice.deinit();
     allocator.destroy(self.content_buffer);
   }
 
@@ -87,38 +90,6 @@ pub const Tree = struct {
 
   fn is_split(self: *const Tree, leaf: *const Leaf) bool {
     return leaf.value[0] < self.header.fanout_threshhold;
-  }
-
-  pub fn insert(self: *Tree, leaf: *const Leaf) Error!void {
-    const leaf_count = self.header.get_leaf_count();
-    const height = self.header.get_height();
-
-    var dst = NodeList.init(allocator);
-    try dst.append(Node {
-      .page_id_bytes = self.header.root_id_bytes,
-      .hash = self.header.root_hash,
-      .leaf_timestamp_bytes = TERMINAL_LEAF.timestamp_bytes,
-      .leaf_value_prefix = [_]u8{ 0, 0, 0, 0 },
-    });
-
-    if (height > 1) {
-      @panic("not implemented");
-    } else {
-      try self.insert_leaf(&dst, leaf);
-      if (dst.items.len == 1) {
-        const node = dst.pop();
-        self.header.root_id_bytes = node.page_id_bytes;
-        self.header.root_hash = node.hash;
-      } else if (dst.items.len == 2) {
-        // const second_node = dst.pop();
-        // const first_node = dst.pop();
-
-        @panic("not implemented");
-      }
-    }
-
-    self.header.set_leaf_count(leaf_count + 1);
-    dst.deinit();
   }
 
   fn create_page(self: *Tree, id: u32, level: u8, count: u8, next_id: u32) Store.Error!*Page {
@@ -214,14 +185,42 @@ pub const Tree = struct {
     }
   }
 
-  fn insert_leaf(self: *Tree, nodes: *NodeList, target: *const Leaf) Error!void {
-    assert(nodes.items.len == 1);
-    const node = nodes.pop();
+  pub fn insert(self: *Tree, leaf: *const Leaf) Error!void {
+    const leaf_count = self.header.get_leaf_count();
+    const height = self.header.get_height();
+
+    const root = Node {
+      .page_id_bytes = self.header.root_id_bytes,
+      .hash = self.header.root_hash,
+      .leaf_timestamp_bytes = TERMINAL_LEAF.timestamp_bytes,
+      .leaf_value_prefix = [_]u8{ 0, 0, 0, 0 },
+    };
+
+    if (height > 1) {
+      @panic("not implemented");
+    } else {
+      try self.insert_leaf(root, leaf);
+      if (self.splice.items.len == 1) {
+        const node = self.splice.pop();
+        self.header.root_id_bytes = node.page_id_bytes;
+        self.header.root_hash = node.hash;
+      } else if (self.splice.items.len == 2) {
+        @panic("not implemented");
+      } else {
+        @panic("internal error: unexpected splice state after leaf insert");
+      }
+    }
+
+    self.header.set_leaf_count(leaf_count + 1);
+  }
+
+  fn insert_leaf(self: *Tree, parent_node: Node, target: *const Leaf) Error!void {
+    assert(self.splice.items.len == 0);
 
     var digest = Sha256.init(.{});
 
     const first_id = self.get_new_page_id();
-    var page = try self.copy_page(first_id, node.get_page_id());
+    var page = try self.copy_page(first_id, parent_node.get_page_id());
     var target_index = page.leaf_scan(target, &digest);
     while (target_index == page.count) {
       const old_next_id = page.get_next_id();
@@ -253,11 +252,11 @@ pub const Tree = struct {
       const second_id = self.get_new_page_id();
       try self.shift_list(Leaf, 0, second_id, tail_length, next_id, &digest);
       
-      var second_node = node.derive_node(second_id);
+      var second_node = parent_node.derive_node(second_id);
       digest.final(&second_node.hash);
 
-      try nodes.append(first_node);
-      try nodes.append(second_node);
+      try self.splice.append(first_node);
+      try self.splice.append(second_node);
     } else {
       if (page.count == capacity) {
         buffer[0] = content[capacity-1];
@@ -283,9 +282,120 @@ pub const Tree = struct {
         }
       }
 
-      var first_node = node.derive_node(first_id);
+      var first_node = parent_node.derive_node(first_id);
       digest.final(&first_node.hash);
-      try nodes.append(first_node);
+      try self.splice.append(first_node);
+    }
+  }
+
+  fn insert_node(self: *Tree, parent_node: Node, target: *const Leaf) Error!?u32 {
+    assert(self.splice.items.len == 0);
+
+    var digest = Sha256.init(.{});
+
+    // const first_id = self.get_new_page_id();
+    var page = self.copy_page(parent_node.get_page_id());
+    var target_index = page.node_scan(target, &digest);
+    while (target_index == page.count) {
+      const old_next_id = page.get_next_id();
+      const new_next_id = self.get_new_page_id();
+      page.set_next_id(new_next_id);
+      page = try self.copy_page(new_next_id, old_next_id);
+      target_index = page.node_scan(target, &digest);
+    }
+
+    const content = page.node_content();
+    const target_node = content[target_index];
+
+    // alright - now we're left with a nodes list that has one or more
+    // (ie aritrarily more) nodes to replace target_node with.
+    // *Any* of the nodes in the node slice might be a split.
+    // Additionally, if the target_node is itself a split, and none of the
+    // splice nodes are splits, then we have to merge parent_node with its
+    // next sibling at the level above. How and where should we do this?
+    // 
+    //                |-----------------|
+    // 2              | |p| |q|         |
+    //                |-----------------|
+    //                 /       \
+    //   |-----------------|  |-----------------|
+    // 1 | |a| |b| |c|     |  | |x| |y|         |
+    //   |-----------------|  |-----------------|
+    // 
+    // The situation would be parent_node = p and target_node = c,
+    // and the splice returns a modified c' that isn't a split any more.
+    // This means that p and q need to be merged into a single node terminated by y,
+    // and their page lists have to be concatenated.
+
+    // This isn't necessary on the leaf level because there, hashes *are* terminal
+    // values (they're equivalent). You can tell up-front that the insert target will
+    // fit inside a given leaf page, and ALSO that it won't change the split status of
+    // the current page-ending leaf (since it's a leaf and leafs are immutable).
+    // However at the node level, we might end up inserting INTO the current page-ending node,
+    // changing its hash and split status, etc.
+
+    // It would be nice to keep all the logic separated by levels, but this would be hard since
+    // if we're here with parent_node = p, then we don't have access to q or its contents at all.
+    // Instead I think we have to handle this in the calling function:
+    // We return p's page ID, signaling that we have to merge with the node to the right.
+    // Then in the caller (where target_node = p), we advance one step to q,
+    // call a subroutine to concat the page lists, returning a new head id that replaces
+    // both p and q (with q's terminal leaf data).
+    // Of course this new node might or might not be a split itself.
+
+    // What if q doesn't exist? This happens in the case where p is a split to begin with.
+    // 
+    //                |-----------------|
+    // 3              | |u| |v|         |
+    //                |-----------------|
+    //                 /       \
+    //   |-----------------|  |-----------------|
+    // 2 | |p|             |  | |j| |k|         |
+    //   |-----------------|  |-----------------|
+    //      |                    |
+    //   |-----------------|  |-----------------|
+    // 1 | |a| |b| |c|     |  | |x| |y|         |
+    //   |-----------------|  |-----------------|
+    //
+    // So here, if c -> c' and c' is no longer a split, we have to somehow locate x and y
+    // and "steal" them in order to update p. We locate x and y by locating j.
+
+    // We do this by passing the parent's successor at the parent layer *even if it's
+    // across several node splits*. So when we insert into u, we pass v as an argument.
+    // Then when we insert into p, we look for the next sibling and realize that it doesn't exist
+    // (since p is a split), so we descend *from v* (the parent's sibling that we're given) to get j,
+    // and pass that. Then inside level 1, when we realize that c -> c' and c' is not a split,
+    // and we want to merge with the next node, we descend from j to get x and y etc.
+
+    // So then how do we build back up once we've eliminated j by merging on L1?
+    // 
+    
+    
+    // This could mean going arbitrarily far up the tree, so maybe
+    // it's best to try to store sibling links inside each page? How hard would that be?
+    // We could do it by setting the second meta byte to be "this is the end of the list"
+    // and using the next_id to point to the head of the next conceptual node at that level.
+    // But this won't work: immutability/copy-on-write completely rules out horizontal linking
+    // since every single node on a given level would have to be updated.
+    // So we have no choice but to do tree traversal (probably a little simpler anyway).
+
+    // 
+
+    // It's important to have abstractions to treat page lists like atomic nodes.
+    // Can't be messing around with list logic when trying to do splits and merges.
+
+    // insert the target leaf into the target node
+    if (page.level > 1) {
+      // const split = try self.insert_node(target_node, target);
+      // if (split) |id| {
+      //   // this means we have to merge the target_node with its right sibling.
+      //   // if no right sibling exists (ie target_node is the last node in the page)
+      //   // then we pass the id back up to *our* caller, etc.
+      // } else {
+      //
+      // }
+    } else {
+      try self.insert_leaf(target_node, target);
     }
   }
 

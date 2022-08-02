@@ -1,7 +1,8 @@
 const std = @import("std");
 
-const Sha256 = std.crypto.hash.sha2.Sha256;
 const expect = std.testing.expect;
+const assert = std.debug.assert;
+const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const constants = @import("./constants.zig");
 
@@ -74,6 +75,8 @@ pub const Page = packed struct {
   }
 
   pub fn leaf_scan(self: *Page, target: *const Leaf, digest: *Sha256) u8 {
+    assert(self.level == 0);
+
     const a = target.get_timestamp();
     for (self.leaf_content()) |leaf, i| {
       const b = leaf.get_timestamp();
@@ -84,26 +87,32 @@ pub const Page = packed struct {
       }
     }
 
+    // TODO: replace self.count with capacity or something
+    assert(self.get_next_id() != 0);
+    return self.count;
+  }
+
+  fn node_scan(self: *const Page, target: *const Leaf, digest: *Sha256) u8 {
+    assert(self.level > 0);
+
+    const a = target.get_timestamp();
+    const v = target.value[0..4];
+    for (self.node_content()) |node, i| {
+      const b = node.get_leaf_timestamp();
+      if ((a < b) or ((a == b) and std.mem.lessThan(u8, v, &node.leaf_value_prefix))) {
+        return @intCast(u8, i);
+      } else {
+        digest.update(&node.hash);
+      }
+    }
+
+    assert(self.get_next_id() != 0);
     return self.count;
   }
 
   pub fn eql(a: *const Page, b: *const Page) bool {
     return ((a.get_meta() == b.get_meta()) and a.level == b.level and a.count == b.count and a.get_next_id() == b.get_next_id()); 
   }
-
-  // fn node_scan(self: *const Page, target: *const Leaf, digest: *Sha256) u8 {
-  // fn node_scan(self: *const Page, a: u64, a_value: []const u8, digest: *Sha256) u8 {
-  //   for (self.node_content()) |node, i| {
-  //     const b = node.get_leaf_timestamp();
-  //     if ((a < b) or ((a == b) and std.mem.lessThan(u8, a_value[0..4], node.get_leaf_value_prefix()))) {
-  //       return @intCast(u8, i);
-  //     } else {
-  //       digest.update(node.hash[0..32]);
-  //     }
-  //   }
-
-  //   return self.count;
-  // }
 };
 
 test "validate page sizes" {
