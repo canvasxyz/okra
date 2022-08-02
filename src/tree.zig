@@ -106,14 +106,18 @@ pub const Tree = struct {
     } else {
       try self.insert_leaf(&dst, leaf);
       if (dst.items.len == 1) {
-        self.header.set_leaf_count(leaf_count + 1);
-        self.header.root_id_bytes = dst.items[0].page_id_bytes;
-        self.header.root_hash = dst.items[0].hash;
-      } else {
+        const node = dst.pop();
+        self.header.root_id_bytes = node.page_id_bytes;
+        self.header.root_hash = node.hash;
+      } else if (dst.items.len == 2) {
+        // const second_node = dst.pop();
+        // const first_node = dst.pop();
+
         @panic("not implemented");
       }
     }
 
+    self.header.set_leaf_count(leaf_count + 1);
     dst.deinit();
   }
 
@@ -134,6 +138,7 @@ pub const Tree = struct {
 
     const old_page = try self.get(old_id);
     const new_page = try self.get(new_id);
+    old_page.set_meta(constants.TOMBSTONE);
     new_page.set_meta(0x0000);
     new_page.level = old_page.level;
     new_page.count = old_page.count;
@@ -155,24 +160,33 @@ pub const Tree = struct {
 
   // found it easier to write this recursively than with loops since
   // there are essentially two separate base cases.
-  fn shift_leaf_list(self: *Tree, head_id: u32, tail_length: u8, next_id: u32, digest: *Sha256) Store.Error!void {
-    const capacity = constants.PAGE_LEAF_CAPACITY;
-    const buffer = self.leaf_buffer();
+  fn shift_list(
+    self: *Tree,
+    comptime T: type,
+    level: u8,
+    head_id: u32,
+    tail_length: u8,
+    next_id: u32,
+    digest: *Sha256,
+  ) Store.Error!void {
+    const capacity = @divExact(constants.PAGE_CONTENT_SIZE, @sizeOf(T));
+    const buffer = @ptrCast(*[capacity]T, self.content_buffer);
+
     if (next_id == 0) {
-      const page = try self.create_page(head_id, 0, tail_length, 0);
-      const content = page.leaf_content();
+      const page = try self.create_page(head_id, level, tail_length, 0);
+      const content = @ptrCast(*[capacity]T, &page.content);
       std.mem.copy(Leaf, content, buffer[0..tail_length]);
-      
+
       for (content[0..page.count]) |leaf| {
         digest.update(&leaf.value);
       }
     } else {
       const page = try self.copy_page(head_id, next_id);
-      const content = page.leaf_content();
+      const content = @ptrCast(*[capacity]T, &page.content);
       if (page.count + tail_length <= capacity) {
         assert(page.get_next_id() == 0);
-        std.mem.copyBackwards(Leaf, content[tail_length..tail_length+page.count], content[0..page.count]);
-        std.mem.copy(Leaf, content[0..tail_length], buffer[0..tail_length]);
+        std.mem.copyBackwards(T, content[tail_length..tail_length+page.count], content[0..page.count]);
+        std.mem.copy(T, content[0..tail_length], buffer[0..tail_length]);
         page.count += tail_length;
 
         for (content[0..page.count]) |leaf| {
@@ -181,11 +195,11 @@ pub const Tree = struct {
       } else {
         const new_next_id = page.get_next_id();
 
-        utils.swap(Leaf, content, buffer);
+        utils.swap(T, content, buffer);
         const remaining_capacity = capacity - tail_length;
-        std.mem.copy(Leaf, content[tail_length..capacity], buffer[0..remaining_capacity]);
+        std.mem.copy(T, content[tail_length..capacity], buffer[0..remaining_capacity]);
         const new_tail_length = page.count - remaining_capacity;
-        std.mem.copy(Leaf, buffer[0..new_tail_length], buffer[remaining_capacity..page.count]);
+        std.mem.copy(T, buffer[0..new_tail_length], buffer[remaining_capacity..page.count]);
         page.count = capacity;
 
         const tail_id = self.get_new_page_id();
@@ -195,7 +209,7 @@ pub const Tree = struct {
           digest.update(&leaf.value);
         }
         
-        try self.shift_leaf_list(tail_id, new_tail_length, new_next_id, digest);
+        try self.shift_list(T, level, tail_id, new_tail_length, new_next_id, digest);
       }
     }
   }
@@ -237,7 +251,7 @@ pub const Tree = struct {
 
       digest = Sha256.init(.{});
       const second_id = self.get_new_page_id();
-      try self.shift_leaf_list(second_id, tail_length, next_id, &digest);
+      try self.shift_list(Leaf, 0, second_id, tail_length, next_id, &digest);
       
       var second_node = node.derive_node(second_id);
       digest.final(&second_node.hash);
@@ -257,7 +271,7 @@ pub const Tree = struct {
           digest.update(&leaf.value);
         }
 
-        try self.shift_leaf_list(tail_id, 1, next_id, &digest);
+        try self.shift_list(Leaf, 0, tail_id, 1, next_id, &digest);
       } else {
         assert(next_id == 0);
         std.mem.copyBackwards(Leaf, content[target_index+1..page.count+1], content[target_index..page.count]);
