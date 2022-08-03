@@ -3,14 +3,14 @@ const expect = std.testing.expect;
 const assert = std.debug.assert;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 
-const constants = @import("./constants.zig");
-const utils = @import("./utils.zig");
-
 const Store = @import("./store.zig").Store;
 const Header = @import("./header.zig").Header;
 const Page = @import("./page.zig").Page;
 const Node = @import("./node.zig").Node;
 const Leaf = @import("./leaf.zig").Leaf;
+
+const constants = @import("./constants.zig");
+const utils = @import("./utils.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -197,6 +197,7 @@ pub const Tree = struct {
     };
 
     if (height > 1) {
+      try self.insert_node(root, leaf, 0);
       @panic("not implemented");
     } else {
       try self.insert_leaf(root, leaf);
@@ -288,13 +289,13 @@ pub const Tree = struct {
     }
   }
 
-  fn insert_node(self: *Tree, parent_node: Node, target: *const Leaf) Error!?u32 {
+  fn insert_node(self: *Tree, parent_node: Node, target: *const Leaf, uncle_id: u32) Error!?u32 {
     assert(self.splice.items.len == 0);
 
     var digest = Sha256.init(.{});
 
-    // const first_id = self.get_new_page_id();
-    var page = self.copy_page(parent_node.get_page_id());
+    const first_id = self.get_new_page_id();
+    var page = self.copy_page(first_id, parent_node.get_page_id());
     var target_index = page.node_scan(target, &digest);
     while (target_index == page.count) {
       const old_next_id = page.get_next_id();
@@ -307,10 +308,40 @@ pub const Tree = struct {
     const content = page.node_content();
     const target_node = content[target_index];
 
-    // alright - now we're left with a nodes list that has one or more
+    const is_target_split = self.is_split(target_node);
+    if (is_target_split) {
+      assert(target_index == page.count - 1);
+      assert(page.get_next_id() == 0);
+      assert(parent_node.get_leaf_timestamp() == target_node.get_leaf_timestamp());
+      assert(std.mem.eql(u8, parent_node.get_leaf_value_prefix(), target_node.get_leaf_value_prefix()));
+    }
+
+    var next_id = page.get_next_id();
+
+    if (page.level > 1) {
+      var sibling: u32 = 0;
+      if (target_index < page.count - 1) {
+        sibling = content[page.count-1].get_page_id();
+      } else if (next_id != 0) {
+        const next_page = self.get(next_id);
+        const next_content = next_page.node_content();
+        sibling = next_content[0].get_page_id();
+      } else if (uncle_id != 0) {
+        const uncle_page = self.get(uncle_id);
+        const uncle_content = uncle_page.node_content();
+        sibling = uncle_content[0].get_page_id();
+      }
+
+      const split = try self.insert_node(target_node, target, sibling);
+    } else {
+      try self.insert_leaf(target_node, target);
+    }
+
+    // alright - now we're left with a splice list that has one or more
     // (ie aritrarily more) nodes to replace target_node with.
     // *Any* of the nodes in the node slice might be a split.
-    // Additionally, if the target_node is itself a split, and none of the
+  
+    // If the target_node is itself a split, and none of the
     // splice nodes are splits, then we have to merge parent_node with its
     // next sibling at the level above. How and where should we do this?
     // 
@@ -396,6 +427,51 @@ pub const Tree = struct {
       // }
     } else {
       try self.insert_leaf(target_node, target);
+      // Cool! We have either one or two nodes in the splice buffer,
+      // either of which could be splits. Should we just do exhaustive case analysis?
+      if (self.splice.items.len == 1) {
+        const node = self.splice.pop();
+        if (self.is_split(node)) {
+          digest.update(&node.hash);
+          const first_node = node.derive_node(first_id);
+          digest.final(&first_node.hash);
+          self.splice.push(first_node);
+
+          // there's only another node if target_node wasn't the last node in parent_node!
+          if (is_target_split) {
+            return;
+          } else {
+            // there are more nodes between target_node and parent_node's terminal leaf
+            const second_id = self.get_new_page_id();
+            const second_node = parent_node.derive_node(second_id);
+            var next_id = page.get_next_id();
+            if (target_index == PAGE_NODE_CAPACITY - 1) {
+              assert(next_id != 0);
+              page = self.get(next_id);
+
+            }
+            self.splice.push(second_node);
+          }
+        } else {
+
+        }
+      } else if (self.splice.items.len == 2) {
+        const second_node = self.splice.pop();
+        const first_node = self.splice.pop();
+        const first_split = self.is_split(first_node);
+        const second_split = self.is_split(second_node);
+        if (first_split and second_split) {
+
+        } else if (first_split and !second_split) {
+
+        } else if (!first_split and second_split) {
+          
+        } else if (!first_split and !second_split) {
+
+        }
+      } else {
+        @panic("internal error: unexpected splice state after leaf insert");
+      }
     }
   }
 
