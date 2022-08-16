@@ -1,0 +1,7 @@
+[submodule "libs/zig-cli"]
+	path = libs/zig-cli
+	url = https://github.com/sam701/zig-cli.git
+[submodule "libs/openldap"]
+	path = libs/openldap
+	url = https://git.openldap.org/openldap/openldap.git
+	branch = mdb.master

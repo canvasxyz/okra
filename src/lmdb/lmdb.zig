@@ -1,0 +1,1 @@
+pub const lmdb = @cImport(@cInclude("lmdb.h"));
