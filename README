@@ -19,10 +19,10 @@ okra guarantees three significant properties:
 
 1. the expected fanout is a (compile-time) constant.
 2. the structure of the tree is deterministic: two trees have the same root hash
-if and only if they have the same set of key/value leaves, independent of
-insertion order.
+   if and only if they have the same set of key/value leaves, independent of
+   insertion order.
 3. similar leaf sets produce similar trees: adding or removing any single leaf
-only changes (on expectation) its log(N) direct ancestors.
+   only changes (on expectation) its log(N) direct ancestors.
 
 These three properties mean that okra trees can be used to efficiently diff
 large sets of leaves in logarithmic time.
@@ -35,9 +35,3 @@ or through NodeJS bindings.
 
 [1]: https://hal.inria.fr/hal-02303490/document
 [2]: https://0fps.net/2020/12/19/peer-to-peer-ordered-search-indexes/
-
-
-
-
-
-
