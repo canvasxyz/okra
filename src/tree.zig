@@ -121,7 +121,6 @@ pub fn Tree(comptime X: usize) type {
           try txn.set(self.dbi, &node.key.bytes, &node.value);
         }
 
-        // if (self.log) |log| try log.print("")
         try self.hashRange(&cursor, &self.root, &self.parentValue);
 
         if (self.log) |log|
@@ -194,24 +193,12 @@ pub fn Tree(comptime X: usize) type {
 
       try txn.set(self.dbi, &key.bytes, value);
 
-      // if (self.log) |log| {
-
-      // }
-
       try self.hashRange(cursor, firstChild, &self.parentValue);
-      // if (self.log) |log| {
-      //   try log.print("got parentValue {s}\n", .{ try utils.printHash(&self.parentValue) });
-      // }
 
       if (utils.isValueSplit(value)) {
-        // if (self.log) |log| try log.print("value was a split\n", .{});
         var node = Node{ .key = key.getParent(), .value = constants.ZERO_HASH };
         try self.hashRange(cursor, key, &node.value);
         try self.newChildren.append(node);
-
-        // if (self.log) |log| {
-        //   try log.print("pushing new child value {s}\n", .{ try utils.printHash(&node.value) });
-        // }
       }
 
       return InsertResult.update;

@@ -83,6 +83,7 @@ pub const Transaction = struct {
     var k: lmdb.MDB_val = .{ .mv_size = key.len, .mv_data = @intToPtr([*]u8, @ptrToInt(key.ptr)) };
     try switch (lmdb.mdb_del(self.ptr, dbi, &k, null)) {
       0 => {},
+      lmdb.MDB_NOTFOUND => Error.KeyNotFound,
       else => Error.LmdbTransactionError,
     };
   }

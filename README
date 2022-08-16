@@ -17,7 +17,7 @@ nodes, re-hashing up the tree to the root as necessary.
 
 okra guarantees three significant properties:
 
-1. the expected fanout is a (compile-time) constant.
+1. the expected fanout is a constant (configued at compile-time).
 2. the structure of the tree is deterministic: two trees have the same root hash
    if and only if they have the same set of key/value leaves, independent of
    insertion order.

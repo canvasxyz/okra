@@ -321,37 +321,3 @@ test "test randomly shuffled permutations of 10000" {
 
   try testPermutations(6, 10000, &permutations, .{ .mapSize = 2 * 1024 * 1024 * 1024});
 }
-
-// test "open a temporary tree and close it" {
-//   const stdout = std.io.getStdOut().writer();
-
-//   var tmp = std.testing.tmpDir(.{});
-//   var tmpPath = try tmp.dir.realpath(".", &buffer);
-//   var path = try std.fs.path.resolve(allocator, &[_][]const u8{ tmpPath, "data.mdb" });
-//   defer allocator.free(path);
-
-//   var tree = try Tree(6).open(path, .{ .log = stdout });
-
-//   try stdout.print("\n-------------------------------------------------------------------------------------\n", .{});
-//   try print.printEntries(6, path, stdout);
-
-//   var key = Key(6).create(0, null);
-//   var value: [32]u8 = undefined;
-
-//   var i: u48 = 1;
-//   while (i <= 100) : (i += 1) {
-//     std.mem.writeIntBig(u48, key.bytes[2..8], i);
-//     Sha256.hash(key.bytes[2..8], &value, .{});
-//     try stdout.print("-------------------------------------------------------------------------------------\n", .{});
-//     try tree.insert(&key, &value);
-    
-//     try stdout.print("-------------------------------------------------------------------------------------\n", .{});
-//     try print.printEntries(6, path, stdout);
-//   }
-
-//   try stdout.print("-------------------------------------------------------------------------------------\n", .{});
-//   try print.printEntries(6, path, stdout);
-
-//   tree.close();
-//   tmp.cleanup();
-// }
