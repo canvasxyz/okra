@@ -29,12 +29,12 @@ pub fn build(b: *std.build.Builder) void {
   const run_step = b.step("run", "Run the app");
   run_step.dependOn(&run_cmd.step);
 
-  // const lmdb_tests = b.addTest("src/lmdb/test.zig");
-  // lmdb_tests.setTarget(target);
-  // lmdb_tests.setBuildMode(mode);
-  // lmdb_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
-  // lmdb_tests.addCSourceFile("libs/openldap/libraries/liblmdb/mdb.c", &.{ "-fno-sanitize=undefined" });
-  // lmdb_tests.addCSourceFile("libs/openldap/libraries/liblmdb/midl.c", &.{ "-fno-sanitize=undefined" });
+  const lmdb_tests = b.addTest("src/lmdb/test.zig");
+  lmdb_tests.setTarget(target);
+  lmdb_tests.setBuildMode(mode);
+  lmdb_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
+  lmdb_tests.addCSourceFile("libs/openldap/libraries/liblmdb/mdb.c", &.{ "-fno-sanitize=undefined" });
+  lmdb_tests.addCSourceFile("libs/openldap/libraries/liblmdb/midl.c", &.{ "-fno-sanitize=undefined" });
 
   const tree_tests = b.addTest("src/test.zig");
   tree_tests.setTarget(target);
@@ -42,8 +42,16 @@ pub fn build(b: *std.build.Builder) void {
   tree_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
   tree_tests.addCSourceFile("libs/openldap/libraries/liblmdb/mdb.c", &.{ "-fno-sanitize=undefined" });
   tree_tests.addCSourceFile("libs/openldap/libraries/liblmdb/midl.c", &.{ "-fno-sanitize=undefined" });
+  
+  const scanner_tests = b.addTest("src/scanner.zig");
+  scanner_tests.setTarget(target);
+  scanner_tests.setBuildMode(mode);
+  scanner_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
+  scanner_tests.addCSourceFile("libs/openldap/libraries/liblmdb/mdb.c", &.{ "-fno-sanitize=undefined" });
+  scanner_tests.addCSourceFile("libs/openldap/libraries/liblmdb/midl.c", &.{ "-fno-sanitize=undefined" });
 
   const test_step = b.step("test", "Run unit tests");
-  // test_step.dependOn(&lmdb_tests.step);
+  test_step.dependOn(&lmdb_tests.step);
   test_step.dependOn(&tree_tests.step);
+  test_step.dependOn(&scanner_tests.step);
 }

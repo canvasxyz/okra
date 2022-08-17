@@ -9,6 +9,8 @@ const Environment = @import("./lmdb/environment.zig").Environment;
 const Transaction = @import("./lmdb/transaction.zig").Transaction;
 const Cursor = @import("./lmdb/cursor.zig").Cursor;
 
+const Scanner = @import("./scanner.zig").Scanner;
+
 const allocator = std.heap.c_allocator;
 
 const InsertResult = enum { delete, update };
@@ -82,6 +84,23 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       self.env.close();
       self.newChildren.deinit();
       allocator.destroy(self);
+    }
+
+    pub fn openScanner(self: *const Tree(X, Q)) !Scanner(X, Q) {
+      var txn = try Transaction(K, V).open(self.env, true);
+      var cursor = try Cursor(K, V).open(txn, self.dbi);
+
+      var nodes = std.ArrayList(Node).init(allocator);
+
+      var scanner = Scanner(X, Q){
+        .txn = txn,
+        .cursor = cursor,
+        .nodes = nodes,
+        .key = self.root,
+      };
+    
+      try scanner.seek(getLevel(&self.root), getLeaf(&self.root));
+      return scanner;
     }
 
     pub fn insert(self: *Tree(X, Q), leaf: *const Leaf, value: *const [V]u8) Error!void {
@@ -404,10 +423,18 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
         try log.print("{s}--------------------------- {s}\n", .{ self.prefix.items, hex(hash) });
     }
 
-
     var printKeyBuffer: [2+1+2*X]u8 = undefined;
     pub fn printKey(key: *const Key) []u8 {
       return std.fmt.bufPrint(&printKeyBuffer, "{d}:{s}", .{ getLevel(key), hex(getLeaf(key)) }) catch unreachable;
+    }
+
+    pub fn parseKey(name: *const [2+2*X]u8) Key {
+      var key: Key = undefined;
+      const level = std.fmt.parseInt(u16, name[0..1], 10) catch unreachable;
+      setLevel(&key, level);
+
+      _ = std.fmt.hexToBytes(key[2..], name[2..]) catch unreachable;
+      return key;
     }
 
     fn set(self: *Tree(X, Q), txn: *Transaction(K, V), key: *const Key, value: *const Value) !void {
@@ -446,11 +473,15 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       return key[2..];
     }
 
-    pub fn setLeaf(key: *Key, leaf: *const Leaf) void {
-      std.mem.copy(u8, key[2..], leaf);
+    pub fn setLeaf(key: *Key, leaf: ?*const Leaf) void {
+      if (leaf) |bytes| {
+        std.mem.copy(u8, key[2..], bytes);
+      } else {
+        std.mem.set(u8, key[2..], 0);
+      }
     }
 
-    pub fn createKey(level: u16, leaf: *const Leaf) Key {
+    pub fn createKey(level: u16, leaf: ?*const Leaf) Key {
       var key: Key = undefined;
       setLevel(&key, level);
       setLeaf(&key, leaf);

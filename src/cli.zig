@@ -245,16 +245,23 @@ fn listChildren(
 
   const level = T.getLevel(firstChild);
   var child = try cursor.goToKey(firstChild);
-  while (child) |childKey| : (child = try cursor.goToNext()) {
+
+  var childValue = cursor.getCurrentValue();
+
+  while (child) |childKey| {
     if (T.getLevel(childKey) != level) break;
-    const value = cursor.getCurrentValue().?;
-    try log.print("{s}- {s} {s}\n", .{ prefix.items, T.printKey(childKey), hex(value) });
+
+    try log.print("{s}- {s} {s}\n", .{ prefix.items, T.printKey(childKey), hex(childValue.?) });
     if (depth > 1 and level > 0) {
       var nextChild = T.getChild(childKey);
       try listChildren(prefix, cursor, &nextChild, depth - 1, log);
       T.setLevel(&nextChild, level);
       _ = try cursor.goToKey(&nextChild);
     }
+
+    child = try cursor.goToNext();
+    childValue = cursor.getCurrentValue();
+    if (childValue) |value| if (T.isSplit(value)) break;
   }
 
   try prefix.resize(prefixLength);
