@@ -406,7 +406,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
 
 
     var printKeyBuffer: [2+1+2*X]u8 = undefined;
-    fn printKey(key: *const Key) []u8 {
+    pub fn printKey(key: *const Key) []u8 {
       return std.fmt.bufPrint(&printKeyBuffer, "{d}:{s}", .{ getLevel(key), hex(getLeaf(key)) }) catch unreachable;
     }
 
@@ -429,11 +429,11 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
     }
 
     // key utils
-    fn setLevel(key: *Key, level: u16) void {
+    pub fn setLevel(key: *Key, level: u16) void {
       std.mem.writeIntBig(u16, key[0..2], level);
     }
 
-    fn getLevel(key: *const Key) u16 {
+    pub fn getLevel(key: *const Key) u16 {
       return std.mem.readIntBig(u16, key[0..2]);
     }
 
@@ -442,38 +442,38 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       return true;
     }
 
-    fn getLeaf(key: *const Key) *const Leaf {
+    pub fn getLeaf(key: *const Key) *const Leaf {
       return key[2..];
     }
 
-    fn setLeaf(key: *Key, leaf: *const Leaf) void {
+    pub fn setLeaf(key: *Key, leaf: *const Leaf) void {
       std.mem.copy(u8, key[2..], leaf);
     }
 
-    fn createKey(level: u16, leaf: *const Leaf) Key {
+    pub fn createKey(level: u16, leaf: *const Leaf) Key {
       var key: Key = undefined;
       setLevel(&key, level);
       setLeaf(&key, leaf);
       return key;
     }
 
-    fn getChild(key: *const Key) Key {
+    pub fn getChild(key: *const Key) Key {
       const level = getLevel(key);
       assert(level > 0);
       return createKey(level - 1, getLeaf(key));
     }
 
-    fn getParent(key: *const Key) Key {
+    pub fn getParent(key: *const Key) Key {
       const level = getLevel(key);
       return createKey(level + 1, getLeaf(key));
     }
 
-    fn lessThan(a: *const Leaf, b: *const Leaf) bool {
+    pub fn lessThan(a: *const Leaf, b: *const Leaf) bool {
       return std.mem.lessThan(u8, a, b);
     }
 
     // value utils
-    fn isSplit(value: *const Value) bool {
+    pub fn isSplit(value: *const Value) bool {
       return value[0] < Q;
     }
   };

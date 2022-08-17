@@ -13,6 +13,24 @@ const Tree = @import("./tree.zig").Tree;
 
 const allocator = std.heap.c_allocator;
 
+const X: comptime_int = 6;
+const K: comptime_int = 2 + X;
+const V: comptime_int = 32;
+const Q: comptime_int = 0x30;
+
+const Env = Environment(K, V);
+const Txn = Transaction(K, V);
+const C = Cursor(K, V);
+const T = Tree(X, Q);
+
+var pathOption = cli.Option{
+  .long_name = "path",
+  .short_alias = 'p',
+  .help = "path to the database",
+  .value = cli.OptionValue{ .string = null },
+  .required = true,
+};
+
 var aOption = cli.Option{
   .long_name = "a",
   .help = "path to the first database",
@@ -23,14 +41,6 @@ var aOption = cli.Option{
 var bOption = cli.Option{
   .long_name = "b",
   .help = "path to the second database",
-  .value = cli.OptionValue{ .string = null },
-  .required = true,
-};
-
-var pathOption = cli.Option{
-  .long_name = "path",
-  .short_alias = 'p',
-  .help = "path to the database",
   .value = cli.OptionValue{ .string = null },
   .required = true,
 };
@@ -51,15 +61,17 @@ var internalOption = cli.Option{
 
 var levelOption = cli.Option{
   .long_name = "level",
-  .help = "level within the tree (the leaf level is level 0)",
-  .value = cli.OptionValue{ .int = 0 },
+  .help = "level within the tree (use -1 for the root)",
+  .value = cli.OptionValue{ .int = -1 },
   .required = false,
 };
 
-const X: comptime_int = 6;
-const K: comptime_int = 2 + X;
-const V: comptime_int = 32;
-const Q: comptime_int = 0x30;
+var depthOption = cli.Option{
+  .long_name = "depth",
+  .help = "number of levels to print",
+  .value = cli.OptionValue{ .int = 1 },
+  .required = false,
+};
 
 var app = &cli.Command{
   .name = "okra",
@@ -70,6 +82,12 @@ var app = &cli.Command{
       .help = "print the entries of the database to stdout",
       .options = &.{ &internalOption, &pathOption },
       .action = cat,
+    },
+    &cli.Command{
+      .name = "ls",
+      .help = "list the children of an intermediate node",
+      .options = &.{ &pathOption, &levelOption, &depthOption },
+      .action = ls,
     },
     &cli.Command{
       .name = "init",
@@ -114,15 +132,15 @@ fn cat(args: []const []const u8) !void {
 
   const stdout = std.io.getStdOut().writer();
 
-  var env = try Environment(K, V).open(path, .{});
+  var env = try Env.open(path, .{});
   defer env.close();
 
-  var txn = try Transaction(K, V).open(env, true);
+  var txn = try Txn.open(env, true);
   defer txn.abort();
 
   const dbi = try txn.openDbi();
 
-  var cursor = try Cursor(K, V).open(txn, dbi);
+  var cursor = try C.open(txn, dbi);
   defer cursor.close();
 
   if (internal) {
@@ -146,14 +164,114 @@ fn cat(args: []const []const u8) !void {
   }
 }
 
+fn ls(args: []const []const u8) !void {
+  const path = pathOption.value.string orelse unreachable;
+  var depth = depthOption.value.int orelse unreachable;
+  var level = levelOption.value.int orelse unreachable;
+
+  if (depth < -1) fail("depth must be -1 or a non-negative integer", .{});
+  if (level < -1 or level == 0) fail("level must be -1 or a positive integer", .{});
+
+  if (args.len > 1) {
+    fail("too many arguments", .{});
+  } else if (level != -1 and args.len == 0) {
+    fail("you must specify a key for non-root levels", .{});
+  } else if (level == -1 and args.len == 1) {
+    fail("you cannot specify a key for the root level", .{});
+  }
+
+  var key = [_]u8{ 0 } ** X;
+  if (args.len > 0) {
+    const keyArg = args[0];
+    if (keyArg.len != 2 * X) {
+      fail("invalid key size - expected exactly {d} hex bytes", .{ X });
+    }
+
+    _ = try std.fmt.hexToBytes(&key, keyArg);
+  }
+
+  const stdout = std.io.getStdOut().writer();
+
+  var env = try Env.open(path, .{});
+  defer env.close();
+
+  var txn = try Txn.open(env, true);
+  defer txn.abort();
+
+  const dbi = try txn.openDbi();
+
+  var cursor = try C.open(txn, dbi);
+  defer cursor.close();
+  
+  var initialLevel: u16 = 0;
+  if (level == -1) {
+    if (try cursor.goToLast()) |root| {
+      initialLevel = T.getLevel(root);
+      if (initialLevel == 0) return Error.InvalidDatabase;
+    } else {
+      fail("database not initialized", .{});
+    }
+  } else {
+    initialLevel = @intCast(u16, level);
+  }
+
+  if (depth == -1) {
+    depth = initialLevel;
+  }
+
+  var firstChild = T.createKey(initialLevel, &key);
+  const value = try txn.get(dbi, &firstChild);
+  try stdout.print("- {s} {s}\n", .{ T.printKey(&firstChild), hex(value.?) });
+
+  T.setLevel(&firstChild, initialLevel - 1);
+  var prefix = std.ArrayList(u8).init(allocator);
+  if (depth > 0) {
+    try listChildren(&prefix, &cursor, &firstChild, depth, stdout);
+  }
+}
+
+const ListChildrenError = C.Error || std.mem.Allocator.Error || std.fs.File.WriteError;
+
+fn listChildren(
+  prefix: *std.ArrayList(u8),
+  cursor: *C,
+  firstChild: *const T.Key,
+  depth: i64,
+  log: std.fs.File.Writer,
+) ListChildrenError!void {
+  const prefixLength = prefix.items.len;
+  try prefix.append('|');
+  try prefix.append(' ');
+
+  const level = T.getLevel(firstChild);
+  var child = try cursor.goToKey(firstChild);
+  while (child) |childKey| : (child = try cursor.goToNext()) {
+    if (T.getLevel(childKey) != level) break;
+    const value = cursor.getCurrentValue().?;
+    try log.print("{s}- {s} {s}\n", .{ prefix.items, T.printKey(childKey), hex(value) });
+    if (depth > 1 and level > 0) {
+      var nextChild = T.getChild(childKey);
+      try listChildren(prefix, cursor, &nextChild, depth - 1, log);
+      T.setLevel(&nextChild, level);
+      _ = try cursor.goToKey(&nextChild);
+    }
+  }
+
+  try prefix.resize(prefixLength);
+}
+
 fn init(args: []const []const u8) !void {
   const path = pathOption.value.string orelse unreachable;
+  const verbose = verboseOption.value.bool;
 
   if (args.len > 0) {
     fail("too many arguments", .{});
   }
 
-  var tree = try Tree(X, Q).open(path, .{});
+  var tree = try T.open(path, .{
+    .log = if (verbose) std.io.getStdOut().writer() else null
+  });
+
   tree.close();
 }
 
@@ -197,9 +315,9 @@ fn set(args: []const []const u8) !void {
     fail("invalid value size - expected exactly {d} hex bytes", .{ V });
   }
 
-  var env = try Environment(K, V).open(path, .{});
+  var env = try Env.open(path, .{});
   defer env.close();
-  var txn = try Transaction(K, V).open(env, false);
+  var txn = try Txn.open(env, false);
   errdefer txn.abort();
   const dbi = try txn.openDbi();
 
@@ -235,9 +353,9 @@ fn get(args: []const []const u8) !void {
 
   const stdout = std.io.getStdOut().writer();
 
-  var env = try Environment(K, V).open(path, .{});
+  var env = try Env.open(path, .{});
   defer env.close();
-  var txn = try Transaction(K, V).open(env, true);
+  var txn = try Txn.open(env, true);
   defer txn.abort();
   const dbi = try txn.openDbi();
 
@@ -272,9 +390,9 @@ fn delete(args: []const []const u8) !void {
     fail("invalid key size - expected exactly {d} hex bytes", .{ keySize });
   }
 
-  var env = try Environment(K, V).open(path, .{});
+  var env = try Env.open(path, .{});
   defer env.close();
-  var txn = try Transaction(K, V).open(env, false);
+  var txn = try Txn.open(env, false);
   errdefer txn.abort();
   const dbi = try txn.openDbi();
   
