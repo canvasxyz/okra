@@ -60,13 +60,6 @@ var iotaOption = cli.Option{
   .value = cli.OptionValue{ .int = 0 },
 };
 
-var internalOption = cli.Option{
-  .long_name = "internal",
-  .help = "access the underlying LMDB database",
-  .value = cli.OptionValue{ .bool = false },
-  .required = false,
-};
-
 var levelOption = cli.Option{
   .long_name = "level",
   .short_alias = 'l',
@@ -90,7 +83,7 @@ var app = &cli.Command{
     &cli.Command{
       .name = "cat",
       .help = "print the entries of the database to stdout",
-      .options = &.{ &internalOption, &pathOption },
+      .options = &.{ &pathOption },
       .action = cat,
     },
     &cli.Command{
@@ -106,10 +99,10 @@ var app = &cli.Command{
       .action = init,
     },
     &cli.Command{
-      .name = "diff",
-      .help = "print the diff between two databases",
-      .options = &.{ &internalOption, &aOption, &bOption },
-      .action = diff,
+      .name = "insert",
+      .help = "insert a new leaf",
+      .options = &.{ &pathOption, &verboseOption },
+      .action = insert,
     },
     &cli.Command{
       .name = "rebuild",
@@ -117,36 +110,46 @@ var app = &cli.Command{
       .options = &.{ &pathOption },
       .action = rebuild,
     },
-
-    // &cli.Command{
-    //   .name = "insert",
-    //   .help = "insert a new leaf",
-    //   .options = &.{ &internalOption, &pathOption },
-    //   .action = insert,
-    // },
     &cli.Command{
-      .name = "get",
-      .help = "get the value for a key",
-      .options = &.{ &internalOption, &pathOption },
-      .action = get,
-    },
-    &cli.Command{
-      .name = "set",
-      .help = "set a key/value entry (internal only)",
-      .options = &.{ &internalOption, &pathOption, &verboseOption },
-      .action = set,
-    },
-    &cli.Command{
-      .name = "delete",
-      .help = "delete a key (internal only)",
-      .options = &.{ &internalOption, &pathOption },
-      .action = delete,
-    },
+      .name = "internal",
+      .help = "unsafely access the underlying LMDB database directly",
+      .subcommands = &.{
+        &cli.Command{
+          .name = "cat",
+          .help = "print the entries of the database to stdout",
+          .options = &.{ &pathOption },
+          .action = internalCat,
+        },
+        &cli.Command{
+          .name = "get",
+          .help = "get the value for a key",
+          .options = &.{ &pathOption },
+          .action = internalGet,
+        },
+        &cli.Command{
+          .name = "set",
+          .help = "set a key/value entry",
+          .options = &.{ &pathOption },
+          .action = internalSet,
+        },
+        &cli.Command{
+          .name = "delete",
+          .help = "delete a key",
+          .options = &.{ &pathOption },
+          .action = internalDelete,
+        },
+        &cli.Command{
+          .name = "diff",
+          .help = "print the diff between two databases",
+          .options = &.{ &aOption, &bOption },
+          .action = internalDiff,
+        },
+      }
+    }
   },
 };
 
 fn cat(args: []const []const u8) !void {
-  const internal = internalOption.value.bool;
   const path = pathOption.value.string orelse unreachable;
 
   if (args.len > 0) {
@@ -166,23 +169,15 @@ fn cat(args: []const []const u8) !void {
   var cursor = try C.open(txn, dbi);
   defer cursor.close();
 
-  if (internal) {
-    var next = try cursor.goToFirst();
-    while (next) |key| : (next = try cursor.goToNext()) {
+  const anchorKey = [_]u8{ 0 } ** K;
+  if (try cursor.goToFirst()) |firstKey| {
+    if (!std.mem.eql(u8, firstKey, &anchorKey)) return Error.InvalidDatabase;
+    const firstValue = cursor.getCurrentValue() orelse return Error.InvalidDatabase;
+    if (!isZero(firstValue)) return Error.InvalidDatabase;
+    while (try cursor.goToNext()) |key| {
+      if (std.mem.readIntBig(u16, key[0..2]) > 0) break;
       const value = cursor.getCurrentValue() orelse @panic("internal error: no value for key");
-      try stdout.print("{s} {s}\n", .{ hex(key), hex(value) });
-    }
-  } else {
-    const anchorKey = [_]u8{ 0 } ** K;
-    if (try cursor.goToFirst()) |firstKey| {
-      if (!std.mem.eql(u8, firstKey, &anchorKey)) return Error.InvalidDatabase;
-      const firstValue = cursor.getCurrentValue() orelse return Error.InvalidDatabase;
-      if (!isZero(firstValue)) return Error.InvalidDatabase;
-      while (try cursor.goToNext()) |key| {
-        if (std.mem.readIntBig(u16, key[0..2]) > 0) break;
-        const value = cursor.getCurrentValue() orelse @panic("internal error: no value for key");
-        try stdout.print("{s} {s}\n", .{ hex(key[2..]), hex(value) });
-      }
+      try stdout.print("{s} {s}\n", .{ hex(key[2..]), hex(value) });
     }
   }
 }
@@ -319,22 +314,40 @@ fn init(args: []const []const u8) !void {
   tree.close();
 }
 
-fn diff(args: []const []const u8) !void {
-  const internal = internalOption.value.bool;
-  const a = aOption.value.string orelse unreachable;
-  const b = bOption.value.string orelse unreachable;
+fn insert(args: []const []const u8) !void {
+  const path = pathOption.value.string orelse unreachable;
+  const verbose = verboseOption.value.bool;
 
-  if (args.len > 0) {
+  if (args.len == 0) {
+    fail("missing leaf argument", .{});
+  } else if (args.len == 1) {
+    fail("missing hash argument", .{});
+  } else if (args.len > 2) {
     fail("too many arguments", .{});
   }
 
-  if (!internal) {
-    fail("the diff command can only be used with the --internal flag", .{});
+  var tree = try T.open(path, .{
+    .log = if (verbose) std.io.getStdOut().writer() else null
+  });
+
+  const leafArg = args[0];
+  const hashArg = args[1];
+
+  if (leafArg.len != 2 * X) {
+    fail("invalid leaf size - expected exactly {d} hex bytes", .{ X });
+  } else if (hashArg.len != 2 * V) {
+    fail("invalid hash size - expected exactly {d} hex bytes", .{ V });
   }
 
-  const stdout = std.io.getStdOut().writer();
+  var leaf = [_]u8{ 0 } ** X;
+  var hash = [_]u8{ 0 } ** V;
 
-  _ = try compareEntries(K, V, a, b, .{ .log = stdout });
+  _ = try std.fmt.hexToBytes(&leaf, leafArg);
+  _ = try std.fmt.hexToBytes(&hash, hashArg);
+
+  try tree.insert(&leaf, &hash);
+
+  tree.close();
 }
 
 fn rebuild(args: []const []const u8) !void {
@@ -372,8 +385,34 @@ fn razeTree(path: []const u8) !void {
   try txn.commit();
 }
 
-fn set(args: []const []const u8) !void {
-  const internal = internalOption.value.bool;
+fn internalCat(args: []const []const u8) !void {
+  const path = pathOption.value.string orelse unreachable;
+
+  if (args.len > 0) {
+    fail("too many arguments", .{});
+  }
+
+  const stdout = std.io.getStdOut().writer();
+
+  var env = try Env.open(path, .{});
+  defer env.close();
+
+  var txn = try Txn.open(env, true);
+  defer txn.abort();
+
+  const dbi = try txn.openDbi();
+
+  var cursor = try C.open(txn, dbi);
+  defer cursor.close();
+
+  var next = try cursor.goToFirst();
+  while (next) |key| : (next = try cursor.goToNext()) {
+    const value = cursor.getCurrentValue() orelse @panic("internal error: no value for key");
+    try stdout.print("{s} {s}\n", .{ hex(key), hex(value) });
+  }
+}
+
+fn internalSet(args: []const []const u8) !void {
   const path = pathOption.value.string orelse unreachable;
 
   if (args.len == 0) {
@@ -387,9 +426,8 @@ fn set(args: []const []const u8) !void {
   const keyArg = args[0];
   const valueArg = args[1];
 
-  const keySize: usize = if (internal) K else X;
-  if (keyArg.len != 2 * keySize) {
-    fail("invalid key size - expected exactly {d} hex bytes", .{ keySize });
+  if (keyArg.len != 2 * K) {
+    fail("invalid key size - expected exactly {d} hex bytes", .{ K });
   } else if (valueArg.len != 2 * V) {
     fail("invalid value size - expected exactly {d} hex bytes", .{ V });
   }
@@ -404,18 +442,13 @@ fn set(args: []const []const u8) !void {
   _ = try std.fmt.hexToBytes(&value, valueArg);
 
   var key = [_]u8{ 0 } ** K;
-  if (internal) {
-    _ = try std.fmt.hexToBytes(&key, keyArg);
-  } else {
-    _ = try std.fmt.hexToBytes(key[2..], keyArg);
-  }
+  _ = try std.fmt.hexToBytes(&key, keyArg);
 
   try txn.set(dbi, &key, &value);
   try txn.commit();
 }
 
-fn get(args: []const []const u8) !void {
-  const internal = internalOption.value.bool;
+fn internalGet(args: []const []const u8) !void {
   const path = pathOption.value.string orelse unreachable;
 
   if (args.len == 0) {
@@ -425,9 +458,8 @@ fn get(args: []const []const u8) !void {
   }
 
   const keyArg = args[0];
-  const keySize: usize = if (internal) K else X;
-  if (keyArg.len != 2 * keySize) {
-    fail("invalid key size - expected exactly {d} hex bytes", .{ keySize });
+  if (keyArg.len != 2 * K) {
+    fail("invalid key size - expected exactly {d} hex bytes", .{ K });
   }
 
   const stdout = std.io.getStdOut().writer();
@@ -439,23 +471,15 @@ fn get(args: []const []const u8) !void {
   const dbi = try txn.openDbi();
 
   var key = [_]u8{ 0 } ** K;
-  if (internal) {
-    _ = try std.fmt.hexToBytes(&key, keyArg);
-  } else {
-    _ = try std.fmt.hexToBytes(key[2..], keyArg);
-  }
+  _ = try std.fmt.hexToBytes(&key, keyArg);
 
   if (try txn.get(dbi, &key)) |value| {
     try stdout.print("{s}\n", .{ hex(value) });
   }
 }
 
-fn delete(args: []const []const u8) !void {
-  const internal = internalOption.value.bool;
+fn internalDelete(args: []const []const u8) !void {
   const path = pathOption.value.string orelse unreachable;
-  if (!internal) {
-    fail("the delete command can only be used with the --internal flag", .{});
-  }
 
   if (args.len == 0) {
     fail("key argument required", .{});
@@ -464,9 +488,8 @@ fn delete(args: []const []const u8) !void {
   }
 
   const keyArg = args[0];
-  const keySize = K;
-  if (keyArg.len != 2 * keySize) {
-    fail("invalid key size - expected exactly {d} hex bytes", .{ keySize });
+  if (keyArg.len != 2 * K) {
+    fail("invalid key size - expected exactly {d} hex bytes", .{ K });
   }
 
   var env = try Env.open(path, .{});
@@ -479,6 +502,19 @@ fn delete(args: []const []const u8) !void {
   _ = try std.fmt.hexToBytes(&key, keyArg);
   try txn.delete(dbi, &key);
   try txn.commit();
+}
+
+fn internalDiff(args: []const []const u8) !void {
+  const a = aOption.value.string orelse unreachable;
+  const b = bOption.value.string orelse unreachable;
+
+  if (args.len > 0) {
+    fail("too many arguments", .{});
+  }
+
+  const stdout = std.io.getStdOut().writer();
+
+  _ = try compareEntries(K, V, a, b, .{ .log = stdout });
 }
 
 const Error = error {
