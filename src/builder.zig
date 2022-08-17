@@ -154,6 +154,11 @@ test "testIota(6, 0x30, 10)" {
   try testIota(6, 0x30, 10, &expected);  
 }
 
+test "testIota(6, 0x42, 10)" {
+  const expected = utils.parseHash("d42d03b3176a17c253875be90daaf2cb58c8beb00c612d36410a13793aa03c7c");
+  try testIota(6, 0x42, 10, &expected);  
+}
+
 test "testIota(6, 0x20, 100)" {
   const expected = utils.parseHash("c49441921bb10659e23b703c7d028fc8b5f677b2df042b9bd043703771b145a6");
   try testIota(6, 0x20, 100, &expected);

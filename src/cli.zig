@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const hex = std.fmt.fmtSliceHexLower;
+const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const cli = @import("zig-cli");
 
@@ -53,6 +54,12 @@ var verboseOption = cli.Option{
   .value = cli.OptionValue{ .bool = false },
 };
 
+var iotaOption = cli.Option{
+  .long_name = "iota",
+  .help = "initialize the tree with hashes of the first iota positive integers as sample data",
+  .value = cli.OptionValue{ .int = 0 },
+};
+
 var internalOption = cli.Option{
   .long_name = "internal",
   .help = "access the underlying LMDB database",
@@ -62,6 +69,7 @@ var internalOption = cli.Option{
 
 var levelOption = cli.Option{
   .long_name = "level",
+  .short_alias = 'l',
   .help = "level within the tree (use -1 for the root)",
   .value = cli.OptionValue{ .int = -1 },
   .required = false,
@@ -69,6 +77,7 @@ var levelOption = cli.Option{
 
 var depthOption = cli.Option{
   .long_name = "depth",
+  .short_alias = 'd',
   .help = "number of levels to print",
   .value = cli.OptionValue{ .int = 1 },
   .required = false,
@@ -93,7 +102,7 @@ var app = &cli.Command{
     &cli.Command{
       .name = "init",
       .help = "initialize an empty database",
-      .options = &.{ &pathOption, &verboseOption },
+      .options = &.{ &pathOption, &verboseOption, &iotaOption },
       .action = init,
     },
     &cli.Command{
@@ -263,9 +272,9 @@ fn listChildren(
   while (child) |childKey| {
     if (T.getLevel(childKey) != level) break;
 
-    if (level > 0) prefix[prefix.len-2*depth+2] = '+';
+    if (depth > 1) prefix[prefix.len-2*depth+2] = '+';
     try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(childKey), hex(childValue.?) });
-    if (level > 0) prefix[prefix.len-2*depth+2] = '-';
+    if (depth > 1) prefix[prefix.len-2*depth+2] = '-';
 
     if (depth > 1 and level > 0) {
       var nextChild = T.getChild(childKey);
@@ -286,6 +295,8 @@ fn listChildren(
 fn init(args: []const []const u8) !void {
   const path = pathOption.value.string orelse unreachable;
   const verbose = verboseOption.value.bool;
+  const iota = iotaOption.value.int orelse unreachable;
+  if (iota < 0) fail("iota must be a non-negative integer", .{});
 
   if (args.len > 0) {
     fail("too many arguments", .{});
@@ -294,6 +305,16 @@ fn init(args: []const []const u8) !void {
   var tree = try T.open(path, .{
     .log = if (verbose) std.io.getStdOut().writer() else null
   });
+
+  var leaf = [_]u8{ 0 } ** X;
+  var value = [_]u8{ 0 } ** V;
+
+  var i: u32 = 0;
+  while (i < iota) : (i += 1) {
+    std.mem.writeIntBig(u32, leaf[X-4..], i + 1);
+    Sha256.hash(&leaf, &value, .{});
+    try tree.insert(&leaf, &value);
+  }
 
   tree.close();
 }
