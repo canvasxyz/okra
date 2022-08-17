@@ -15,7 +15,7 @@ const Options = struct {
   mapSize: usize = 10485760,
 };
 
-pub fn ReferenceTree(comptime X: usize, comptime Q: u8) type {
+pub fn Builder(comptime X: usize, comptime Q: u8) type {
   const K = 2 + X;
   const V = 32;
 
@@ -27,10 +27,10 @@ pub fn ReferenceTree(comptime X: usize, comptime Q: u8) type {
     env: Environment(K, V),
     dbi: lmdb.MDB_dbi,
     txn: Transaction(K, V),
-    key: Key,
-    value: Value,
+    key: Key = [_]u8{ 0 } ** K,
+    value: Value = [_]u8{ 0 } ** V,
 
-    pub fn init(path: []const u8, options: Options) !ReferenceTree(X, Q) {
+    pub fn init(path: []const u8, options: Options) !Builder(X, Q) {
       var env = try Environment(K, V).open(path, .{ .mapSize = options.mapSize });
       errdefer env.close();
 
@@ -39,19 +39,17 @@ pub fn ReferenceTree(comptime X: usize, comptime Q: u8) type {
 
       const dbi = try txn.openDbi();
 
-      var key: Key = [_]u8{ 0 } ** K;
-      var value: Value = [_]u8{ 0 } ** V;
-      try txn.set(dbi, &key, &value);
-
-      return ReferenceTree(X, Q){ .env = env, .dbi = dbi, .txn = txn, .key = key, .value = value };
+      const builder = Builder(X, Q){ .env = env, .dbi = dbi, .txn = txn };
+      try txn.set(dbi, &builder.key, &builder.value);
+      return builder;
     }
 
-    pub fn insert(self: *ReferenceTree(X, Q), key: *const [X]u8, value: *const [32]u8) !void {
+    pub fn insert(self: *Builder(X, Q), key: *const [X]u8, value: *const [32]u8) !void {
       std.mem.copy(u8, self.key[2..], key);
       try self.txn.set(self.dbi, &self.key, value);
     }
 
-    pub fn finalize(self: *ReferenceTree(X, Q), root: ?*[32]u8) !void {
+    pub fn finalize(self: *Builder(X, Q), root: ?*[32]u8) !u16 {
       var cursor = try Cursor(K, V).open(self.txn, self.dbi);
 
       var level: u16 = 0;
@@ -66,9 +64,10 @@ pub fn ReferenceTree(comptime X: usize, comptime Q: u8) type {
       try self.txn.commit();
       
       self.env.close();
+      return level + 1;
     }
 
-    fn buildLevel(self: *ReferenceTree(X, Q), level: u16, cursor: *Cursor(K, V)) !usize {
+    fn buildLevel(self: *Builder(X, Q), level: u16, cursor: *Cursor(K, V)) !usize {
       var count: usize = 0;
 
       std.mem.writeIntBig(u16, self.key[0..2], level);
@@ -125,7 +124,7 @@ fn testIota(comptime X: usize, comptime Q: u8, comptime N: u16, expected: *const
   const path = try utils.resolvePath(allocator, tmp.dir, "reference.mdb");
   defer allocator.free(path);
 
-  var referenceTree = try ReferenceTree(X, Q).init(path, .{});
+  var referenceTree = try Builder(X, Q).init(path, .{});
 
   var key = [_]u8{ 0 } ** X;
   var value: [32]u8 = undefined;
@@ -138,7 +137,7 @@ fn testIota(comptime X: usize, comptime Q: u8, comptime N: u16, expected: *const
   }
 
   var actual: [32]u8 = undefined;
-  try referenceTree.finalize(&actual);
+  _ = try referenceTree.finalize(&actual);
 
   try expectEqualSlices(u8, expected, &actual);
 

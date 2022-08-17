@@ -10,6 +10,7 @@ const Cursor = @import("./lmdb/cursor.zig").Cursor;
 const compareEntries = @import("./lmdb/compare.zig").compareEntries;
 
 const Tree = @import("./tree.zig").Tree;
+const Builder = @import("./builder.zig").Builder;
 
 const allocator = std.heap.c_allocator;
 
@@ -102,6 +103,19 @@ var app = &cli.Command{
       .action = diff,
     },
     &cli.Command{
+      .name = "rebuild",
+      .help = "rebuild the tree from the leaf layer",
+      .options = &.{ &pathOption },
+      .action = rebuild,
+    },
+
+    // &cli.Command{
+    //   .name = "insert",
+    //   .help = "insert a new leaf",
+    //   .options = &.{ &internalOption, &pathOption },
+    //   .action = insert,
+    // },
+    &cli.Command{
       .name = "get",
       .help = "get the value for a key",
       .options = &.{ &internalOption, &pathOption },
@@ -109,13 +123,13 @@ var app = &cli.Command{
     },
     &cli.Command{
       .name = "set",
-      .help = "set a key/value entry",
+      .help = "set a key/value entry (internal only)",
       .options = &.{ &internalOption, &pathOption, &verboseOption },
       .action = set,
     },
     &cli.Command{
       .name = "delete",
-      .help = "delete a key",
+      .help = "delete a key (internal only)",
       .options = &.{ &internalOption, &pathOption },
       .action = delete,
     },
@@ -219,6 +233,7 @@ fn ls(args: []const []const u8) !void {
   defer allocator.free(prefix);
 
   std.mem.set(u8, prefix, '-');
+  prefix[0] = '+';
   try stdout.print("{s}- {s} {s}\n", .{ prefix, T.printKey(&firstChild), hex(value.?) });
 
   T.setLevel(&firstChild, initialLevel - 1);
@@ -248,7 +263,10 @@ fn listChildren(
   while (child) |childKey| {
     if (T.getLevel(childKey) != level) break;
 
+    if (level > 0) prefix[prefix.len-2*depth+2] = '+';
     try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(childKey), hex(childValue.?) });
+    if (level > 0) prefix[prefix.len-2*depth+2] = '-';
+
     if (depth > 1 and level > 0) {
       var nextChild = T.getChild(childKey);
       try listChildren(prefix, cursor, &nextChild, depth - 1, log);
@@ -296,6 +314,41 @@ fn diff(args: []const []const u8) !void {
   const stdout = std.io.getStdOut().writer();
 
   _ = try compareEntries(K, V, a, b, .{ .log = stdout });
+}
+
+fn rebuild(args: []const []const u8) !void {
+  const path = pathOption.value.string orelse unreachable;
+  if (args.len > 0) {
+    fail("too many arguments", .{});
+  }
+
+  try razeTree(path);
+
+  var builder = try Builder(X, Q).init(path, .{});
+  _ = try builder.finalize(null);
+  const stdout = std.io.getStdOut().writer();
+  try stdout.print("Successfully rebuilt {s}\n", .{ path });
+}
+
+fn razeTree(path: []const u8) !void {
+  var env = try Env.open(path, .{});
+  defer env.close();
+
+  var txn = try Txn.open(env, false);
+  errdefer txn.abort();
+
+  const dbi = try txn.openDbi();
+
+  var cursor = try C.open(txn, dbi);
+
+  const firstKey = T.createKey(1, null);
+  var key = try cursor.goToKey(&firstKey);
+  while (key) |_| : (key = try cursor.goToNext()) {
+    try cursor.deleteCurrentKey();
+  }
+
+  cursor.close();
+  try txn.commit();
 }
 
 fn set(args: []const []const u8) !void {

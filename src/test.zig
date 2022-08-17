@@ -10,14 +10,14 @@ const utils = @import("./utils.zig");
 const compareEntries = @import("./lmdb/compare.zig").compareEntries;
 
 const Tree = @import("./tree.zig").Tree;
-const ReferenceTree = @import("./reference.zig").ReferenceTree;
+const Builder = @import("./builder.zig").Builder;
 
 const Options = struct {
   mapSize: usize = 10485760,
 };
 
-fn initializeReferenceTree(comptime X: usize, comptime Q: u8, comptime N: usize, path: []const u8, options: Options) !void {
-  var referenceTree = try ReferenceTree(X, Q).init(path, .{ .mapSize = options.mapSize });
+fn buildReferenceTree(comptime X: usize, comptime Q: u8, comptime N: usize, path: []const u8, options: Options) !void {
+  var referenceTree = try Builder(X, Q).init(path, .{ .mapSize = options.mapSize });
 
   var key = [_]u8{ 0 } ** X;
   var value: [32]u8 = undefined;
@@ -29,7 +29,7 @@ fn initializeReferenceTree(comptime X: usize, comptime Q: u8, comptime N: usize,
     try referenceTree.insert(&key, &value);
   }
 
-  try referenceTree.finalize(null);
+  _ = try referenceTree.finalize(null);
 }
 
 fn testPermutations(comptime X: usize, comptime Q: u8, comptime N: usize, permutations: []const [N]u16, options: Options) !void {
@@ -37,7 +37,7 @@ fn testPermutations(comptime X: usize, comptime Q: u8, comptime N: usize, permut
 
   const referencePath = try utils.resolvePath(allocator, tmp.dir, "reference.mdb");
   defer allocator.free(referencePath);
-  try initializeReferenceTree(X, Q, N, referencePath, options);
+  try buildReferenceTree(X, Q, N, referencePath, options);
 
   var nameBuffer: [32]u8 = undefined;
   var key = [_]u8{ 0 } ** X;
