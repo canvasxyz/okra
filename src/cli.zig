@@ -16,7 +16,7 @@ const allocator = std.heap.c_allocator;
 const X: comptime_int = 6;
 const K: comptime_int = 2 + X;
 const V: comptime_int = 32;
-const Q: comptime_int = 0x30;
+const Q: comptime_int = 0x42;
 
 const Env = Environment(K, V);
 const Txn = Transaction(K, V);
