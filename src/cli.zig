@@ -202,48 +202,51 @@ fn ls(args: []const []const u8) !void {
 
   var cursor = try C.open(txn, dbi);
   defer cursor.close();
-  
-  var initialLevel: u16 = 0;
-  if (level == -1) {
-    if (try cursor.goToLast()) |root| {
-      initialLevel = T.getLevel(root);
-      if (initialLevel == 0) return Error.InvalidDatabase;
-    } else {
-      fail("database not initialized", .{});
-    }
-  } else {
-    initialLevel = @intCast(u16, level);
-  }
 
-  if (depth == -1) {
-    depth = initialLevel;
-  }
+  var rootLevel: u16 = if (try cursor.goToLast()) |root| T.getLevel(root) else {
+    fail("database not initialized", .{});
+  };
+
+  if (rootLevel == 1) return Error.InvalidDatabase;
+
+  var initialLevel: u16 = if (level == -1) rootLevel else @intCast(u16, level);
+  var initialDepth: u16 = if (depth == -1 or depth > initialLevel) initialLevel else @intCast(u16, depth);
 
   var firstChild = T.createKey(initialLevel, &key);
   const value = try txn.get(dbi, &firstChild);
-  try stdout.print("- {s} {s}\n", .{ T.printKey(&firstChild), hex(value.?) });
+
+  var prefix = try allocator.alloc(u8, 2 * initialDepth);
+  std.mem.set(u8, prefix, '-');
+  try stdout.print("{s}- {s} {s}\n", .{ prefix, T.printKey(&firstChild), hex(value.?) });
 
   T.setLevel(&firstChild, initialLevel - 1);
-  var prefix = std.ArrayList(u8).init(allocator);
-  if (depth > 0) {
-    try listChildren(&prefix, &cursor, &firstChild, depth, stdout);
+
+  // var prefix = std.ArrayList(u8).init(allocator);
+  
+  if (initialDepth > 0) {
+    // try listChildren(&prefix, &cursor, &firstChild, depth, stdout);
+    try listChildren(prefix, &cursor, &firstChild, initialDepth, stdout);
   }
 }
 
 const ListChildrenError = C.Error || std.mem.Allocator.Error || std.fs.File.WriteError;
 
 fn listChildren(
-  prefix: *std.ArrayList(u8),
+  // prefix: *std.ArrayList(u8),
+  prefix: []u8,
   cursor: *C,
   firstChild: *const T.Key,
-  depth: i64,
+  depth: u16,
   log: std.fs.File.Writer,
 ) ListChildrenError!void {
-  const prefixLength = prefix.items.len;
-  try prefix.append('|');
-  try prefix.append(' ');
+  // const prefixLength = prefix.items.len;
+  // try prefix.append('|');
+  // try prefix.append(' ');
 
   const level = T.getLevel(firstChild);
+  prefix[prefix.len-2*depth] = '|';
+  prefix[prefix.len-2*depth+1] = ' ';
+
   var child = try cursor.goToKey(firstChild);
 
   var childValue = cursor.getCurrentValue();
@@ -251,7 +254,8 @@ fn listChildren(
   while (child) |childKey| {
     if (T.getLevel(childKey) != level) break;
 
-    try log.print("{s}- {s} {s}\n", .{ prefix.items, T.printKey(childKey), hex(childValue.?) });
+    // try log.print("{s}- {s} {s}\n", .{ prefix.items, T.printKey(childKey), hex(childValue.?) });
+    try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(childKey), hex(childValue.?) });
     if (depth > 1 and level > 0) {
       var nextChild = T.getChild(childKey);
       try listChildren(prefix, cursor, &nextChild, depth - 1, log);
@@ -264,7 +268,9 @@ fn listChildren(
     if (childValue) |value| if (T.isSplit(value)) break;
   }
 
-  try prefix.resize(prefixLength);
+  prefix[prefix.len-2*depth] = '-';
+  prefix[prefix.len-2*depth+1] = '-';
+  // try prefix.resize(prefixLength);
 }
 
 fn init(args: []const []const u8) !void {
