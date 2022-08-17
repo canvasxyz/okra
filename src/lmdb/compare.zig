@@ -9,19 +9,19 @@ const Options = struct {
   mapSize: usize = 10485760,
 };
 
-pub fn compareEntries(pathA: []const u8, pathB: []const u8, options: Options) !usize {
-  if (options.log) |log| try log.print("{s:-<69}\n", .{ "START DIFF " });
+pub fn compareEntries(comptime K: usize, comptime V: usize, pathA: []const u8, pathB: []const u8, options: Options) !usize {
+  if (options.log) |log| try log.print("{s:-<80}\n", .{ "START DIFF " });
 
   var differences: usize = 0;
 
-  var envA = try Environment.open(pathA, .{ .mapSize = options.mapSize });
-  var envB = try Environment.open(pathB, .{ .mapSize = options.mapSize });
-  var txnA = try Transaction.open(envA, true);
-  var txnB = try Transaction.open(envB, true);
+  var envA = try Environment(K, V).open(pathA, .{ .mapSize = options.mapSize });
+  var envB = try Environment(K, V).open(pathB, .{ .mapSize = options.mapSize });
+  var txnA = try Transaction(K, V).open(envA, true);
+  var txnB = try Transaction(K, V).open(envB, true);
   var dbiA = try txnA.openDbi();
   var dbiB = try txnB.openDbi();
-  var cursorA = try Cursor.open(txnA, dbiA);
-  var cursorB = try Cursor.open(txnB, dbiB);
+  var cursorA = try Cursor(K, V).open(txnA, dbiA);
+  var cursorB = try Cursor(K, V).open(txnB, dbiB);
 
   var keyA = try cursorA.goToFirst();
   var keyB = try cursorB.goToFirst();
@@ -88,7 +88,7 @@ pub fn compareEntries(pathA: []const u8, pathB: []const u8, options: Options) !u
     }
   }
 
-  if (options.log) |log| try log.print("{s:-<69}\n", .{ "END DIFF " });
+  if (options.log) |log| try log.print("{s:-<80}\n", .{ "END DIFF " });
 
   cursorA.close();
   cursorB.close();

@@ -2,165 +2,160 @@ const std = @import("std");
 const expect = std.testing.expect;
 const assert = std.debug.assert;
 const Sha256 = std.crypto.hash.sha2.Sha256;
+const hex = std.fmt.fmtSliceHexLower;
 
 const lmdb = @import("./lmdb/lmdb.zig").lmdb;
 const Environment = @import("./lmdb/environment.zig").Environment;
 const Transaction = @import("./lmdb/transaction.zig").Transaction;
 const Cursor = @import("./lmdb/cursor.zig").Cursor;
 
-const Key = @import("./key.zig").Key;
-
-const constants = @import("./constants.zig");
-const utils = @import("./utils.zig");
-const print = @import("./print.zig");
-
 const allocator = std.heap.c_allocator;
 
 const InsertResult = enum { delete, update };
 
-pub const TreeOptions = struct {
+const Options = struct {
   log: ?std.fs.File.Writer = null,
   mapSize: usize = 10485760,
 };
 
-pub fn Tree(comptime X: usize) type {
+pub fn Tree(comptime X: usize, comptime Q: u8) type {
+  const K = 2 + X;
+  const V = 32;
+
   return struct {
     pub const Error = error {
       KeyNotFound,
-    } || Transaction.Error || Cursor.Error || std.mem.Allocator.Error || std.os.WriteError;
+    } || Transaction(K, V).Error || Cursor(K, V).Error || std.mem.Allocator.Error || std.os.WriteError;
 
+    pub const Leaf = [X]u8;
+    pub const Key = [K]u8;
+    pub const Value = [V]u8;
     pub const Node = struct {
-      key: Key(X),
-      value: [32]u8,
+      key: [K]u8,
+      value: [V]u8,
     };
 
-    env: Environment,
+    env: Environment(K, V),
     dbi: lmdb.MDB_dbi,
-    root: Key(X),
-    parentValue: [32]u8 = constants.ZERO_HASH,
+
+    root: [K]u8,
+    parentValue: [V]u8,
     newChildren: std.ArrayList(Node),
+
     log: ?std.fs.File.Writer,
     prefix: std.ArrayList(u8),
 
-    pub fn open(path: []const u8, options: TreeOptions) !*Tree(X) {
-      const tree = try allocator.create(Tree(X));
+    pub fn open(path: []const u8, options: Options) !*Tree(X, Q) {
+      const tree = try allocator.create(Tree(X, Q));
       errdefer allocator.destroy(tree);
 
       tree.log = options.log;
       tree.newChildren = std.ArrayList(Node).init(allocator);
       tree.prefix = std.ArrayList(u8).init(allocator);
 
-      tree.env = try Environment.open(path, .{ .mapSize = options.mapSize });
-      var txn = try Transaction.open(tree.env, false);
+      tree.env = try Environment(K, V).open(path, .{ .mapSize = options.mapSize });
+      var txn = try Transaction(K, V).open(tree.env, false);
       errdefer txn.abort();
 
       tree.dbi = try txn.openDbi();
-      var cursor = try Cursor.open(txn, tree.dbi);
+      var cursor = try Cursor(K, V).open(txn, tree.dbi);
       errdefer cursor.close();
 
       if (try cursor.goToLast()) |root| {
-        assert(root.len == Key(X).SIZE);
-        std.mem.copy(u8, &tree.root.bytes, root);
-        assert(tree.root.isLeftEdge());
-        assert(tree.root.getLevel() > 0);
+        std.mem.copy(u8, &tree.root, root);
+        assert(isKeyLeftEdge(&tree.root));
+        assert(getLevel(&tree.root) > 0);
       } else {
-        std.mem.set(u8, &tree.root.bytes, 0);
-        try txn.set(tree.dbi, &tree.root.bytes, &constants.ZERO_HASH);
-        var value: [32]u8 = undefined;
+        std.mem.set(u8, &tree.root, 0);
+        var value: Value = [_]u8{ 0 } ** V;
+        try tree.set(&txn, &tree.root, &value);
         Sha256.hash(&[_]u8{}, &value, .{});
-        tree.root.setLevel(1);
-        try txn.set(tree.dbi, &tree.root.bytes, &value);
+        setLevel(&tree.root, 1);
+        try tree.set(&txn, &tree.root, &value);
       }
 
       try txn.commit();
       return tree;
     }
 
-    pub fn close(self: *Tree(X)) void {
+    pub fn close(self: *Tree(X, Q)) void {
       self.env.close();
       self.newChildren.deinit();
       allocator.destroy(self);
     }
 
-    pub fn insert(self: *Tree(X), key: *const Key(X), value: *const [32]u8) Error!void {
+    pub fn insert(self: *Tree(X, Q), leaf: *const Leaf, value: *const [V]u8) Error!void {
       if (self.log) |log| {
-        try log.print("insert {s} -> {s}\n", .{ try key.toString(), try utils.printHash(value) });
-        try log.print("root   {s}\n", .{ try self.root.toString() });
+        try log.print("insert({s}, {s})\n", .{ hex(leaf), hex(value) });
+        try log.print("root {s}\n", .{ printKey(&self.root) });
+        try self.prefix.resize(0);
+        try self.prefix.append('|');
+        try self.prefix.append(' ');
       }
 
-      var level = self.root.getLevel();
-      assert(level > 0);
+      var level = getLevel(&self.root);
 
-      var txn = try Transaction.open(self.env, false);
-      var cursor = try Cursor.open(txn, self.dbi);
+      var txn = try Transaction(K, V).open(self.env, false);
+      var cursor = try Cursor(K, V).open(txn, self.dbi);
 
-      try self.prefix.resize(0);
-      try self.prefix.append('|');
-      try self.prefix.append(' ');
-
-      const firstChild = self.root.getChild();
-      const result = switch (self.root.getLevel()) {
-        1 => try self.insertLeaf(&txn, &cursor, &firstChild, key, value),
-        else => try self.insertNode(&txn, &cursor, &firstChild, key, value, true),
+      const firstChild = getChild(&self.root);
+      const result = switch (level) {
+        0 => @panic("internal error - root key has level zero"),
+        1 => try self.insertLeaf(&txn, &cursor, &firstChild, leaf, value),
+        else => try self.insertNode(&txn, &cursor, &firstChild, leaf, value, true),
       };
 
       assert(result == InsertResult.update);
 
       if (self.log) |log| {
-        try log.print("parentValue: {s}\n", .{ try utils.printHash(&self.parentValue) });
+        try self.prefix.resize(0);
+        try log.print("new root {s} -> {s}\n", .{ printKey(&self.root), hex(&self.parentValue) });
         try log.print("newChildren: {d}\n", .{ self.newChildren.items.len });
-        for (self.newChildren.items) |node| {
-          try log.print("- {s} -> {s}\n", .{ try node.key.toString(), try utils.printHash(&node.value) });
-        }
+        for (self.newChildren.items) |node|
+          try log.print("- {s} -> {s}\n", .{ printKey(&node.key), hex(&node.value) });
       }
 
       var newChildrenCount = self.newChildren.items.len;
       while (newChildrenCount > 0) : (newChildrenCount = self.newChildren.items.len) {
-        try txn.set(self.dbi, &self.root.bytes, &self.parentValue);
-        for (self.newChildren.items) |node| {
-          try txn.set(self.dbi, &node.key.bytes, &node.value);
-        }
+        try self.set(&txn, &self.root, &self.parentValue);
+        for (self.newChildren.items) |node| try self.set(&txn, &node.key, &node.value);
 
         try self.hashRange(&cursor, &self.root, &self.parentValue);
 
-        if (self.log) |log|
-          try log.print("set new root value {s} -> {s}\n", .{ self.root.toString(), try utils.printHash(&self.parentValue) });
-
         level += 1;
-        self.root.setLevel(level);
+        setLevel(&self.root, level);
 
         for (self.newChildren.items) |newChild| {
-          if (utils.isValueSplit(&newChild.value)) {
-            var node = Node{ .key = newChild.key.getParent(), .value = undefined };
+          if (isSplit(&newChild.value)) {
+            var node = Node{ .key = getParent(&newChild.key), .value = undefined };
             try self.hashRange(&cursor, &newChild.key, &node.value);
             try self.newChildren.append(node);
           }
         }
 
         try self.newChildren.replaceRange(0, newChildrenCount, &.{});
-      }
-
-      try txn.set(self.dbi, &self.root.bytes, &self.parentValue);
-
-      var lastKey = try cursor.goToLast();
-      if (lastKey) |bytes| {
-        const k = @ptrCast(*const Key(X), bytes.ptr);
         if (self.log) |log| {
-          try log.print("lastKey: {s}\n", .{ k.toString() });
+          try log.print("new root {s} -> {s}\n", .{ printKey(&self.root), hex(&self.parentValue) });
+          try log.print("newChildren: {d}\n", .{ self.newChildren.items.len });
+          for (self.newChildren.items) |node|
+            try log.print("- {s} -> {s}\n", .{ printKey(&node.key), hex(&node.value) });
         }
-      } else {
-        @panic("internal error: no last key");
       }
 
-      while (try cursor.goToPrevious()) |previousKeyBytes| {
-        assert(previousKeyBytes.len == Key(X).SIZE);
-        const previousKey = @ptrCast(*const Key(X), previousKeyBytes);
-        if (previousKey.isLeftEdge()) {
-          const newRoot = previousKey.clone();
-          if (self.log) |log| try log.print("deleting root key: {s}\n", .{ try self.root.toString() });
-          try txn.delete(self.dbi, &self.root.bytes);
-          std.mem.copy(u8, &self.root.bytes, &newRoot.bytes);
-          if (self.log) |log| try log.print("replaced root key: {s}\n", .{ try self.root.toString() });
+      try self.set(&txn, &self.root, &self.parentValue);
+
+      if (try cursor.goToLast()) |lastKey| {
+        if (self.log) |log| try log.print("last key: {s}\n", .{ printKey(lastKey) });
+      } else {
+        @panic("internal error: cursor.goToLast() returned null");
+      }
+
+      while (try cursor.goToPrevious()) |previousKey| {
+        if (isKeyLeftEdge(previousKey)) {
+          const newRoot = createKey(getLevel(previousKey), getLeaf(previousKey));
+          try self.delete(&txn, &self.root);
+          std.mem.copy(u8, &self.root, &newRoot);
+          if (self.log) |log| try log.print("replaced root key: {s}\n", .{ printKey(&self.root) });
         } else {
           break;
         }
@@ -171,33 +166,28 @@ pub fn Tree(comptime X: usize) type {
     }
 
     fn insertLeaf(
-      self: *Tree(X),
-      txn: *Transaction,
-      cursor: *Cursor,
-      firstChild: *const Key(X),
-      key: *const Key(X),
-      value: *const [32]u8,
+      self: *Tree(X, Q),
+      txn: *Transaction(K, V),
+      cursor: *Cursor(K, V),
+      firstChild: *const Key,
+      leaf: *const Leaf,
+      value: *const Value,
     ) Error!InsertResult {
-
       if (self.log) |log| {
         try log.print("{s}insertLeaf\n", .{ self.prefix.items });
-        try log.print("{s}firstChild {s}\n", .{ self.prefix.items, try firstChild.toString() });
+        try log.print("{s}firstChild {s}\n", .{ self.prefix.items, printKey(firstChild) });
       }
 
-      assert(firstChild.getLevel() == 0);
-      assert(firstChild.lessThan(key));
-      assert(key.getLevel() == 0);
-      
-      if (self.log) |log|
-        try log.print("{s}insert key {s} -> {s}\n", .{ self.prefix.items, try key.toString(), try utils.printHash(value) });
+      assert(getLevel(firstChild) == 0);
+      assert(lessThan(getLeaf(firstChild), leaf));
 
-      try txn.set(self.dbi, &key.bytes, value);
-
+      const key = createKey(0, leaf);
+      try self.set(txn, &key, value);
       try self.hashRange(cursor, firstChild, &self.parentValue);
 
-      if (utils.isValueSplit(value)) {
-        var node = Node{ .key = key.getParent(), .value = constants.ZERO_HASH };
-        try self.hashRange(cursor, key, &node.value);
+      if (isSplit(value)) {
+        var node = Node{ .key = getParent(&key), .value = undefined };
+        try self.hashRange(cursor, &key, &node.value);
         try self.newChildren.append(node);
       }
 
@@ -205,43 +195,47 @@ pub fn Tree(comptime X: usize) type {
     }
 
     fn insertNode(
-      self: *Tree(X),
-      txn: *Transaction,
-      cursor: *Cursor,
-      firstChild: *const Key(X),
-      key: *const Key(X),
-      value: *const [32]u8,
+      self: *Tree(X, Q),
+      txn: *Transaction(K, V),
+      cursor: *Cursor(K, V),
+      firstChild: *const Key,
+      leaf: *const Leaf,
+      value: *const Value,
       isLeftEdge: bool,
     ) Error!InsertResult {
-      if (self.log) |log| try log.print("{s}firstChild {s}\n", .{ self.prefix.items, try firstChild.toString() });
+      if (self.log) |log| {
+        try log.print("{s}insertNode\n", .{ self.prefix.items });
+        try log.print("{s}firstChild {s}\n", .{ self.prefix.items, printKey(firstChild) });
+      }
 
-      const level = firstChild.getLevel();
+      const level = getLevel(firstChild);
       assert(level > 0);
-      assert(firstChild.lessThan(key));
+      assert(lessThan(getLeaf(firstChild), leaf));
 
-      const targetKey = try self.findTargetKey(cursor, firstChild, key);
-      if (self.log) |log| try log.print("{s}targetKey  {s}\n", .{ self.prefix.items, try targetKey.toString() });
+      const targetKey = try self.findTargetKey(cursor, firstChild, leaf);
+      if (self.log) |log| try log.print("{s}targetKey  {s}\n", .{ self.prefix.items, printKey(&targetKey) });
 
-      const isFirstChild = std.mem.eql(u8, &targetKey.bytes, &firstChild.bytes);
+      const isFirstChild = std.mem.eql(u8, &targetKey, firstChild);
       if (self.log) |log| try log.print("{s}isFirstChild {d}\n", .{ self.prefix.items, isFirstChild });
 
       const depth = self.prefix.items.len;
-      try self.prefix.append('|');
-      try self.prefix.append(' ');
+      if (self.log != null) {
+        try self.prefix.append('|');
+        try self.prefix.append(' ');
+      }
 
       const result = switch (level) {
-        1 => try self.insertLeaf(txn, cursor, &targetKey.getChild(), key, value),
-        else => try self.insertNode(txn, cursor, &targetKey.getChild(), key, value, isLeftEdge and isFirstChild),
+        1 => try self.insertLeaf(txn, cursor, &getChild(&targetKey), leaf, value),
+        else => try self.insertNode(txn, cursor, &getChild(&targetKey), leaf, value, isLeftEdge and isFirstChild),
       };
 
-      try self.prefix.resize(depth);
-
-      if (self.log) |log| switch (result) {
-        InsertResult.delete =>
-          try log.print("{s}delete key {s}\n", .{ self.prefix.items, targetKey.toString() }),
-        InsertResult.update =>
-          try log.print("{s}update key {s} -> {s}\n", .{self.prefix.items, targetKey.toString(), utils.printHash(&self.parentValue) }),
-      };
+      if (self.log) |log| {
+        try self.prefix.resize(depth);
+        switch (result) {
+          InsertResult.delete => try log.print("{s}result: delete\n", .{ self.prefix.items }),
+          InsertResult.update => try log.print("{s}result: update\n", .{ self.prefix.items }),
+        }
+      }
 
       const oldChildrenCount = self.newChildren.items.len;
 
@@ -252,36 +246,33 @@ pub fn Tree(comptime X: usize) type {
           assert(isLeftEdge == false or isFirstChild == false);
 
           const previousChild = try self.goToPreviousChild(txn, cursor, &targetKey);
-          const previousGrandChild = previousChild.getChild();
+          const previousGrandChild = getChild(&previousChild);
           if (self.log) |log| {
-            try log.print("{s}previousChild {s}\n", .{ self.prefix.items, previousChild.toString() });
-            try log.print("{s}previousGrandChild {s}\n", .{ self.prefix.items, previousGrandChild.toString() });
+            try log.print("{s}previousChild {s}\n", .{ self.prefix.items, printKey(&previousChild) });
+            try log.print("{s}previousGrandChild {s}\n", .{ self.prefix.items, printKey(&previousGrandChild) });
           }
 
-          for (self.newChildren.items) |node| {
-            try txn.set(self.dbi, &node.key.bytes, &node.value);
-          }
+          for (self.newChildren.items) |node| try self.set(txn, &node.key, &node.value);
 
-          if (self.log) |log| try log.print("{s}deleting {s}\n", .{ self.prefix.items, targetKey.toString() });
-          try txn.delete(self.dbi, &targetKey.bytes);
+          try self.delete(txn, &targetKey);
           
-          var previousChildValue: [32]u8 = undefined;
+          var previousChildValue: Value = undefined;
           try self.hashRange(cursor, &previousGrandChild, &previousChildValue);
-          try txn.set(self.dbi, &previousChild.bytes, &previousChildValue);
+          try self.set(txn, &previousChild, &previousChildValue);
 
-          if (isFirstChild or previousChild.lessThan(firstChild)) {
+          if (isFirstChild or lessThan(getLeaf(&previousChild), getLeaf(firstChild))) {
             // if target is the first child, then we also have to delete our parent.
-            if (utils.isValueSplit(&previousChildValue)) {
-              var node = Node{ .key = previousChild.getParent(), .value = undefined };
+            if (isSplit(&previousChildValue)) {
+              var node = Node{ .key = getParent(&previousChild), .value = undefined };
               try self.hashRange(cursor, &previousChild, &node.value);
               try self.newChildren.append(node);
             }
 
             parentResult = InsertResult.delete;
-          } else if (previousChild.equals(firstChild)) {
+          } else if (std.mem.eql(u8, &previousChild, firstChild)) {
             // if the target is not the first child, we still need to check if the previous child
             // was the first child.
-            if (isLeftEdge or utils.isValueSplit(&previousChildValue)) {
+            if (isLeftEdge or isSplit(&previousChildValue)) {
               parentResult = InsertResult.update;
               try self.hashRange( cursor, firstChild, &self.parentValue);
             } else {
@@ -289,24 +280,22 @@ pub fn Tree(comptime X: usize) type {
             }
           } else {
             parentResult = InsertResult.update;
-            try self.hashRange( cursor, firstChild, &self.parentValue);
-            if (utils.isValueSplit(&previousChildValue)) {
-              var node = Node{ .key = previousChild.getParent(), .value = undefined };
+            try self.hashRange(cursor, firstChild, &self.parentValue);
+            if (isSplit(&previousChildValue)) {
+              var node = Node{ .key = getParent(&previousChild), .value = undefined };
               try self.hashRange(cursor, &previousChild, &node.value);
               try self.newChildren.append(node);
             }
           }
         },
         InsertResult.update => {
-          const isTargetSplit = utils.isValueSplit(&self.parentValue);
-          try txn.set(self.dbi, &targetKey.bytes, &self.parentValue);
+          try self.set(txn, &targetKey, &self.parentValue);
 
+          for (self.newChildren.items) |node| try self.set(txn, &node.key, &node.value);
+          
+          const isTargetSplit = isSplit(&self.parentValue);
           if (self.log) |log|
             try log.print("{s}isTargetSplit {d}\n", .{ self.prefix.items, isTargetSplit });
-
-          for (self.newChildren.items) |node| {
-            try txn.set(self.dbi, &node.key.bytes, &node.value);
-          }
 
           if (isFirstChild) {
             // isFirstChild means either targetKey's original value was already a split, or isLeftEdge is true.
@@ -324,7 +313,7 @@ pub fn Tree(comptime X: usize) type {
 
             if (isTargetSplit) {
               // create a parent of targetKey to add to newChildren
-              var node = Node{ .key = targetKey.getParent(), .value = undefined };
+              var node = Node{ .key = getParent(&targetKey), .value = undefined };
               try self.hashRange(cursor, &targetKey, &node.value);
               try self.newChildren.append(node);
             }
@@ -333,8 +322,8 @@ pub fn Tree(comptime X: usize) type {
       }
 
       for (self.newChildren.items[0..oldChildrenCount]) |oldChild| {
-        if (utils.isValueSplit(&oldChild.value)) {
-          var newChild = Node{ .key = oldChild.key.getParent(), .value = undefined };
+        if (isSplit(&oldChild.value)) {
+          var newChild = Node{ .key = getParent(&oldChild.key), .value = undefined };
           try self.hashRange(cursor, &oldChild.key, &newChild.value);
           try self.newChildren.append(newChild);
         }
@@ -345,70 +334,64 @@ pub fn Tree(comptime X: usize) type {
       return parentResult;
     }
 
-    fn goToPreviousChild(self: *const Tree(X), txn: *Transaction, cursor: *Cursor, targetKey: *const Key(X)) !Key(X) {
-      _ = try cursor.goToKey(&targetKey.bytes);
-      while (try cursor.goToPrevious()) |previousBytes| {
-        const previousChild = @ptrCast(*const Key(X), previousBytes);
-        const previousGrandChild = previousChild.getChild();
-        if (try txn.get(self.dbi, &previousGrandChild.bytes)) |previousGrandChildValue| {
-          assert(previousGrandChildValue.len == 32);
-          if (utils.isValueSplit(previousGrandChildValue) or previousGrandChild.isLeftEdge()) {
-            return previousChild.clone();
+    fn goToPreviousChild(self: *Tree(X, Q), txn: *Transaction(K, V), cursor: *Cursor(K, V), targetKey: *const Key) !Key {
+      if (try cursor.goToKey(targetKey)) |_| {
+        while (try cursor.goToPrevious()) |previousChild| {
+          const previousGrandChild = getChild(previousChild);
+          if (try self.get(txn, &previousGrandChild)) |previousGrandChildValue| {
+            if (isSplit(previousGrandChildValue) or isKeyLeftEdge(&previousGrandChild)) {
+              return createKey(getLevel(previousChild), getLeaf(previousChild));
+            }
           }
-        }
 
-        try txn.delete(self.dbi, previousBytes);
+          try self.delete(txn, previousChild);
+        }
       }
 
       return Error.KeyNotFound;
     }
 
-    fn findTargetKey(_: *const Tree(X), cursor: *Cursor, firstChild: *const Key(X), key: *const Key(X)) !Key(X) {
-      const level = firstChild.getLevel();
+    fn findTargetKey(_: *const Tree(X, Q), cursor: *Cursor(K, V), firstChild: *const Key, leaf: *const Leaf) !Key {
+      const level = getLevel(firstChild);
       assert(level > 0);
 
-      _ = (try cursor.goToKey(&firstChild.bytes)) orelse return Tree(X).Error.KeyNotFound;
-      var previousChild = firstChild.clone();
-      var next = try cursor.goToNext();
-      while (next) |bytes| : (next = try cursor.goToNext()) {
-        assert(bytes.len == Key(X).SIZE);
-        const currentChild = @ptrCast(*const Key(X), bytes);
-        if (currentChild.getLevel() != level or key.lessThan(currentChild)) {
-          return previousChild;
-        } else {
-          previousChild.setData(currentChild.getData());
+      if (try cursor.goToKey(firstChild)) |_| {
+        var previousChild = createKey(level, getLeaf(firstChild));
+        while (try cursor.goToNext()) |currentChild| {
+          if (getLevel(currentChild) != level or lessThan(leaf, getLeaf(currentChild))) {
+            return previousChild;
+          } else {
+            setLeaf(&previousChild, getLeaf(currentChild));
+          }
         }
-      }
 
-      return previousChild;
+        return previousChild;
+      } else {
+        return Error.KeyNotFound;
+      }
     }
 
-    fn hashRange(self: *const Tree(X), cursor: *Cursor, firstChild: *const Key(X), hash: *[32]u8) !void {
+    fn hashRange(self: *const Tree(X, Q), cursor: *Cursor(K, V), firstChild: *const Key, hash: *Value) !void {
       if (self.log) |log|
-        try log.print("{s}hash range {s}\n", .{ self.prefix.items, firstChild.toString() });
+        try log.print("{s}hashRange({s})\n", .{ self.prefix.items, printKey(firstChild) });
 
-      const level = firstChild.getLevel();
+      const level = getLevel(firstChild);
 
-      var digest = Sha256.init(.{});
-      var child = try cursor.goToKey(&firstChild.bytes);
-      assert(child != null);
-
-      var key = @ptrCast(*const Key(X), child.?.ptr);
+      _ = try cursor.goToKey(firstChild);
       var value = cursor.getCurrentValue().?;
 
+      var digest = Sha256.init(.{});
+
       if (self.log) |log|
-        try log.print("{s}-- hashing {s} -> {s}\n", .{ self.prefix.items, try key.toString(), try utils.printHash(value) });
+        try log.print("{s}- hashing {s} -> {s}\n", .{ self.prefix.items, printKey(firstChild), hex(value) });
+
       digest.update(value);
 
-      while (try cursor.goToNext()) |bytes| {
-        assert(bytes.len == Key(X).SIZE);
-        key = @ptrCast(*const Key(X), bytes.ptr);
+      while (try cursor.goToNext()) |key| {
         value = cursor.getCurrentValue().?;
-        assert(value.len == 32);
-
-        if (key.getLevel() == level and !utils.isValueSplit(value)) {
+        if (getLevel(key) == level and !isSplit(value)) {
           if (self.log) |log|
-            try log.print("{s}-- hashing {s} -> {s}\n", .{ self.prefix.items, try key.toString(), try utils.printHash(value) });
+            try log.print("{s}- hashing {s} -> {s}\n", .{ self.prefix.items, printKey(key), hex(value) });
 
           digest.update(value);
         } else {
@@ -418,7 +401,80 @@ pub fn Tree(comptime X: usize) type {
 
       digest.final(hash);
       if (self.log) |log|
-        try log.print("{s}------------------------------- {s}\n", .{ self.prefix.items, try utils.printHash(hash) });
+        try log.print("{s}--------------------------- {s}\n", .{ self.prefix.items, hex(hash) });
+    }
+
+
+    var printKeyBuffer: [2+1+2*X]u8 = undefined;
+    fn printKey(key: *const Key) []u8 {
+      return std.fmt.bufPrint(&printKeyBuffer, "{d}:{s}", .{ getLevel(key), hex(getLeaf(key)) }) catch unreachable;
+    }
+
+    fn set(self: *Tree(X, Q), txn: *Transaction(K, V), key: *const Key, value: *const Value) !void {
+      if (self.log) |log|
+        try log.print("{s}txn.set({s}, {s})\n", .{ self.prefix.items, hex(key), hex(value) });
+
+      try txn.set(self.dbi, key, value);
+    }
+
+    fn delete(self: *Tree(X, Q), txn: *Transaction(K, V), key: *const Key) !void {
+      if (self.log) |log|
+        try log.print("{s}txn.delete({s})\n", .{ self.prefix.items, hex(key) });
+
+      try txn.delete(self.dbi, key);
+    }
+
+    fn get(self: *const Tree(X, Q), txn: *Transaction(K, V), key: *const Key) !?*Value {
+      return txn.get(self.dbi, key);
+    }
+
+    // key utils
+    fn setLevel(key: *Key, level: u16) void {
+      std.mem.writeIntBig(u16, key[0..2], level);
+    }
+
+    fn getLevel(key: *const Key) u16 {
+      return std.mem.readIntBig(u16, key[0..2]);
+    }
+
+    fn isKeyLeftEdge(key: *const Key) bool {
+      for (key[2..]) |byte| if (byte != 0) return false;
+      return true;
+    }
+
+    fn getLeaf(key: *const Key) *const Leaf {
+      return key[2..];
+    }
+
+    fn setLeaf(key: *Key, leaf: *const Leaf) void {
+      std.mem.copy(u8, key[2..], leaf);
+    }
+
+    fn createKey(level: u16, leaf: *const Leaf) Key {
+      var key: Key = undefined;
+      setLevel(&key, level);
+      setLeaf(&key, leaf);
+      return key;
+    }
+
+    fn getChild(key: *const Key) Key {
+      const level = getLevel(key);
+      assert(level > 0);
+      return createKey(level - 1, getLeaf(key));
+    }
+
+    fn getParent(key: *const Key) Key {
+      const level = getLevel(key);
+      return createKey(level + 1, getLeaf(key));
+    }
+
+    fn lessThan(a: *const Leaf, b: *const Leaf) bool {
+      return std.mem.lessThan(u8, a, b);
+    }
+
+    // value utils
+    fn isSplit(value: *const Value) bool {
+      return value[0] < Q;
     }
   };
 }

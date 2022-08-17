@@ -1,5 +1,4 @@
 const std = @import("std");
-const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 
@@ -7,36 +6,18 @@ const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const allocator = std.heap.c_allocator;
 
-const EnvironmentOptions = @import("./lmdb/environment.zig").EnvironmentOptions;
+const utils = @import("./utils.zig");
 const compareEntries = @import("./lmdb/compare.zig").compareEntries;
 
 const Tree = @import("./tree.zig").Tree;
-const Key = @import("./key.zig").Key;
 const ReferenceTree = @import("./reference.zig").ReferenceTree;
 
-test "create and set properties of keys" {
-  comptime {
-    try expectEqual(8, @sizeOf(Key(6)));
-  }
+const Options = struct {
+  mapSize: usize = 10485760,
+};
 
-  const data = [_]u8{ 0x40, 0x21, 0x09, 0x12, 0x00, 0x00 };
-  const key = Key(6).create(100, &data);
-  try expectEqual(@as(u16, 100), key.getLevel());
-  try expectEqualSlices(u8, &data, key.getData());
-
-  try expectEqualSlices(u8, "0064:402109120000", try key.toString());
-}
-
-var buffer: [4096]u8 = undefined;
-
-fn resolvePath(dir: std.fs.Dir, name: []const u8) ![]u8 {
-  const tmpPath = try dir.realpath(".", &buffer);
-  const path = try std.fs.path.resolve(allocator, &[_][]const u8{ tmpPath, name });
-  return path;
-}
-
-fn initializeReferenceTree(comptime X: usize, comptime N: usize, path: []const u8, options: EnvironmentOptions) !void {
-  var referenceTree = try ReferenceTree(X).init(path, options);
+fn initializeReferenceTree(comptime X: usize, comptime Q: u8, comptime N: usize, path: []const u8, options: Options) !void {
+  var referenceTree = try ReferenceTree(X, Q).init(path, .{ .mapSize = options.mapSize });
 
   var key = [_]u8{ 0 } ** X;
   var value: [32]u8 = undefined;
@@ -48,41 +29,38 @@ fn initializeReferenceTree(comptime X: usize, comptime N: usize, path: []const u
     try referenceTree.insert(&key, &value);
   }
 
-  try referenceTree.finalize();
+  try referenceTree.finalize(null);
 }
 
-fn testPermutations(comptime X: usize, comptime N: usize, permutations: []const [N]u16, options: EnvironmentOptions) !void {
-  // const stdout = std.io.getStdOut().writer();
-  // try stdout.print("\n", .{});
+fn testPermutations(comptime X: usize, comptime Q: u8, comptime N: usize, permutations: []const [N]u16, options: Options) !void {
   var tmp = std.testing.tmpDir(.{});
 
-  const referencePath = try resolvePath(tmp.dir, "reference.mdb");
+  const referencePath = try utils.resolvePath(allocator, tmp.dir, "reference.mdb");
   defer allocator.free(referencePath);
-  try initializeReferenceTree(X, N, referencePath, options);
+  try initializeReferenceTree(X, Q, N, referencePath, options);
 
   var nameBuffer: [32]u8 = undefined;
   var key = [_]u8{ 0 } ** X;
   var value: [32]u8 = undefined;
   for (permutations) |permutation, p| {
     const name = try std.fmt.bufPrint(&nameBuffer, "p{d}.{x}.mdb", .{ N, p });
-    const path = try resolvePath(tmp.dir, name);
+    const path = try utils.resolvePath(allocator, tmp.dir, name);
     defer allocator.free(path);
-    var tree = try Tree(X).open(path, .{ .mapSize = options.mapSize });
+    var tree = try Tree(X, Q).open(path, .{ .mapSize = options.mapSize });
     for (permutation) |i| {
       std.mem.writeIntBig(u16, key[(X-2)..X], i + 1);
       Sha256.hash(&key, &value, .{});
-      const k = Key(X).create(0, &key);
-      try tree.insert(&k, &value);
+      try tree.insert(&key, &value);
     }
 
     tree.close();
-    try expectEqual(@as(usize, 0), try compareEntries(referencePath, path, .{}));
+    try expectEqual(@as(usize, 0), try compareEntries(2+X, 32, referencePath, path, .{}));
   }
 
   tmp.cleanup();
 }
 
-test "permutations of 10" {
+test "Tree(6, 0x30) on permutations of 10" {
   const permutations = [_][10]u16{
     .{4, 6, 7, 2, 5, 1, 8, 3, 9, 0},
     .{5, 0, 8, 2, 9, 3, 4, 7, 6, 1},
@@ -90,10 +68,10 @@ test "permutations of 10" {
     .{1, 7, 6, 5, 8, 3, 4, 2, 0, 9},
   };
 
-  try testPermutations(6, 10, &permutations, .{});
+  try testPermutations(6, 0x30, 10, &permutations, .{ });
 }
 
-test "permutations of 100" {
+test "Tree(6, 0x30) on permutations of 100" {
   const permutations = [_][100]u16{
     .{
       0, 74, 33, 97, 25, 91, 77, 29, 83, 1, 24, 86, 35, 11, 7, 48, 60, 21, 96, 68, 59, 12, 78, 17, 98, 43, 46, 76, 9, 73,
@@ -121,10 +99,10 @@ test "permutations of 100" {
     },
   };
 
-  try testPermutations(6, 100, &permutations, .{});
+  try testPermutations(6, 0x30, 100, &permutations, .{});
 }
 
-test "permutations of 1000" {
+test "Tree(6, 0x30) on permutations of 1000" {
   const permutations = [_][1000]u16{
     .{
       921, 66, 52, 37, 729, 984, 275, 690, 654, 810, 869, 226, 946, 430, 345, 768, 286, 914, 440, 30, 694, 666, 236, 811,
@@ -308,10 +286,10 @@ test "permutations of 1000" {
     }
   };
 
-  try testPermutations(6, 1000, &permutations, .{});
+  try testPermutations(6, 0x30, 1000, &permutations, .{});
 }
 
-test "test randomly shuffled permutations of 10000" {
+test "Tree(6, 0x30) on randomly shuffled permutations of 10000" {
   var permutations: [1][10000]u16 = undefined;
   var i: u16 = 0;
   while (i < 10000) : (i += 1) permutations[0][i] = i;
@@ -319,5 +297,5 @@ test "test randomly shuffled permutations of 10000" {
   var random = std.rand.DefaultPrng.init(0x0000000000000000).random();
   std.rand.Random.shuffle(random, u16, &permutations[0]);
 
-  try testPermutations(6, 10000, &permutations, .{ .mapSize = 2 * 1024 * 1024 * 1024});
+  try testPermutations(6, 0x30, 10000, &permutations, .{ .mapSize = 2 * 1024 * 1024 * 1024});
 }

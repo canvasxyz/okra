@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const hex = std.fmt.fmtSliceHexLower;
 
 const cli = @import("zig-cli");
 
@@ -9,11 +10,6 @@ const Cursor = @import("./lmdb/cursor.zig").Cursor;
 const compareEntries = @import("./lmdb/compare.zig").compareEntries;
 
 const Tree = @import("./tree.zig").Tree;
-const Key = @import("./key.zig").Key;
-
-const printEntries = @import("./print.zig").printEntries;
-const utils = @import("./utils.zig");
-const constants = @import("./constants.zig");
 
 const allocator = std.heap.c_allocator;
 
@@ -61,7 +57,9 @@ var levelOption = cli.Option{
 };
 
 const X: comptime_int = 6;
-const KEY_SIZE = Key(X).SIZE;
+const K: comptime_int = 2 + X;
+const V: comptime_int = 32;
+const Q: comptime_int = 0x30;
 
 var app = &cli.Command{
   .name = "okra",
@@ -116,37 +114,33 @@ fn cat(args: []const []const u8) !void {
 
   const stdout = std.io.getStdOut().writer();
 
-  var env = try Environment.open(path, .{});
+  var env = try Environment(K, V).open(path, .{});
   defer env.close();
 
-  var txn = try Transaction.open(env, true);
+  var txn = try Transaction(K, V).open(env, true);
   defer txn.abort();
 
   const dbi = try txn.openDbi();
 
-  var cursor = try Cursor.open(txn, dbi);
+  var cursor = try Cursor(K, V).open(txn, dbi);
   defer cursor.close();
 
   if (internal) {
     var next = try cursor.goToFirst();
     while (next) |key| : (next = try cursor.goToNext()) {
-      if (key.len != KEY_SIZE) return Error.InvalidDatabase;
       const value = cursor.getCurrentValue() orelse @panic("internal error: no value for key");
-      if (value.len != 32) return Error.InvalidDatabase;
-      try stdout.print("{s} {s}\n", .{ std.fmt.fmtSliceHexLower(key), std.fmt.fmtSliceHexLower(value) });
+      try stdout.print("{s} {s}\n", .{ hex(key), hex(value) });
     }
   } else {
-    const anchorKey = [_]u8{ 0 } ** KEY_SIZE;
+    const anchorKey = [_]u8{ 0 } ** K;
     if (try cursor.goToFirst()) |firstKey| {
       if (!std.mem.eql(u8, firstKey, &anchorKey)) return Error.InvalidDatabase;
       const firstValue = cursor.getCurrentValue() orelse return Error.InvalidDatabase;
-      if (!std.mem.eql(u8, firstValue, &constants.ZERO_HASH)) return Error.InvalidDatabase;
+      if (!isZero(firstValue)) return Error.InvalidDatabase;
       while (try cursor.goToNext()) |key| {
-        if (key.len != KEY_SIZE) return Error.InvalidDatabase;
         if (std.mem.readIntBig(u16, key[0..2]) > 0) break;
         const value = cursor.getCurrentValue() orelse @panic("internal error: no value for key");
-        if (value.len != 32) return Error.InvalidDatabase;
-        try stdout.print("{s} {s}\n", .{ std.fmt.fmtSliceHexLower(key[2..]), std.fmt.fmtSliceHexLower(value) });
+        try stdout.print("{s} {s}\n", .{ hex(key[2..]), hex(value) });
       }
     }
   }
@@ -159,7 +153,7 @@ fn init(args: []const []const u8) !void {
     fail("too many arguments", .{});
   }
 
-  var tree = try Tree(X).open(path, .{});
+  var tree = try Tree(X, Q).open(path, .{});
   tree.close();
 }
 
@@ -178,7 +172,7 @@ fn diff(args: []const []const u8) !void {
 
   const stdout = std.io.getStdOut().writer();
 
-  _ = try compareEntries(a, b, .{ .log = stdout });
+  _ = try compareEntries(K, V, a, b, .{ .log = stdout });
 }
 
 fn set(args: []const []const u8) !void {
@@ -193,33 +187,33 @@ fn set(args: []const []const u8) !void {
     fail("too many arguments", .{});
   }
 
-  const key = args[0];
-  const value = args[1];
+  const keyArg = args[0];
+  const valueArg = args[1];
 
-  const keySize: usize = if (internal) KEY_SIZE else X;
-  if (key.len != 2 * keySize) {
+  const keySize: usize = if (internal) K else X;
+  if (keyArg.len != 2 * keySize) {
     fail("invalid key size - expected exactly {d} hex bytes", .{ keySize });
-  } else if (value.len != 64) {
-    fail("invalid value size - expected exactly 32 hex bytes", .{ });
+  } else if (valueArg.len != 2 * V) {
+    fail("invalid value size - expected exactly {d} hex bytes", .{ V });
   }
 
-  var env = try Environment.open(path, .{});
+  var env = try Environment(K, V).open(path, .{});
   defer env.close();
-  var txn = try Transaction.open(env, false);
+  var txn = try Transaction(K, V).open(env, false);
   errdefer txn.abort();
   const dbi = try txn.openDbi();
 
-  var valueBytes = [_]u8{ 0 } ** 32;
-  _ = try std.fmt.hexToBytes(&valueBytes, value);
+  var value = [_]u8{ 0 } ** V;
+  _ = try std.fmt.hexToBytes(&value, valueArg);
 
-  var keyBytes = [_]u8{ 0 } ** KEY_SIZE;
+  var key = [_]u8{ 0 } ** K;
   if (internal) {
-    _ = try std.fmt.hexToBytes(&keyBytes, key);
+    _ = try std.fmt.hexToBytes(&key, keyArg);
   } else {
-    _ = try std.fmt.hexToBytes(keyBytes[2..], key);
+    _ = try std.fmt.hexToBytes(key[2..], keyArg);
   }
 
-  try txn.set(dbi, &keyBytes, &valueBytes);
+  try txn.set(dbi, &key, &value);
   try txn.commit();
 }
 
@@ -233,31 +227,29 @@ fn get(args: []const []const u8) !void {
     fail("too many arguments", .{});
   }
 
-  const key = args[0];
-  const keySize: usize = if (internal) KEY_SIZE else X;
-  if (key.len != 2 * keySize) {
+  const keyArg = args[0];
+  const keySize: usize = if (internal) K else X;
+  if (keyArg.len != 2 * keySize) {
     fail("invalid key size - expected exactly {d} hex bytes", .{ keySize });
   }
 
   const stdout = std.io.getStdOut().writer();
 
-  var env = try Environment.open(path, .{});
+  var env = try Environment(K, V).open(path, .{});
   defer env.close();
-  var txn = try Transaction.open(env, true);
+  var txn = try Transaction(K, V).open(env, true);
   defer txn.abort();
   const dbi = try txn.openDbi();
 
-  var bytes = [_]u8{ 0 } ** KEY_SIZE;
-
+  var key = [_]u8{ 0 } ** K;
   if (internal) {
-    _ = try std.fmt.hexToBytes(&bytes, key);
+    _ = try std.fmt.hexToBytes(&key, keyArg);
   } else {
-    _ = try std.fmt.hexToBytes(bytes[2..], key);
+    _ = try std.fmt.hexToBytes(key[2..], keyArg);
   }
 
-  if (try txn.get(dbi, &bytes)) |value| {
-    if (value.len != 32) return Error.InvalidDatabase;
-    try stdout.print("{s}\n", .{ std.fmt.fmtSliceHexLower(value) });
+  if (try txn.get(dbi, &key)) |value| {
+    try stdout.print("{s}\n", .{ hex(value) });
   }
 }
 
@@ -274,21 +266,21 @@ fn delete(args: []const []const u8) !void {
     fail("too many arguments", .{});
   }
 
-  const key = args[0];
-  const keySize = KEY_SIZE;
-  if (key.len != 2 * keySize) {
+  const keyArg = args[0];
+  const keySize = K;
+  if (keyArg.len != 2 * keySize) {
     fail("invalid key size - expected exactly {d} hex bytes", .{ keySize });
   }
 
-  var env = try Environment.open(path, .{});
+  var env = try Environment(K, V).open(path, .{});
   defer env.close();
-  var txn = try Transaction.open(env, false);
+  var txn = try Transaction(K, V).open(env, false);
   errdefer txn.abort();
   const dbi = try txn.openDbi();
   
-  var bytes = [_]u8{ 0 } ** KEY_SIZE;
-  _ = try std.fmt.hexToBytes(&bytes, key);
-  try txn.delete(dbi, &bytes);
+  var key = [_]u8{ 0 } ** K;
+  _ = try std.fmt.hexToBytes(&key, keyArg);
+  try txn.delete(dbi, &key);
   try txn.commit();
 }
 
@@ -306,4 +298,9 @@ fn fail(comptime fmt: []const u8, args: anytype) noreturn {
   std.fmt.format(w, fmt, args) catch unreachable;
   std.fmt.format(w, "\n", .{}) catch unreachable;
   std.os.exit(1);
+}
+
+fn isZero(data: []const u8) bool {
+  for (data) |byte| if (byte != 0) return false;
+  return true;
 }
