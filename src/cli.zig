@@ -216,15 +216,14 @@ fn ls(args: []const []const u8) !void {
   const value = try txn.get(dbi, &firstChild);
 
   var prefix = try allocator.alloc(u8, 2 * initialDepth);
+  defer allocator.free(prefix);
+
   std.mem.set(u8, prefix, '-');
   try stdout.print("{s}- {s} {s}\n", .{ prefix, T.printKey(&firstChild), hex(value.?) });
 
   T.setLevel(&firstChild, initialLevel - 1);
 
-  // var prefix = std.ArrayList(u8).init(allocator);
-  
   if (initialDepth > 0) {
-    // try listChildren(&prefix, &cursor, &firstChild, depth, stdout);
     try listChildren(prefix, &cursor, &firstChild, initialDepth, stdout);
   }
 }
@@ -232,17 +231,12 @@ fn ls(args: []const []const u8) !void {
 const ListChildrenError = C.Error || std.mem.Allocator.Error || std.fs.File.WriteError;
 
 fn listChildren(
-  // prefix: *std.ArrayList(u8),
   prefix: []u8,
   cursor: *C,
   firstChild: *const T.Key,
   depth: u16,
   log: std.fs.File.Writer,
 ) ListChildrenError!void {
-  // const prefixLength = prefix.items.len;
-  // try prefix.append('|');
-  // try prefix.append(' ');
-
   const level = T.getLevel(firstChild);
   prefix[prefix.len-2*depth] = '|';
   prefix[prefix.len-2*depth+1] = ' ';
@@ -254,7 +248,6 @@ fn listChildren(
   while (child) |childKey| {
     if (T.getLevel(childKey) != level) break;
 
-    // try log.print("{s}- {s} {s}\n", .{ prefix.items, T.printKey(childKey), hex(childValue.?) });
     try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(childKey), hex(childValue.?) });
     if (depth > 1 and level > 0) {
       var nextChild = T.getChild(childKey);
@@ -270,7 +263,6 @@ fn listChildren(
 
   prefix[prefix.len-2*depth] = '-';
   prefix[prefix.len-2*depth+1] = '-';
-  // try prefix.resize(prefixLength);
 }
 
 fn init(args: []const []const u8) !void {
