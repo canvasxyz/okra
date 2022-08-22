@@ -4,26 +4,21 @@ const hex = std.fmt.fmtSliceHexLower;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const cli = @import("zig-cli");
-
-const Environment = @import("./lmdb/environment.zig").Environment;
-const Transaction = @import("./lmdb/transaction.zig").Transaction;
-const Cursor = @import("./lmdb/cursor.zig").Cursor;
-const compareEntries = @import("./lmdb/compare.zig").compareEntries;
-
-const Tree = @import("./tree.zig").Tree;
-const Builder = @import("./builder.zig").Builder;
-
-const allocator = std.heap.c_allocator;
+const lmdb = @import("lmdb");
+const okra = @import("okra");
 
 const X: comptime_int = 6;
 const K: comptime_int = 2 + X;
 const V: comptime_int = 32;
 const Q: comptime_int = 0x42;
 
-const Env = Environment(K, V);
-const Txn = Transaction(K, V);
-const C = Cursor(K, V);
-const T = Tree(X, Q);
+const Env = lmdb.Environment(K, V);
+const Txn = lmdb.Transaction(K, V);
+const C = lmdb.Cursor(K, V);
+const T = okra.Tree(X, Q);
+const B = okra.Builder(X, Q);
+
+const allocator = std.heap.c_allocator;
 
 var pathOption = cli.Option{
   .long_name = "path",
@@ -123,24 +118,28 @@ var app = &cli.Command{
         &cli.Command{
           .name = "get",
           .help = "get the value for a key",
+          .description = "okra internal get [KEY]\n[KEY] - hex-encoded key",
           .options = &.{ &pathOption },
           .action = internalGet,
         },
         &cli.Command{
           .name = "set",
           .help = "set a key/value entry",
+          .description = "okra internal set [KEY] [VALUE]\n[KEY] - hex-encoded key\n[VALUE] - hex-encoded value",
           .options = &.{ &pathOption },
           .action = internalSet,
         },
         &cli.Command{
           .name = "delete",
           .help = "delete a key",
+          .description = "okra internal delete [KEY]\n[KEY] - hex-encoded key",
           .options = &.{ &pathOption },
           .action = internalDelete,
         },
         &cli.Command{
           .name = "diff",
           .help = "print the diff between two databases",
+          .description = "okra internal diff [A] [B]\n[A] - path to database file\n[B] - path to database file",
           .options = &.{ &aOption, &bOption },
           .action = internalDiff,
         },
@@ -158,13 +157,13 @@ fn cat(args: []const []const u8) !void {
 
   const stdout = std.io.getStdOut().writer();
 
-  var env = try Env.open(path, .{});
+  var env = try Env.open(getCString(path), .{});
   defer env.close();
 
   var txn = try Txn.open(env, true);
   defer txn.abort();
 
-  const dbi = try txn.openDbi();
+  const dbi = try txn.openDBI();
 
   var cursor = try C.open(txn, dbi);
   defer cursor.close();
@@ -172,11 +171,11 @@ fn cat(args: []const []const u8) !void {
   const anchorKey = [_]u8{ 0 } ** K;
   if (try cursor.goToFirst()) |firstKey| {
     if (!std.mem.eql(u8, firstKey, &anchorKey)) return Error.InvalidDatabase;
-    const firstValue = cursor.getCurrentValue() orelse return Error.InvalidDatabase;
+    const firstValue = try cursor.getCurrentValue();
     if (!isZero(firstValue)) return Error.InvalidDatabase;
     while (try cursor.goToNext()) |key| {
       if (std.mem.readIntBig(u16, key[0..2]) > 0) break;
-      const value = cursor.getCurrentValue() orelse @panic("internal error: no value for key");
+      const value = try cursor.getCurrentValue();
       try stdout.print("{s} {s}\n", .{ hex(key[2..]), hex(value) });
     }
   }
@@ -193,58 +192,57 @@ fn ls(args: []const []const u8) !void {
   if (args.len > 1) {
     fail("too many arguments", .{});
   } else if (level != -1 and args.len == 0) {
-    fail("you must specify a key for non-root levels", .{});
+    fail("you must specify a leaf for non-root levels", .{});
   } else if (level == -1 and args.len == 1) {
-    fail("you cannot specify a key for the root level", .{});
+    fail("you cannot specify a leaf for the root level", .{});
   }
 
-  var key = [_]u8{ 0 } ** X;
+  var leaf = [_]u8{ 0 } ** X;
   if (args.len > 0) {
-    const keyArg = args[0];
-    if (keyArg.len != 2 * X) {
-      fail("invalid key size - expected exactly {d} hex bytes", .{ X });
+    const leafArg = args[0];
+    if (leafArg.len != 2 * X) {
+      fail("invalid leaf size - expected exactly {d} hex bytes", .{ X });
     }
 
-    _ = try std.fmt.hexToBytes(&key, keyArg);
+    _ = try std.fmt.hexToBytes(&leaf, leafArg);
   }
 
   const stdout = std.io.getStdOut().writer();
 
-  var env = try Env.open(path, .{});
+  var env = try Env.open(getCString(path), .{});
   defer env.close();
 
   var txn = try Txn.open(env, true);
   defer txn.abort();
 
-  const dbi = try txn.openDbi();
+  const dbi = try txn.openDBI();
 
   var cursor = try C.open(txn, dbi);
   defer cursor.close();
 
   var rootLevel: u16 = if (try cursor.goToLast()) |root| T.getLevel(root) else {
-    fail("database not initialized", .{});
+    return fail("database not initialized", .{});
   };
 
-  if (rootLevel == 1) return Error.InvalidDatabase;
+  if (rootLevel == 0) return Error.InvalidDatabase;
 
   var initialLevel: u16 = if (level == -1) rootLevel else @intCast(u16, level);
   var initialDepth: u16 = if (depth == -1 or depth > initialLevel) initialLevel else @intCast(u16, depth);
 
-  var firstChild = T.createKey(initialLevel, &key);
-  const value = try txn.get(dbi, &firstChild);
-
-  var prefix = try allocator.alloc(u8, 2 * initialDepth);
+  const key = T.createKey(initialLevel, &leaf);
+  const value = try txn.get(dbi, &key);
+  
+  const prefix = try allocator.alloc(u8, 2 * initialDepth);
   defer allocator.free(prefix);
-
   std.mem.set(u8, prefix, '-');
+
   prefix[0] = '+';
-  try stdout.print("{s}- {s} {s}\n", .{ prefix, T.printKey(&firstChild), hex(value.?) });
+  try stdout.print("{s}- {s} {s}\n", .{ prefix, T.printKey(&key), hex(value.?) });
 
-  T.setLevel(&firstChild, initialLevel - 1);
-
-  if (initialDepth > 0) {
-    try listChildren(prefix, &cursor, &firstChild, initialDepth, stdout);
-  }
+  prefix[0] = '|';
+  prefix[1] = ' ';
+  var firstChild = T.getChild(&key);
+  try listChildren(prefix, &cursor, &firstChild, initialDepth, stdout);
 }
 
 const ListChildrenError = C.Error || std.mem.Allocator.Error || std.fs.File.WriteError;
@@ -252,36 +250,46 @@ const ListChildrenError = C.Error || std.mem.Allocator.Error || std.fs.File.Writ
 fn listChildren(
   prefix: []u8,
   cursor: *C,
-  firstChild: *const T.Key,
+  firstChild: *T.Key,
   depth: u16,
   log: std.fs.File.Writer,
 ) ListChildrenError!void {
   const level = T.getLevel(firstChild);
+
   prefix[prefix.len-2*depth] = '|';
   prefix[prefix.len-2*depth+1] = ' ';
 
-  var child = try cursor.goToKey(firstChild);
-
-  var childValue = cursor.getCurrentValue();
-
-  while (child) |childKey| {
-    if (T.getLevel(childKey) != level) break;
-
-    if (depth > 1) prefix[prefix.len-2*depth+2] = '+';
-    try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(childKey), hex(childValue.?) });
-    if (depth > 1) prefix[prefix.len-2*depth+2] = '-';
-
-    if (depth > 1 and level > 0) {
-      var nextChild = T.getChild(childKey);
-      try listChildren(prefix, cursor, &nextChild, depth - 1, log);
-      T.setLevel(&nextChild, level);
-      _ = try cursor.goToKey(&nextChild);
+  try cursor.goToKey(firstChild);
+  const firstChildValue = try cursor.getCurrentValue();
+  
+  if (depth == 1) {
+    try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(firstChild), hex(firstChildValue) });
+    while (try cursor.goToNext()) |key| {
+      const value = try cursor.getCurrentValue();
+      if (T.getLevel(key) != level) break;
+      if (T.isSplit(value)) break;
+      try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(key), hex(value) });
     }
+  } else if (depth > 1) {
+    prefix[prefix.len-2*depth+2] = '+';
+    try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(firstChild), hex(firstChildValue) });
 
-    child = try cursor.goToNext();
-    childValue = cursor.getCurrentValue();
-    if (childValue) |value| if (T.isSplit(value)) break;
-  }
+    var grandChild = T.getChild(firstChild);
+    try listChildren(prefix, cursor, &grandChild, depth - 1, log);
+    try cursor.goToKey(firstChild);
+    while (try cursor.goToNext()) |key| {
+      const value = try cursor.getCurrentValue();
+      if (T.getLevel(key) != level) break;
+      if (T.isSplit(value)) break;
+
+      prefix[prefix.len-2*depth+2] = '+';
+      try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(key), hex(value) });
+      std.mem.copy(u8, firstChild, key);
+      grandChild = T.getChild(key);
+      try listChildren(prefix, cursor, &grandChild, depth - 1, log);
+      try cursor.goToKey(firstChild);
+    }
+  } else @panic("depth must be >= 1");
 
   prefix[prefix.len-2*depth] = '-';
   prefix[prefix.len-2*depth+1] = '-';
@@ -297,9 +305,10 @@ fn init(args: []const []const u8) !void {
     fail("too many arguments", .{});
   }
 
-  var tree = try T.open(path, .{
-    .log = if (verbose) std.io.getStdOut().writer() else null
-  });
+  const log = if (verbose) std.io.getStdOut().writer() else null;
+  var tree: T = undefined;
+  try tree.init(allocator, getCString(path), .{ .log = log });
+  defer tree.close();
 
   var leaf = [_]u8{ 0 } ** X;
   var value = [_]u8{ 0 } ** V;
@@ -310,8 +319,6 @@ fn init(args: []const []const u8) !void {
     Sha256.hash(&leaf, &value, .{});
     try tree.insert(&leaf, &value);
   }
-
-  tree.close();
 }
 
 fn insert(args: []const []const u8) !void {
@@ -325,10 +332,6 @@ fn insert(args: []const []const u8) !void {
   } else if (args.len > 2) {
     fail("too many arguments", .{});
   }
-
-  var tree = try T.open(path, .{
-    .log = if (verbose) std.io.getStdOut().writer() else null
-  });
 
   const leafArg = args[0];
   const hashArg = args[1];
@@ -345,9 +348,12 @@ fn insert(args: []const []const u8) !void {
   _ = try std.fmt.hexToBytes(&leaf, leafArg);
   _ = try std.fmt.hexToBytes(&hash, hashArg);
 
-  try tree.insert(&leaf, &hash);
+  const log = if (verbose) std.io.getStdOut().writer() else null;
+  var tree: T = undefined;
+  try tree.init(allocator, getCString(path), .{ .log = log });
+  defer tree.close();
 
-  tree.close();
+  try tree.insert(&leaf, &hash);
 }
 
 fn rebuild(args: []const []const u8) !void {
@@ -358,28 +364,27 @@ fn rebuild(args: []const []const u8) !void {
 
   try razeTree(path);
 
-  var builder = try Builder(X, Q).init(path, .{});
+  var builder = try B.init(getCString(path), .{});
   _ = try builder.finalize(null);
   const stdout = std.io.getStdOut().writer();
   try stdout.print("Successfully rebuilt {s}\n", .{ path });
 }
 
 fn razeTree(path: []const u8) !void {
-  var env = try Env.open(path, .{});
+  var env = try Env.open(getCString(path), .{});
   defer env.close();
 
   var txn = try Txn.open(env, false);
   errdefer txn.abort();
 
-  const dbi = try txn.openDbi();
+  const dbi = try txn.openDBI();
 
   var cursor = try C.open(txn, dbi);
 
   const firstKey = T.createKey(1, null);
-  var key = try cursor.goToKey(&firstKey);
-  while (key) |_| : (key = try cursor.goToNext()) {
-    try cursor.deleteCurrentKey();
-  }
+  try cursor.goToKey(&firstKey);
+  try cursor.deleteCurrentKey();
+  while (try cursor.goToNext()) |_| try cursor.deleteCurrentKey();
 
   cursor.close();
   try txn.commit();
@@ -394,20 +399,20 @@ fn internalCat(args: []const []const u8) !void {
 
   const stdout = std.io.getStdOut().writer();
 
-  var env = try Env.open(path, .{});
+  var env = try Env.open(getCString(path), .{});
   defer env.close();
 
   var txn = try Txn.open(env, true);
   defer txn.abort();
 
-  const dbi = try txn.openDbi();
+  const dbi = try txn.openDBI();
 
   var cursor = try C.open(txn, dbi);
   defer cursor.close();
 
   var next = try cursor.goToFirst();
   while (next) |key| : (next = try cursor.goToNext()) {
-    const value = cursor.getCurrentValue() orelse @panic("internal error: no value for key");
+    const value = try cursor.getCurrentValue();
     try stdout.print("{s} {s}\n", .{ hex(key), hex(value) });
   }
 }
@@ -432,11 +437,11 @@ fn internalSet(args: []const []const u8) !void {
     fail("invalid value size - expected exactly {d} hex bytes", .{ V });
   }
 
-  var env = try Env.open(path, .{});
+  var env = try Env.open(getCString(path), .{});
   defer env.close();
   var txn = try Txn.open(env, false);
   errdefer txn.abort();
-  const dbi = try txn.openDbi();
+  const dbi = try txn.openDBI();
 
   var value = [_]u8{ 0 } ** V;
   _ = try std.fmt.hexToBytes(&value, valueArg);
@@ -464,11 +469,11 @@ fn internalGet(args: []const []const u8) !void {
 
   const stdout = std.io.getStdOut().writer();
 
-  var env = try Env.open(path, .{});
+  var env = try Env.open(getCString(path), .{});
   defer env.close();
   var txn = try Txn.open(env, true);
   defer txn.abort();
-  const dbi = try txn.openDbi();
+  const dbi = try txn.openDBI();
 
   var key = [_]u8{ 0 } ** K;
   _ = try std.fmt.hexToBytes(&key, keyArg);
@@ -492,11 +497,11 @@ fn internalDelete(args: []const []const u8) !void {
     fail("invalid key size - expected exactly {d} hex bytes", .{ K });
   }
 
-  var env = try Env.open(path, .{});
+  var env = try Env.open(getCString(path), .{});
   defer env.close();
   var txn = try Txn.open(env, false);
   errdefer txn.abort();
-  const dbi = try txn.openDbi();
+  const dbi = try txn.openDBI();
   
   var key = [_]u8{ 0 } ** K;
   _ = try std.fmt.hexToBytes(&key, keyArg);
@@ -514,7 +519,14 @@ fn internalDiff(args: []const []const u8) !void {
 
   const stdout = std.io.getStdOut().writer();
 
-  _ = try compareEntries(K, V, a, b, .{ .log = stdout });
+  const pathA = getCString(a);
+  const envA = try Env.open(pathA, .{});
+  defer envA.close();
+  const pathB = getCString(b);
+  const envB = try Env.open(pathB, .{});
+  defer envB.close();
+  _ = try lmdb.compareEntries(K, V, envA, envB, .{ .log = stdout });
+
 }
 
 const Error = error {
@@ -533,7 +545,15 @@ fn fail(comptime fmt: []const u8, args: anytype) noreturn {
   std.os.exit(1);
 }
 
+
 fn isZero(data: []const u8) bool {
   for (data) |byte| if (byte != 0) return false;
   return true;
+}
+
+var pathBuffer: [4096]u8 = undefined;
+pub fn getCString(path: []const u8) [:0]u8 {
+  std.mem.copy(u8, &pathBuffer, path);
+  pathBuffer[path.len] = 0;
+  return pathBuffer[0..path.len :0];
 }

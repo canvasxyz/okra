@@ -1,8 +1,7 @@
 const std = @import("std");
 
 const Environment = @import("./environment.zig").Environment;
-
-const lmdb = @import("./lmdb.zig").lmdb;
+const lmdb = @import("./lmdb.zig");
 
 pub fn Transaction(comptime K: usize, comptime V: usize) type {
   return struct {
@@ -30,7 +29,7 @@ pub fn Transaction(comptime K: usize, comptime V: usize) type {
       return txn;
     }
 
-    pub fn openDbi(self: *Transaction(K, V)) !lmdb.MDB_dbi {
+    pub fn openDBI(self: *Transaction(K, V)) !lmdb.MDB_dbi {
       var dbi: lmdb.MDB_dbi = 0;
       const flags: c_uint = if (self.readOnly) 0 else lmdb.MDB_CREATE;
       try switch (lmdb.mdb_dbi_open(self.ptr, null, flags, &dbi)) {

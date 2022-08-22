@@ -6,57 +6,58 @@ const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const allocator = std.heap.c_allocator;
 
-const utils = @import("./utils.zig");
-const compareEntries = @import("./lmdb/compare.zig").compareEntries;
+const lmdb = @import("lmdb");
 
 const Tree = @import("./tree.zig").Tree;
 const Builder = @import("./builder.zig").Builder;
+
+const utils = @import("./utils.zig");
 
 const Options = struct {
   mapSize: usize = 10485760,
 };
 
-fn buildReferenceTree(comptime X: usize, comptime Q: u8, comptime N: usize, path: []const u8, options: Options) !void {
-  var referenceTree = try Builder(X, Q).init(path, .{ .mapSize = options.mapSize });
-
-  var key = [_]u8{ 0 } ** X;
-  var value: [32]u8 = undefined;
-
-  var i: u16 = 0;
-  while (i < N) : (i += 1) {
-    std.mem.writeIntBig(u16, key[(X-2)..X], i + 1);
-    Sha256.hash(&key, &value, .{});
-    try referenceTree.insert(&key, &value);
-  }
-
-  _ = try referenceTree.finalize(null);
-}
-
 fn testPermutations(comptime X: usize, comptime Q: u8, comptime N: usize, permutations: []const [N]u16, options: Options) !void {
+  const stdout = std.io.getStdOut().writer();
+  try stdout.print("\n", .{});
+
   var tmp = std.testing.tmpDir(.{});
 
   const referencePath = try utils.resolvePath(allocator, tmp.dir, "reference.mdb");
   defer allocator.free(referencePath);
-  try buildReferenceTree(X, Q, N, referencePath, options);
+  var builder = try Builder(X, Q).init(referencePath, .{ .mapSize = options.mapSize });
 
-  var nameBuffer: [32]u8 = undefined;
   var key = [_]u8{ 0 } ** X;
   var value: [32]u8 = undefined;
+
+  for (permutations[0]) |i| {
+    std.mem.writeIntBig(u16, key[(X-2)..X], i + 1);
+    Sha256.hash(&key, &value, .{});
+    try builder.insert(&key, &value);
+  }
+
+  _ = try builder.finalize(null);
+  const referenceEnv = try lmdb.Environment(2+X, 32).open(referencePath, .{});
+
+  var nameBuffer: [32]u8 = undefined;
   for (permutations) |permutation, p| {
     const name = try std.fmt.bufPrint(&nameBuffer, "p{d}.{x}.mdb", .{ N, p });
     const path = try utils.resolvePath(allocator, tmp.dir, name);
     defer allocator.free(path);
-    var tree = try Tree(X, Q).open(path, .{ .mapSize = options.mapSize });
+
+    var tree: Tree(X, Q) = undefined;
+    try tree.init(allocator, path, .{ .mapSize = options.mapSize, .log = null });
     for (permutation) |i| {
       std.mem.writeIntBig(u16, key[(X-2)..X], i + 1);
       Sha256.hash(&key, &value, .{});
       try tree.insert(&key, &value);
     }
 
+    try expectEqual(@as(usize, 0), try lmdb.compareEntries(2+X, 32, referenceEnv, tree.env, .{}));
     tree.close();
-    try expectEqual(@as(usize, 0), try compareEntries(2+X, 32, referencePath, path, .{}));
   }
 
+  referenceEnv.close();
   tmp.cleanup();
 }
 

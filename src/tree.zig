@@ -4,110 +4,108 @@ const assert = std.debug.assert;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const hex = std.fmt.fmtSliceHexLower;
 
-const lmdb = @import("./lmdb/lmdb.zig").lmdb;
-const Environment = @import("./lmdb/environment.zig").Environment;
-const Transaction = @import("./lmdb/transaction.zig").Transaction;
-const Cursor = @import("./lmdb/cursor.zig").Cursor;
+const lmdb = @import("lmdb");
 
-const Scanner = @import("./scanner.zig").Scanner;
-
-const allocator = std.heap.c_allocator;
-
-const InsertResult = enum { delete, update };
+const InsertResultTag = enum { delete, update };
+const InsertResult = union(InsertResultTag) {
+  delete: void,
+  update: [32]u8,
+};
 
 const Options = struct {
   log: ?std.fs.File.Writer = null,
   mapSize: usize = 10485760,
 };
 
+/// A Tree is a struct generic in two paramers X and Q.
+/// X is the byte size of leaf keys and for now(due to alignment issues)
+/// must be two less than a multiple of eight.
+/// Q is the fanout degree expressed as a u8 limit: hashes whose
+/// first byte are less than Q are considered splits.
+/// Open a tree with Tree.open(path, .{}), insert leaves with
+/// tree.insert(leaf, hash), and close the tree with tree.close().
 pub fn Tree(comptime X: usize, comptime Q: u8) type {
   const K = 2 + X;
   const V = 32;
+  const Env = lmdb.Environment(K, V);
+  const Txn = lmdb.Transaction(K, V);
+  const Cursor = lmdb.Cursor(K, V);
 
   return struct {
     pub const Error = error {
+      InsertError,
+      InvalidDatabase,
       KeyNotFound,
-    } || Transaction(K, V).Error || Cursor(K, V).Error || std.mem.Allocator.Error || std.os.WriteError;
+      Duplicate,
+    } || Txn.Error || Cursor.Error || std.mem.Allocator.Error || std.os.WriteError;
 
     pub const Leaf = [X]u8;
     pub const Key = [K]u8;
     pub const Value = [V]u8;
-    pub const Node = struct {
-      key: [K]u8,
-      value: [V]u8,
-    };
+    pub const Node = struct { key: Key, value: Value };
 
-    env: Environment(K, V),
-    dbi: lmdb.MDB_dbi,
+    env: Env,
+    dbi: lmdb.DBI,
 
-    root: [K]u8,
-    parentValue: [V]u8,
+    rootLevel: u16,
     newChildren: std.ArrayList(Node),
 
-    log: ?std.fs.File.Writer,
     prefix: std.ArrayList(u8),
+    log: ?std.fs.File.Writer,
 
-    pub fn open(path: []const u8, options: Options) !*Tree(X, Q) {
-      const tree = try allocator.create(Tree(X, Q));
-      errdefer allocator.destroy(tree);
+    pub fn init(self: *Tree(X, Q), allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !void {
+      self.log = options.log;
+      self.env = try Env.open(path, .{ .mapSize = options.mapSize });
 
-      tree.log = options.log;
-      tree.newChildren = std.ArrayList(Node).init(allocator);
-      tree.prefix = std.ArrayList(u8).init(allocator);
+      self.newChildren = std.ArrayList(Node).init(allocator);
+      self.prefix = std.ArrayList(u8).init(allocator);
 
-      tree.env = try Environment(K, V).open(path, .{ .mapSize = options.mapSize });
-      var txn = try Transaction(K, V).open(tree.env, false);
+      var txn = try Txn.open(self.env, false);
       errdefer txn.abort();
 
-      tree.dbi = try txn.openDbi();
-      var cursor = try Cursor(K, V).open(txn, tree.dbi);
+      self.dbi = try txn.openDBI();
+
+      var cursor = try Cursor.open(txn, self.dbi);
       errdefer cursor.close();
 
       if (try cursor.goToLast()) |root| {
-        std.mem.copy(u8, &tree.root, root);
-        assert(isKeyLeftEdge(&tree.root));
-        assert(getLevel(&tree.root) > 0);
+        self.rootLevel = getLevel(root);
+        if (self.rootLevel == 0 or !isKeyLeftEdge(root)) {
+          return Error.InvalidDatabase;
+        }
       } else {
-        std.mem.set(u8, &tree.root, 0);
-        var value: Value = [_]u8{ 0 } ** V;
-        try tree.set(&txn, &tree.root, &value);
+        var key = [_]u8 { 0 } ** K;
+        var value = [_]u8{ 0 } ** V;
+        try self.set(&txn, &key, &value);
         Sha256.hash(&[_]u8{}, &value, .{});
-        setLevel(&tree.root, 1);
-        try tree.set(&txn, &tree.root, &value);
+        setLevel(&key, 1);
+        try self.set(&txn, &key, &value);
+        self.rootLevel = 1;
       }
 
       try txn.commit();
-      return tree;
     }
 
     pub fn close(self: *Tree(X, Q)) void {
       self.env.close();
       self.newChildren.deinit();
-      allocator.destroy(self);
-    }
-
-    pub fn openScanner(self: *const Tree(X, Q)) !Scanner(X, Q) {
-      var txn = try Transaction(K, V).open(self.env, true);
-      var cursor = try Cursor(K, V).open(txn, self.dbi);
-
-      var nodes = std.ArrayList(Node).init(allocator);
-
-      var scanner = Scanner(X, Q){
-        .txn = txn,
-        .cursor = cursor,
-        .nodes = nodes,
-        .key = self.root,
-      };
-    
-      try scanner.seek(getLevel(&self.root), getLeaf(&self.root));
-      return scanner;
+      self.prefix.deinit();
     }
 
     pub fn insert(self: *Tree(X, Q), leaf: *const Leaf, value: *const [V]u8) Error!void {
-      var txn = try Transaction(K, V).open(self.env, false);
+      var txn = try Txn.open(self.env, false);
       errdefer txn.abort();
 
-      var cursor = try Cursor(K, V).open(txn, self.dbi);
+      const key = createKey(0, leaf);
+      if (try self.get(&txn, &key)) |v| {
+        if (std.mem.eql(u8, v, value)) {
+          return;
+        } else {
+          return Error.Duplicate;
+        }
+      }
+
+      var cursor = try Cursor.open(txn, self.dbi);
 
       try self.insertTxn(&txn, &cursor, leaf, value);
 
@@ -115,49 +113,54 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       try txn.commit();
     }
 
-    pub fn insertTxn(
+    fn insertTxn(
       self: *Tree(X, Q),
-      txn: *Transaction(K, V),
-      cursor: *Cursor(K, V),
+      txn: *Txn,
+      cursor: *Cursor,
       leaf: *const Leaf,
       value: *const [V]u8,
     ) Error!void {
       if (self.log) |log| {
         try log.print("insert({s}, {s})\n", .{ hex(leaf), hex(value) });
-        try log.print("root {s}\n", .{ printKey(&self.root) });
+        try log.print("rootLevel {d}\n", .{ self.rootLevel });
         try self.prefix.resize(0);
         try self.prefix.append('|');
         try self.prefix.append(' ');
       }
 
-      var level = getLevel(&self.root);
+      if (self.rootLevel == 0) return Error.InvalidDatabase;
 
-      const firstChild = getChild(&self.root);
-      const result = switch (level) {
-        0 => @panic("internal error - root key has level zero"),
+      const firstChild = createKey(self.rootLevel - 1, null);
+
+      const result = switch (self.rootLevel) {
         1 => try self.insertLeaf(txn, cursor, &firstChild, leaf, value),
         else => try self.insertNode(txn, cursor, &firstChild, leaf, value, true),
       };
 
       assert(result == InsertResult.update);
+      var rootValue = switch (result) {
+        .update => |rootValue| rootValue,
+        .delete => return Error.InsertError,
+      };
 
       if (self.log) |log| {
         try self.prefix.resize(0);
-        try log.print("new root {s} -> {s}\n", .{ printKey(&self.root), hex(&self.parentValue) });
+        try log.print("new root {d} -> {s}\n", .{ self.rootLevel, hex(&rootValue) });
         try log.print("newChildren: {d}\n", .{ self.newChildren.items.len });
         for (self.newChildren.items) |node|
           try log.print("- {s} -> {s}\n", .{ printKey(&node.key), hex(&node.value) });
       }
 
+      var rootKey = createKey(self.rootLevel, null);
       var newChildrenCount = self.newChildren.items.len;
       while (newChildrenCount > 0) : (newChildrenCount = self.newChildren.items.len) {
-        try self.set(txn, &self.root, &self.parentValue);
+        try self.set(txn, &rootKey, &rootValue);
         for (self.newChildren.items) |node| try self.set(txn, &node.key, &node.value);
 
-        try self.hashRange(cursor, &self.root, &self.parentValue);
+        try self.hashRange(cursor, &rootKey, &rootValue);
 
-        level += 1;
-        setLevel(&self.root, level);
+        self.rootLevel += 1;
+        setLevel(&rootKey, self.rootLevel);
 
         for (self.newChildren.items) |newChild| {
           if (isSplit(&newChild.value)) {
@@ -169,37 +172,34 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
 
         try self.newChildren.replaceRange(0, newChildrenCount, &.{});
         if (self.log) |log| {
-          try log.print("new root {s} -> {s}\n", .{ printKey(&self.root), hex(&self.parentValue) });
+          try log.print("new root {d} -> {s}\n", .{ self.rootLevel, hex(&rootValue) });
           try log.print("newChildren: {d}\n", .{ self.newChildren.items.len });
           for (self.newChildren.items) |node|
             try log.print("- {s} -> {s}\n", .{ printKey(&node.key), hex(&node.value) });
         }
       }
 
-      try self.set(txn, &self.root, &self.parentValue);
+      try self.set(txn, &rootKey, &rootValue);
 
       if (try cursor.goToLast()) |lastKey| {
         if (self.log) |log| try log.print("last key: {s}\n", .{ printKey(lastKey) });
       } else {
-        @panic("internal error: cursor.goToLast() returned null");
+        return Error.InvalidDatabase;
       }
 
       while (try cursor.goToPrevious()) |previousKey| {
-        if (isKeyLeftEdge(previousKey)) {
-          const newRoot = createKey(getLevel(previousKey), getLeaf(previousKey));
-          try self.delete(txn, &self.root);
-          std.mem.copy(u8, &self.root, &newRoot);
-          if (self.log) |log| try log.print("replaced root key: {s}\n", .{ printKey(&self.root) });
-        } else {
-          break;
-        }
+        if (!isKeyLeftEdge(previousKey)) break;
+        self.rootLevel = getLevel(previousKey);
+        try self.delete(txn, &rootKey);
+        setLevel(&rootKey, self.rootLevel);
+        if (self.log) |log| try log.print("replaced root key: {d}\n", .{ self.rootLevel });
       }
     }
 
     fn insertLeaf(
       self: *Tree(X, Q),
-      txn: *Transaction(K, V),
-      cursor: *Cursor(K, V),
+      txn: *Txn,
+      cursor: *Cursor,
       firstChild: *const Key,
       leaf: *const Leaf,
       value: *const Value,
@@ -214,7 +214,9 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
 
       const key = createKey(0, leaf);
       try self.set(txn, &key, value);
-      try self.hashRange(cursor, firstChild, &self.parentValue);
+
+      var parentValue: [V]u8 = undefined;
+      try self.hashRange(cursor, firstChild, &parentValue);
 
       if (isSplit(value)) {
         var node = Node{ .key = getParent(&key), .value = undefined };
@@ -222,13 +224,13 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
         try self.newChildren.append(node);
       }
 
-      return InsertResult.update;
+      return InsertResult{ .update = parentValue };
     }
 
     fn insertNode(
       self: *Tree(X, Q),
-      txn: *Transaction(K, V),
-      cursor: *Cursor(K, V),
+      txn: *Txn,
+      cursor: *Cursor,
       firstChild: *const Key,
       leaf: *const Leaf,
       value: *const Value,
@@ -299,19 +301,20 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
               try self.newChildren.append(node);
             }
 
-            parentResult = InsertResult.delete;
+            parentResult = InsertResult{ .delete = {} };
           } else if (std.mem.eql(u8, &previousChild, firstChild)) {
             // if the target is not the first child, we still need to check if the previous child
             // was the first child.
             if (isLeftEdge or isSplit(&previousChildValue)) {
-              parentResult = InsertResult.update;
-              try self.hashRange( cursor, firstChild, &self.parentValue);
+              // parentResult = InsertResult.update;
+              parentResult = InsertResult{ .update = undefined };
+              try self.hashRange( cursor, firstChild, &parentResult.update);
             } else {
-              parentResult = InsertResult.delete;
+              parentResult = InsertResult{ .delete = {} };
             }
           } else {
-            parentResult = InsertResult.update;
-            try self.hashRange(cursor, firstChild, &self.parentValue);
+            parentResult = InsertResult{ .update = undefined };
+            try self.hashRange(cursor, firstChild, &parentResult.update);
             if (isSplit(&previousChildValue)) {
               var node = Node{ .key = getParent(&previousChild), .value = undefined };
               try self.hashRange(cursor, &previousChild, &node.value);
@@ -319,28 +322,28 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
             }
           }
         },
-        InsertResult.update => {
-          try self.set(txn, &targetKey, &self.parentValue);
+        InsertResult.update => |parentValue| {
+          try self.set(txn, &targetKey, &parentValue);
 
           for (self.newChildren.items) |node| try self.set(txn, &node.key, &node.value);
           
-          const isTargetSplit = isSplit(&self.parentValue);
+          const isTargetSplit = isSplit(&parentValue);
           if (self.log) |log|
             try log.print("{s}isTargetSplit {d}\n", .{ self.prefix.items, isTargetSplit });
 
           if (isFirstChild) {
             // isFirstChild means either targetKey's original value was already a split, or isLeftEdge is true.
             if (isTargetSplit or isLeftEdge) {
-              parentResult = InsertResult.update;
-              try self.hashRange(cursor, &targetKey, &self.parentValue);
+              parentResult = InsertResult{ .update = undefined };
+              try self.hashRange(cursor, &targetKey, &parentResult.update);
             } else {
               // !isTargetSplit && !isLeftEdge means that the current target
               // has lost its status as a split and needs to get merged left.
-              parentResult = InsertResult.delete;
+              parentResult = InsertResult{ .delete = {} };
             }
           } else {
-            parentResult = InsertResult.update;
-            try self.hashRange(cursor, firstChild, &self.parentValue);
+            parentResult = InsertResult{ .update = undefined };
+            try self.hashRange(cursor, firstChild, &parentResult.update);
 
             if (isTargetSplit) {
               // create a parent of targetKey to add to newChildren
@@ -365,51 +368,46 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       return parentResult;
     }
 
-    fn goToPreviousChild(self: *Tree(X, Q), txn: *Transaction(K, V), cursor: *Cursor(K, V), targetKey: *const Key) !Key {
-      if (try cursor.goToKey(targetKey)) |_| {
-        while (try cursor.goToPrevious()) |previousChild| {
-          const previousGrandChild = getChild(previousChild);
-          if (try self.get(txn, &previousGrandChild)) |previousGrandChildValue| {
-            if (isSplit(previousGrandChildValue) or isKeyLeftEdge(&previousGrandChild)) {
-              return createKey(getLevel(previousChild), getLeaf(previousChild));
-            }
+    fn goToPreviousChild(self: *Tree(X, Q), txn: *Txn, cursor: *Cursor, targetKey: *const Key) !Key {
+      try cursor.goToKey(targetKey);
+      while (try cursor.goToPrevious()) |previousChild| {
+        const previousGrandChild = getChild(previousChild);
+        if (try self.get(txn, &previousGrandChild)) |previousGrandChildValue| {
+          if (isSplit(previousGrandChildValue) or isKeyLeftEdge(&previousGrandChild)) {
+            return createKey(getLevel(previousChild), getLeaf(previousChild));
           }
-
-          try self.delete(txn, previousChild);
         }
+
+        try self.delete(txn, previousChild);
       }
 
       return Error.KeyNotFound;
     }
 
-    fn findTargetKey(_: *const Tree(X, Q), cursor: *Cursor(K, V), firstChild: *const Key, leaf: *const Leaf) !Key {
+    fn findTargetKey(_: *const Tree(X, Q), cursor: *Cursor, firstChild: *const Key, leaf: *const Leaf) !Key {
       const level = getLevel(firstChild);
       assert(level > 0);
 
-      if (try cursor.goToKey(firstChild)) |_| {
-        var previousChild = createKey(level, getLeaf(firstChild));
-        while (try cursor.goToNext()) |currentChild| {
-          if (getLevel(currentChild) != level or lessThan(leaf, getLeaf(currentChild))) {
-            return previousChild;
-          } else {
-            setLeaf(&previousChild, getLeaf(currentChild));
-          }
+      try cursor.goToKey(firstChild);
+      var previousChild = createKey(level, getLeaf(firstChild));
+      while (try cursor.goToNext()) |currentChild| {
+        if (getLevel(currentChild) != level or lessThan(leaf, getLeaf(currentChild))) {
+          return previousChild;
+        } else {
+          setLeaf(&previousChild, getLeaf(currentChild));
         }
-
-        return previousChild;
-      } else {
-        return Error.KeyNotFound;
       }
+
+      return previousChild;
     }
 
-    fn hashRange(self: *const Tree(X, Q), cursor: *Cursor(K, V), firstChild: *const Key, hash: *Value) !void {
+    fn hashRange(self: *const Tree(X, Q), cursor: *Cursor, firstChild: *const Key, hash: *Value) !void {
       if (self.log) |log|
         try log.print("{s}hashRange({s})\n", .{ self.prefix.items, printKey(firstChild) });
 
       const level = getLevel(firstChild);
-
-      _ = try cursor.goToKey(firstChild);
-      var value = cursor.getCurrentValue().?;
+      try cursor.goToKey(firstChild);
+      var value = try cursor.getCurrentValue();
 
       var digest = Sha256.init(.{});
 
@@ -419,15 +417,12 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       digest.update(value);
 
       while (try cursor.goToNext()) |key| {
-        value = cursor.getCurrentValue().?;
-        if (getLevel(key) == level and !isSplit(value)) {
-          if (self.log) |log|
-            try log.print("{s}- hashing {s} -> {s}\n", .{ self.prefix.items, printKey(key), hex(value) });
+        value = try cursor.getCurrentValue();
+        if (getLevel(key) != level or isSplit(value)) break;
+        if (self.log) |log|
+          try log.print("{s}- hashing {s} -> {s}\n", .{ self.prefix.items, printKey(key), hex(value) });
 
-          digest.update(value);
-        } else {
-          break;
-        }
+        digest.update(value);
       }
 
       digest.final(hash);
@@ -449,21 +444,21 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       return key;
     }
 
-    fn set(self: *Tree(X, Q), txn: *Transaction(K, V), key: *const Key, value: *const Value) !void {
+    fn set(self: *Tree(X, Q), txn: *Txn, key: *const Key, value: *const Value) !void {
       if (self.log) |log|
         try log.print("{s}txn.set({s}, {s})\n", .{ self.prefix.items, hex(key), hex(value) });
 
       try txn.set(self.dbi, key, value);
     }
 
-    fn delete(self: *Tree(X, Q), txn: *Transaction(K, V), key: *const Key) !void {
+    fn delete(self: *Tree(X, Q), txn: *Txn, key: *const Key) !void {
       if (self.log) |log|
         try log.print("{s}txn.delete({s})\n", .{ self.prefix.items, hex(key) });
 
       try txn.delete(self.dbi, key);
     }
 
-    fn get(self: *const Tree(X, Q), txn: *Transaction(K, V), key: *const Key) !?*Value {
+    fn get(self: *const Tree(X, Q), txn: *Txn, key: *const Key) !?*Value {
       return txn.get(self.dbi, key);
     }
 

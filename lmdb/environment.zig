@@ -1,7 +1,7 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
 
-const lmdb = @import("./lmdb.zig").lmdb;
+const lmdb = @import("./lmdb.zig");
 
 const Options = struct {
   mapSize: usize = 10485760,
@@ -20,7 +20,7 @@ pub fn Environment(comptime K: usize, V: usize) type {
 
     ptr: ?*lmdb.MDB_env,
 
-    pub fn open(path: []const u8, options: Options) !Environment(K, V) {
+    pub fn open(path: [*:0]const u8, options: Options) !Environment(K, V) {
       var env = Environment(K, V){ .ptr = null };
 
       try switch (lmdb.mdb_env_create(&env.ptr)) {
@@ -31,15 +31,13 @@ pub fn Environment(comptime K: usize, V: usize) type {
       try switch (lmdb.mdb_env_set_mapsize(env.ptr, options.mapSize)) {
         0 => {},
         else => Error.LmdbEnvironmentError,
-      };
-
-      const cPath = getCString(path);
+      };      
 
       const flags = lmdb.MDB_WRITEMAP | lmdb.MDB_NOSUBDIR;
       const mode = 0o664;
 
       errdefer lmdb.mdb_env_close(env.ptr);
-      try switch (lmdb.mdb_env_open(env.ptr, cPath, flags, mode)) {
+      try switch (lmdb.mdb_env_open(env.ptr, path, flags, mode)) {
         0 => {},
         lmdb.MDB_VERSION_MISMATCH => Error.LmdbVersionMismatch,
         lmdb.MDB_INVALID => Error.LmdbCorruptDatabase,
@@ -56,12 +54,4 @@ pub fn Environment(comptime K: usize, V: usize) type {
       lmdb.mdb_env_close(self.ptr);
     }
   };
-} 
-
-var pathBuffer = [_]u8 { 0 } ** 4096;
-
-fn getCString(value: []const u8) [:0]u8 {
-  std.mem.copy(u8, &pathBuffer, value);
-  pathBuffer[value.len] = 0;
-  return pathBuffer[0..value.len :0];
 }

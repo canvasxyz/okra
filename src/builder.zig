@@ -2,10 +2,7 @@ const std = @import("std");
 const expectEqualSlices = std.testing.expectEqualSlices;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 
-const lmdb = @import("./lmdb/lmdb.zig").lmdb;
-const Environment = @import("./lmdb/environment.zig").Environment;
-const Transaction = @import("./lmdb/transaction.zig").Transaction;
-const Cursor = @import("./lmdb/cursor.zig").Cursor;
+const lmdb = @import("lmdb");
 
 const utils = @import("./utils.zig");
 
@@ -15,6 +12,11 @@ const Options = struct {
   mapSize: usize = 10485760,
 };
 
+/// A Builder is naive bottom-up tree builder used to construct large trees
+/// at once and for reference when unit testing the actual Tree.
+/// Create a builder with Builder.init(path, options), insert as many leaves
+/// as you want using .insert(key, value), and then call .finalize().
+/// Builder is also used in the rebuild cli command.
 pub fn Builder(comptime X: usize, comptime Q: u8) type {
   const K = 2 + X;
   const V = 32;
@@ -24,40 +26,40 @@ pub fn Builder(comptime X: usize, comptime Q: u8) type {
     pub const Key = [K]u8;
     pub const Value = [V]u8;
 
-    env: Environment(K, V),
-    dbi: lmdb.MDB_dbi,
-    txn: Transaction(K, V),
+    env: lmdb.Environment(K, V),
+    dbi: lmdb.DBI,
+    txn: lmdb.Transaction(K, V),
     key: Key = [_]u8{ 0 } ** K,
     value: Value = [_]u8{ 0 } ** V,
 
-    pub fn init(path: []const u8, options: Options) !Builder(X, Q) {
-      var env = try Environment(K, V).open(path, .{ .mapSize = options.mapSize });
+    pub fn init(path: [*:0]const u8, options: Options) !Builder(X, Q) {
+      var env = try lmdb.Environment(K, V).open(path, .{ .mapSize = options.mapSize });
       errdefer env.close();
 
-      var txn = try Transaction(K, V).open(env, false);
+      var txn = try lmdb.Transaction(K, V).open(env, false);
       errdefer txn.abort();
 
-      const dbi = try txn.openDbi();
+      const dbi = try txn.openDBI();
 
       const builder = Builder(X, Q){ .env = env, .dbi = dbi, .txn = txn };
       try txn.set(dbi, &builder.key, &builder.value);
       return builder;
     }
 
-    pub fn insert(self: *Builder(X, Q), key: *const [X]u8, value: *const [32]u8) !void {
-      std.mem.copy(u8, self.key[2..], key);
-      try self.txn.set(self.dbi, &self.key, value);
+    pub fn insert(self: *Builder(X, Q), leaf: *const [X]u8, hash: *const [32]u8) !void {
+      std.mem.copy(u8, self.key[2..], leaf);
+      try self.txn.set(self.dbi, &self.key, hash);
     }
 
     pub fn finalize(self: *Builder(X, Q), root: ?*[32]u8) !u16 {
-      var cursor = try Cursor(K, V).open(self.txn, self.dbi);
+      var cursor = try lmdb.Cursor(K, V).open(self.txn, self.dbi);
 
       var level: u16 = 0;
       while ((try self.buildLevel(level, &cursor)) > 1) level += 1;
 
       if (root) |ptr| {
         _ = try cursor.goToLast();
-        std.mem.copy(u8, ptr, cursor.getCurrentValue().?);
+        std.mem.copy(u8, ptr, try cursor.getCurrentValue());
       }
 
       cursor.close();
@@ -67,51 +69,46 @@ pub fn Builder(comptime X: usize, comptime Q: u8) type {
       return level + 1;
     }
 
-    fn buildLevel(self: *Builder(X, Q), level: u16, cursor: *Cursor(K, V)) !usize {
+    fn getLevel(key: *const [K]u8) u16 {
+      return std.mem.readIntBig(u16, key[0..2]);
+    }
+
+    fn setLevel(key: *[K]u8, level: u16) void {
+      std.mem.writeIntBig(u16, key[0..2], level);
+    }
+
+    fn buildLevel(self: *Builder(X, Q), level: u16, cursor: *lmdb.Cursor(K, V)) !usize {
       var count: usize = 0;
 
-      std.mem.writeIntBig(u16, self.key[0..2], level);
+      setLevel(&self.key, level);
       std.mem.set(u8, self.key[2..], 0);
-      var anchor = try cursor.goToKey(&self.key);
-      while (anchor) |anchorKey| {
-        // save the anchor key
-        std.mem.copy(u8, &self.key, anchorKey);
+      try cursor.goToKey(&self.key);
 
-        var hash = Sha256.init(.{});
-        hash.update(cursor.getCurrentValue().?);
+      var hash = Sha256.init(.{});
+      hash.update(try cursor.getCurrentValue());
 
-        while (try cursor.goToNext()) |key| {
-          if (std.mem.readIntBig(u16, key[0..2]) > level) {
-            std.mem.writeIntBig(u16, self.key[0..2], level + 1);
-            hash.final(&self.value);
-            try self.txn.set(self.dbi, &self.key, &self.value);
+      while (try cursor.goToNext()) |key| {
+        if (getLevel(key) != level) break;
 
-            count += 1;
-            anchor = null;
-            break;
-          }
-
-          const value = cursor.getCurrentValue().?;
-          if (value[0] < Q) {
-            std.mem.writeIntBig(u16, self.key[0..2], level + 1);
-            hash.final(&self.value);
-            try self.txn.set(self.dbi, &self.key, &self.value);
-
-            count += 1;
-            anchor = key;
-            break;
-          } else {
-            hash.update(value);
-          }
-        } else {
-          std.mem.writeIntBig(u16, self.key[0..2], level + 1);
+        const value = try cursor.getCurrentValue();
+        if (value[0] < Q) {
           hash.final(&self.value);
+          setLevel(&self.key, level + 1);
           try self.txn.set(self.dbi, &self.key, &self.value);
-
           count += 1;
-          anchor = null;
+
+          hash = Sha256.init(.{});
+          hash.update(value);
+          std.mem.copy(u8, &self.key, key);
+        } else {
+          hash.update(value);
         }
       }
+
+      hash.final(&self.value);
+      setLevel(&self.key, level + 1);
+      try self.txn.set(self.dbi, &self.key, &self.value);
+      count += 1;
 
       return count;
     }
@@ -120,11 +117,11 @@ pub fn Builder(comptime X: usize, comptime Q: u8) type {
 
 fn testIota(comptime X: usize, comptime Q: u8, comptime N: u16, expected: *const [32]u8) !void {
   var tmp = std.testing.tmpDir(.{});
-
-  const path = try utils.resolvePath(allocator, tmp.dir, "reference.mdb");
+  const tmpPath = try tmp.dir.realpath(".", &utils.pathBuffer);
+  const path = try std.fs.path.joinZ(allocator, &[_][]const u8{ tmpPath, "reference.mdb" });
   defer allocator.free(path);
 
-  var referenceTree = try Builder(X, Q).init(path, .{});
+  var builder = try Builder(X, Q).init(path, .{});
 
   var key = [_]u8{ 0 } ** X;
   var value: [32]u8 = undefined;
@@ -133,11 +130,11 @@ fn testIota(comptime X: usize, comptime Q: u8, comptime N: u16, expected: *const
   while (i < N) : (i += 1) {
     std.mem.writeIntBig(u16, key[X-2..], i + 1);
     Sha256.hash(&key, &value, .{});
-    try referenceTree.insert(&key, &value);
+    try builder.insert(&key, &value);
   }
 
   var actual: [32]u8 = undefined;
-  _ = try referenceTree.finalize(&actual);
+  _ = try builder.finalize(&actual);
 
   try expectEqualSlices(u8, expected, &actual);
 

@@ -11,47 +11,63 @@ pub fn build(b: *std.build.Builder) void {
   // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
   const mode = b.standardReleaseOptions();
 
-  const exe = b.addExecutable("okra", "src/cli.zig");
-  exe.setTarget(target);
-  exe.setBuildMode(mode);
-  exe.addPackagePath("zig-cli", "libs/zig-cli/src/main.zig");
-  exe.addIncludeDir("libs/openldap/libraries/liblmdb");
-  exe.addCSourceFile("libs/openldap/libraries/liblmdb/mdb.c", &.{ "-fno-sanitize=undefined" });
-  exe.addCSourceFile("libs/openldap/libraries/liblmdb/midl.c", &.{ "-fno-sanitize=undefined" });
-  exe.install();
+  const lmdb = std.build.Pkg{ .name = "lmdb", .path = .{ .path = "lmdb/lib.zig" } };
+  const okra = std.build.Pkg{ .name = "okra", .path = .{ .path = "src/lib.zig" }, .dependencies = &.{ lmdb } };
 
-  const run_cmd = exe.run();
+  const lmdbSources: []const []const u8 = &.{
+    "libs/openldap/libraries/liblmdb/mdb.c",
+    "libs/openldap/libraries/liblmdb/midl.c",
+  };
+
+  const cli = b.addExecutable("okra", "cli/main.zig");
+  cli.setTarget(target);
+  cli.setBuildMode(mode);
+  cli.addPackagePath("zig-cli", "libs/zig-cli/src/main.zig");
+  cli.addPackage(lmdb);
+  cli.addPackage(okra);
+  cli.addIncludeDir("libs/openldap/libraries/liblmdb");
+  cli.addCSourceFiles(lmdbSources, &.{ });
+  cli.install();
+
+  const run_cmd = cli.run();
   run_cmd.step.dependOn(b.getInstallStep());
-  if (b.args) |args| {
-    run_cmd.addArgs(args);
-  }
+  if (b.args) |args| run_cmd.addArgs(args);
 
-  const run_step = b.step("run", "Run the app");
+  const run_step = b.step("run", "Run the CLI");
   run_step.dependOn(&run_cmd.step);
 
-  const lmdb_tests = b.addTest("src/lmdb/test.zig");
+  const napi = b.addSharedLibrary("okra", "napi/lib.zig", .unversioned);
+  napi.setTarget(target);
+  napi.setBuildMode(mode);
+  napi.addPackage(okra);
+  napi.addIncludeDir("/usr/local/include/node");
+  napi.addIncludeDir("libs/openldap/libraries/liblmdb");
+  napi.addCSourceFiles(lmdbSources, &.{ });
+  napi.linker_allow_shlib_undefined = true;
+  napi.install();
+
+  const lmdb_tests = b.addTest("lmdb/test.zig");
   lmdb_tests.setTarget(target);
   lmdb_tests.setBuildMode(mode);
   lmdb_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
-  lmdb_tests.addCSourceFile("libs/openldap/libraries/liblmdb/mdb.c", &.{ "-fno-sanitize=undefined" });
-  lmdb_tests.addCSourceFile("libs/openldap/libraries/liblmdb/midl.c", &.{ "-fno-sanitize=undefined" });
+  lmdb_tests.addCSourceFiles(lmdbSources, &.{ });
 
-  const tree_tests = b.addTest("src/test.zig");
-  tree_tests.setTarget(target);
-  tree_tests.setBuildMode(mode);
-  tree_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
-  tree_tests.addCSourceFile("libs/openldap/libraries/liblmdb/mdb.c", &.{ "-fno-sanitize=undefined" });
-  tree_tests.addCSourceFile("libs/openldap/libraries/liblmdb/midl.c", &.{ "-fno-sanitize=undefined" });
+  const okra_tests = b.addTest("src/test.zig");
+  okra_tests.setTarget(target);
+  okra_tests.setBuildMode(mode);
+  okra_tests.addPackage(lmdb);
+  okra_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
+  okra_tests.addCSourceFiles(lmdbSources, &.{ });
   
   const scanner_tests = b.addTest("src/scanner.zig");
   scanner_tests.setTarget(target);
   scanner_tests.setBuildMode(mode);
+  scanner_tests.addPackage(lmdb);
   scanner_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
-  scanner_tests.addCSourceFile("libs/openldap/libraries/liblmdb/mdb.c", &.{ "-fno-sanitize=undefined" });
-  scanner_tests.addCSourceFile("libs/openldap/libraries/liblmdb/midl.c", &.{ "-fno-sanitize=undefined" });
+  scanner_tests.addCSourceFiles(lmdbSources, &.{ });
 
   const test_step = b.step("test", "Run unit tests");
   test_step.dependOn(&lmdb_tests.step);
-  test_step.dependOn(&tree_tests.step);
+  test_step.dependOn(&okra_tests.step);
   test_step.dependOn(&scanner_tests.step);
 }

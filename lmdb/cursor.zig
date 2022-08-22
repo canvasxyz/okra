@@ -1,15 +1,13 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const lmdb = @import("./lmdb.zig").lmdb;
+const lmdb = @import("./lmdb.zig");
 
 const Transaction = @import("./transaction.zig").Transaction;
 
 pub fn Cursor(comptime K: usize, comptime V: usize) type {
   return struct {
-    pub const Error = error {
-      LmdbCursorError,
-    };
+    pub const Error = error { LmdbCursorError, InvalidKeySize, InvalidValueSize, KeyNotFound };
 
     ptr: ?*lmdb.MDB_cursor,
     key: lmdb.MDB_val,
@@ -39,20 +37,22 @@ pub fn Cursor(comptime K: usize, comptime V: usize) type {
       self.ptr = null;
     }
 
-    pub fn getCurrentKey(self: *const Cursor(K, V)) ?*const [K]u8 {
+    pub fn getCurrentKey(self: *const Cursor(K, V)) !*const [K]u8 {
       if (self.key.mv_data == null) {
-        return null;
+        return Error.KeyNotFound;
+      } else if (self.key.mv_size != K) {
+        return Error.InvalidKeySize;
       } else {
-        assert(self.key.mv_size == K);
         return @ptrCast(*const [K]u8, self.key.mv_data);
       }
     }
 
-    pub fn getCurrentValue(self: *const Cursor(K, V)) ?*const [V]u8 {
+    pub fn getCurrentValue(self: *const Cursor(K, V)) !*const [V]u8 {
       if (self.value.mv_data == null) {
-        return null;
+        return Error.KeyNotFound;
+      } else if (self.value.mv_size != V) {
+        return Error.InvalidValueSize;
       } else {
-        assert(self.value.mv_size == V);
         return @ptrCast(*const [V]u8, self.value.mv_data);
       }
     }
@@ -67,17 +67,6 @@ pub fn Cursor(comptime K: usize, comptime V: usize) type {
         else => Error.LmdbCursorError,
       };
     }
-
-    // pub fn setCurrentValue(self: *Cursor(K, V), value: *const [V]u8) !void {
-    //   self.value.mv_size = V;
-    //   self.value.data = value;
-    //   try switch(lmdb.mdb_cursor_put(self.ptr, &self.key, &self.value, lmdb.MDB_CURRENT)) {
-    //     0 => {},
-    //     // lmdb.MDB_MAP_FULL => 
-    //     // lmdb.MDB_TXN_FULL => 
-    //     else => Error.LmdbCursorError,
-    //   };
-    // }
 
     pub fn goToNext(self: *Cursor(K, V)) !?*const [K]u8 {
       const err = lmdb.mdb_cursor_get(self.ptr, &self.key, &self.value, lmdb.MDB_NEXT);
@@ -123,14 +112,14 @@ pub fn Cursor(comptime K: usize, comptime V: usize) type {
       }
     }
 
-    pub fn goToKey(self: *Cursor(K, V), key: *const [K]u8) !?*const [K]u8 {
+    pub fn goToKey(self: *Cursor(K, V), key: *const [K]u8) !void {
       self.key.mv_size = K;
       self.key.mv_data = @intToPtr([*]u8, @ptrToInt(key));
       const err = lmdb.mdb_cursor_get(self.ptr, &self.key, &self.value, lmdb.MDB_SET_KEY);
       if (err == 0) {
-        return self.getCurrentKey();
+        return;
       } else if (err == lmdb.MDB_NOTFOUND) {
-        return null;
+        return Error.KeyNotFound;
       } else {
         return Error.LmdbCursorError;
       }

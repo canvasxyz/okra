@@ -6,9 +6,9 @@ pub fn parseHash(hash: *const [64]u8) [32]u8 {
   return buffer;
 }
 
-var resolvePathBuffer: [4096]u8 = undefined;
+pub var pathBuffer: [4096]u8 = undefined;
 
-pub fn resolvePath(allocator: std.mem.Allocator, dir: std.fs.Dir, name: []const u8) ![]u8 {
-  const tmpPath = try dir.realpath(".", &resolvePathBuffer);
-  return std.fs.path.resolve(allocator, &[_][]const u8{ tmpPath, name });
+pub fn resolvePath(allocator: std.mem.Allocator, dir: std.fs.Dir, name: []const u8) ![:0]u8 {
+  const dirPath = try dir.realpath(".", &pathBuffer);
+  return std.fs.path.joinZ(allocator, &[_][]const u8{ dirPath, name });
 }
