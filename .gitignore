@@ -1,7 +1,6 @@
 zig-cache/
 zig-out/
-*.mst
+build/
 .vscode
-.zigmod
-deps.zig
 node_modules/
+*.okra
