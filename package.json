@@ -1,0 +1,21 @@
+{
+	"private": true,
+	"name": "node-okra",
+	"description": "Native NodeJS okra bindings",
+	"version": "0.0.0",
+	"type": "module",
+	"main": "index.js",
+	"types": "index.d.ts",
+	"files": ["index.js", "index.d.ts", "build"],
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"author": "Joel Gustafson",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^18.7.10"
+	},
+	"dependencies": {
+		"detect-libc": "^2.0.1"
+	}
+}
