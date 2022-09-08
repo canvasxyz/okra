@@ -4,3 +4,4 @@ zig-out/
 .vscode
 .zigmod
 deps.zig
+node_modules/
