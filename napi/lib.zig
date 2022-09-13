@@ -7,7 +7,7 @@ const okra = @import("okra");
 const c = @import("./c.zig");
 const n = @import("./n.zig");
 
-const X: comptime_int = 6;
+const X: comptime_int = 14;
 const V: comptime_int = 32;
 const Q: comptime_int = 0x42;
 

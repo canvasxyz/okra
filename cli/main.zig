@@ -7,7 +7,7 @@ const cli = @import("zig-cli");
 const lmdb = @import("lmdb");
 const okra = @import("okra");
 
-const X: comptime_int = 6;
+const X: comptime_int = 14;
 const K: comptime_int = 2 + X;
 const V: comptime_int = 32;
 const Q: comptime_int = 0x42;
