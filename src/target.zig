@@ -1,4 +1,6 @@
 const std = @import("std");
+const assert = std.debug.assert;
+const hex = std.fmt.fmtSliceHexLower;
 
 const lmdb = @import("lmdb");
 const okra = @import("./lib.zig");
@@ -21,8 +23,8 @@ pub fn Target(comptime X: usize, comptime Q: u8) type {
     txn: Txn,
     cursor: Cursor,
     rootLevel: u16,
-    keys: [][K]u8,
     allocator: std.mem.Allocator,
+    keys: [][K]u8,
 
     pub fn init(self: *Target(X, Q), allocator: std.mem.Allocator, tree: *Tree) !void {
       self.tree = tree;
@@ -42,49 +44,41 @@ pub fn Target(comptime X: usize, comptime Q: u8) type {
       self.allocator = allocator;
       self.keys = try allocator.alloc([K]u8, self.rootLevel);
       for (self.keys) |*key, i| {
-        Tree.setLevel(key, @intCast(u16, i));
+        Tree.setLevel(key, @intCast(u16, self.rootLevel - i));
         Tree.setLeaf(key, null);
       }
     }
 
-    pub fn seek(self: *Target(X, Q), targetRootKey: *Tree.Key, sourceRoot: *const Tree.Leaf) !void {
-      const level = Tree.getLevel(targetRootKey);
+    pub fn seek(self: *Target(X, Q), level: u16, sourceRoot: *const Tree.Leaf) !void {
+      assert(level > 0);
+      const index = self.rootLevel - level;
+      const targetRootKey = &self.keys[index];
+
+      assert(level == Tree.getLevel(targetRootKey));
 
       try self.cursor.goToKey(targetRootKey);
 
       if (!std.mem.eql(u8, sourceRoot, Tree.getLeaf(targetRootKey))) {
+        var ticks: u32 = 0;
         while (try self.cursor.goToNext()) |next| {
           if (Tree.getLevel(next) != level) break;
           if (Tree.lessThan(sourceRoot, Tree.getLeaf(next))) {
             break;
           } else {
+            ticks += 1;
             std.mem.copy(u8, targetRootKey, next);
           }
         }
 
         try self.cursor.goToKey(targetRootKey);
+
+        if (ticks > 0 and level > 1) {
+          for (self.keys[index+1..]) |*key| {
+            Tree.setLeaf(key, Tree.getLeaf(targetRootKey));
+          }
+        }
       }
     }
-
-    // pub fn seek(self: *Target(X, Q), level: u16, targetRoot: ?*const Tree.Leaf, sourceRoot: *const Tree.Leaf) !void {
-    //   const targetRootKey = &self.keys[level];
-    //   Tree.setLeaf(targetRootKey, targetRoot);
-
-    //   try self.cursor.goToKey(targetRootKey);
-
-    //   if (!std.mem.eql(u8, sourceRoot, Tree.getLeaf(targetRootKey))) {
-    //     while (try self.cursor.goToNext()) |next| {
-    //       if (Tree.getLevel(next) != level) break;
-    //       if (Tree.lessThan(sourceRoot, Tree.getLeaf(next))) {
-    //         break;
-    //       } else {
-    //         std.mem.copy(u8, targetRootKey, next);
-    //       }
-    //     }
-
-    //     try self.cursor.goToKey(targetRootKey);
-    //   }
-    // }
 
     pub fn collect(self: *Target(X, Q), nodes: []Node, leaves: *std.ArrayList(Node)) !void {
       var key = Tree.createKey(0, null);
