@@ -80,7 +80,7 @@ pub fn Target(comptime X: usize, comptime Q: u8) type {
       }
     }
 
-    pub fn collect(self: *Target(X, Q), nodes: []Node, leaves: *std.ArrayList(Node)) !void {
+    pub fn filter(self: *Target(X, Q), nodes: []Node, leaves: *std.ArrayList(Node)) !void {
       var key = Tree.createKey(0, null);
       for (nodes) |node| {
         std.mem.copy(u8, key[2..], &node.leaf);

@@ -95,7 +95,7 @@ fn Pipe(comptime X: usize, comptime Q: u8) type {
         for (nodes.items) |node| try self.scan(level - 1, &node.leaf, &node.hash, leaves);
       } else {
         assert(level == 1);
-        try self.target.collect(nodes.items, leaves);
+        try self.target.filter(nodes.items, leaves);
       }
     }
   };

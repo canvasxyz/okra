@@ -32,17 +32,25 @@ pub fn build(b: *std.build.Builder) void {
   okra_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
   okra_tests.addCSourceFiles(lmdbSources, &.{ });
   
-  const scanner_tests = b.addTest("src/scanner.zig");
-  scanner_tests.setTarget(target);
-  scanner_tests.setBuildMode(mode);
-  scanner_tests.addPackage(lmdb);
-  scanner_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
-  scanner_tests.addCSourceFiles(lmdbSources, &.{ });
+  const source_tests = b.addTest("src/source.zig");
+  source_tests.setTarget(target);
+  source_tests.setBuildMode(mode);
+  source_tests.addPackage(lmdb);
+  source_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
+  source_tests.addCSourceFiles(lmdbSources, &.{ });
+  
+  const pipe_tests = b.addTest("src/pipe.zig");
+  pipe_tests.setTarget(target);
+  pipe_tests.setBuildMode(mode);
+  pipe_tests.addPackage(lmdb);
+  pipe_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
+  pipe_tests.addCSourceFiles(lmdbSources, &.{ });
 
   const test_step = b.step("test", "Run unit tests");
   test_step.dependOn(&lmdb_tests.step);
   test_step.dependOn(&okra_tests.step);
-  test_step.dependOn(&scanner_tests.step);
+  test_step.dependOn(&source_tests.step);
+  test_step.dependOn(&pipe_tests.step);
 }
 
 const lmdb = std.build.Pkg{ .name = "lmdb", .path = .{ .path = "lmdb/lib.zig" } };
