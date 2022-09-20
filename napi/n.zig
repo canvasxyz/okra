@@ -149,8 +149,15 @@ pub fn parseStringAlloc(env: c.napi_env, value: c.napi_value, allocator: std.mem
 pub fn parseBuffer(env: c.napi_env, comptime N: usize, value: c.napi_value) !*const [N]u8 {
   var length: usize = 0;
   var ptr: ?*anyopaque = undefined;
-  if (c.napi_get_buffer_info(env, value, &ptr, &length) != c.napi_ok) {
+  var isBuffer = false;
+  if (c.napi_is_buffer(env, value, &isBuffer) != c.napi_ok) {
+    _ = c.napi_throw_error(env, null, "failed to check buffer type");
+    return Error.Exception;
+  } else if (!isBuffer) {
     _ = c.napi_throw_type_error(env, null, "expected a NodeJS Buffer");
+    return Error.Exception;
+  } else if (c.napi_get_buffer_info(env, value, &ptr, &length) != c.napi_ok) {
+    _ = c.napi_throw_error(env, null, "failed to get buffer info");
     return Error.Exception;
   } else if (length != N) {
     _ = c.napi_throw_error(env, null, "buffer must be exactly N bytes");
@@ -180,6 +187,26 @@ pub fn createObject(env: c.napi_env) !c.napi_value {
   return result;
 }
 
+pub fn createArray(env: c.napi_env) !c.napi_value {
+  var result: c.napi_value = undefined;
+  if (c.napi_create_array(&result) != c.napi_ok) {
+    _ = c.napi_throw_error(env, null, "failed to create array");
+    return Error.Exception;
+  }
+
+  return result;
+}
+
+pub fn createArrayWithLength(env: c.napi_env, length: usize) !c.napi_value {
+  var result: c.napi_value = undefined;
+  if (c.napi_create_array_with_length(env, length, &result) != c.napi_ok) {
+    _ = c.napi_throw_error(env, null, "failed to create array");
+    return Error.Exception;
+  }
+
+  return result;
+}
+
 pub fn createString(env: c.napi_env, value: []const u8) !c.napi_value {
   var result: c.napi_value = undefined;
   if (c.napi_create_string_utf8(env, value.ptr, value.len, &result) != c.napi_ok) {
@@ -190,9 +217,18 @@ pub fn createString(env: c.napi_env, value: []const u8) !c.napi_value {
   return result;
 }
 
-pub fn setProperty(env: c.napi_env, object: c.napi_value, key: []const u8, value: c.napi_value) !void {
-  const keyString = try createString(env, key);
-  if (c.napi_set_property(env, object, keyString, value) != c.napi_ok) {
+pub fn getProperty(env: c.napi_env, object: c.napi_value, key: c.napi_value) !c.napi_value {
+  var result: c.napi_value = undefined;
+  if (c.napi_get_property(env, object, key, &result) != c.napi_ok) {
+    _ = c.napi_throw_error(env, null, "failed to get property");
+    return Error.Exception;
+  }
+
+  return result;
+}
+
+pub fn setProperty(env: c.napi_env, object: c.napi_value, key: c.napi_value, value: c.napi_value) !void {
+  if (c.napi_set_property(env, object, key, value) != c.napi_ok) {
     _ = c.napi_throw_error(env, null, "failed to set property");
     return Error.Exception;
   }
@@ -203,6 +239,16 @@ pub fn setElement(env: c.napi_env, array: c.napi_value, index: u32, value: c.nap
     _ = c.napi_throw_error(env, null, "failed to set element");
     return Error.Exception;
   }
+}
+
+pub fn getElement(env: c.napi_env, array: c.napi_value, index: u32) !c.napi_value {
+  var result: c.napi_value = undefined;
+  if (c.napi_get_element(env, array, index, &result) != c.napi_ok) {
+    _ = c.napi_throw_error(env, null, "failed to get element");
+    return Error.Exception;
+  }
+
+  return result;
 }
 
 pub fn parseUint32(env: c.napi_env, value: c.napi_value) !u32 {

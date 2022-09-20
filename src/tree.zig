@@ -25,13 +25,13 @@ const Options = struct {
 /// Open a tree with Tree.open(path, .{}), insert leaves with
 /// tree.insert(leaf, hash), and close the tree with tree.close().
 pub fn Tree(comptime X: usize, comptime Q: u8) type {
-  const K = 2 + X;
-  const V = 32;
-  const Env = lmdb.Environment(K, V);
-  const Txn = lmdb.Transaction(K, V);
-  const Cursor = lmdb.Cursor(K, V);
-
   return struct {
+    const K = 2 + X;
+    const V = 32;
+    pub const Env = lmdb.Environment(K, V);
+    pub const Txn = lmdb.Transaction(K, V);
+    pub const Cursor = lmdb.Cursor(K, V);
+
     pub const Error = error {
       InsertError,
       InvalidDatabase,
@@ -92,33 +92,45 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       self.prefix.deinit();
     }
 
-    pub fn insert(self: *Tree(X, Q), leaf: *const Leaf, value: *const [V]u8) Error!void {
+    pub fn transaction(self: *Tree(X, Q)) !Txn {
+      return try Txn.open(self.env, false);
+    }
+
+    pub fn insert(self: *Tree(X, Q), leaf: *const Leaf, value: *const Value) !void {
       var txn = try Txn.open(self.env, false);
       errdefer txn.abort();
 
       const key = createKey(0, leaf);
-      if (try self.get(&txn, &key)) |v| {
-        if (std.mem.eql(u8, v, value)) {
-          return;
-        } else {
-          return Error.Duplicate;
-        }
+      if (try self.get(&txn, &key)) |_| {
+        return Error.Duplicate;
       }
 
       var cursor = try Cursor.open(txn, self.dbi);
 
-      try self.insertTxn(&txn, &cursor, leaf, value);
+      try self.update(&txn, &cursor, leaf, value);
 
       cursor.close();
       try txn.commit();
     }
 
-    fn insertTxn(
+    pub fn insertTxn(self: *Tree(X, Q), leaf: *const Leaf, value: *const Value, txn: *Txn) !void {
+      const key = createKey(0, leaf);
+      if (try self.get(txn, &key)) |_| {
+        return Error.Duplicate;
+      }
+
+      var cursor = try Cursor.open(txn, self.dbi);
+      defer cursor.close();
+
+      try self.update(txn, &cursor, leaf, value);
+    }
+
+    fn update(
       self: *Tree(X, Q),
       txn: *Txn,
       cursor: *Cursor,
       leaf: *const Leaf,
-      value: *const [V]u8,
+      value: *const Value,
     ) Error!void {
       if (self.log) |log| {
         try log.print("insert({s}, {s})\n", .{ hex(leaf), hex(value) });
@@ -215,7 +227,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       const key = createKey(0, leaf);
       try self.set(txn, &key, value);
 
-      var parentValue: [V]u8 = undefined;
+      var parentValue: Value = undefined;
       try self.hashRange(cursor, firstChild, &parentValue);
 
       if (isSplit(value)) {
@@ -471,7 +483,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       return std.mem.readIntBig(u16, key[0..2]);
     }
 
-    fn isKeyLeftEdge(key: *const Key) bool {
+    pub fn isKeyLeftEdge(key: *const Key) bool {
       for (key[2..]) |byte| if (byte != 0) return false;
       return true;
     }
@@ -506,8 +518,16 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       return createKey(level + 1, getLeaf(key));
     }
 
-    pub fn lessThan(a: *const Leaf, b: *const Leaf) bool {
-      return std.mem.lessThan(u8, a, b);
+    pub fn lessThan(a: ?*const Leaf, b: ?*const Leaf) bool {
+      if (b) |bytesB| {
+        if (a) |bytesA| {
+          return std.mem.lessThan(u8, bytesA, bytesB);
+        } else if (std.mem.max(u8, bytesB) == 0) {
+          return false;
+        }
+      }
+
+      return false;
     }
 
     // value utils

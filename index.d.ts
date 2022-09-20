@@ -6,8 +6,16 @@ declare class Tree {
 	close(): void
 }
 
-declare class Scanner {
+declare class Source {
 	constructor(tree: Tree)
-	seek(level: number, leaf: null | Buffer): { leaf: Buffer; hash: Buffer }[]
+	getRootLevel(): number
+	get(level: number, leaf: null | Buffer): { leaf: Buffer; hash: Buffer }[]
+	close(): void
+}
+
+declare class Target {
+	constructor(tree: Tree)
+	getRootLevel(): number
+	filter(nodes: { leaf: Buffer; hash: Buffer }[]): Buffer[]
 	close(): void
 }

@@ -8,15 +8,16 @@ const lmdb = @import("lmdb");
 const okra = @import("okra");
 
 const X: comptime_int = 14;
+// const X: comptime_int = 6;
 const K: comptime_int = 2 + X;
 const V: comptime_int = 32;
 const Q: comptime_int = 0x42;
 
 const Env = lmdb.Environment(K, V);
 const Txn = lmdb.Transaction(K, V);
-const C = lmdb.Cursor(K, V);
+const Cursor = lmdb.Cursor(K, V);
 const T = okra.Tree(X, Q);
-const B = okra.Builder(X, Q);
+const Builder = okra.Builder(X, Q);
 
 const allocator = std.heap.c_allocator;
 
@@ -165,7 +166,7 @@ fn cat(args: []const []const u8) !void {
 
   const dbi = try txn.openDBI();
 
-  var cursor = try C.open(txn, dbi);
+  var cursor = try Cursor.open(txn, dbi);
   defer cursor.close();
 
   const anchorKey = [_]u8{ 0 } ** K;
@@ -217,7 +218,7 @@ fn ls(args: []const []const u8) !void {
 
   const dbi = try txn.openDBI();
 
-  var cursor = try C.open(txn, dbi);
+  var cursor = try Cursor.open(txn, dbi);
   defer cursor.close();
 
   var rootLevel: u16 = if (try cursor.goToLast()) |root| T.getLevel(root) else {
@@ -245,11 +246,11 @@ fn ls(args: []const []const u8) !void {
   try listChildren(prefix, &cursor, &firstChild, initialDepth, stdout);
 }
 
-const ListChildrenError = C.Error || std.mem.Allocator.Error || std.fs.File.WriteError;
+const ListChildrenError = Cursor.Error || std.mem.Allocator.Error || std.fs.File.WriteError;
 
 fn listChildren(
   prefix: []u8,
-  cursor: *C,
+  cursor: *Cursor,
   firstChild: *T.Key,
   depth: u16,
   log: std.fs.File.Writer,
@@ -364,7 +365,7 @@ fn rebuild(args: []const []const u8) !void {
 
   try razeTree(path);
 
-  var builder = try B.init(getCString(path), .{});
+  var builder = try Builder.init(getCString(path), .{});
   _ = try builder.finalize(null);
   const stdout = std.io.getStdOut().writer();
   try stdout.print("Successfully rebuilt {s}\n", .{ path });
@@ -379,7 +380,7 @@ fn razeTree(path: []const u8) !void {
 
   const dbi = try txn.openDBI();
 
-  var cursor = try C.open(txn, dbi);
+  var cursor = try Cursor.open(txn, dbi);
 
   const firstKey = T.createKey(1, null);
   try cursor.goToKey(&firstKey);
@@ -407,7 +408,7 @@ fn internalCat(args: []const []const u8) !void {
 
   const dbi = try txn.openDBI();
 
-  var cursor = try C.open(txn, dbi);
+  var cursor = try Cursor.open(txn, dbi);
   defer cursor.close();
 
   var next = try cursor.goToFirst();

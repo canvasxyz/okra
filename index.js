@@ -6,12 +6,13 @@ const family = familySync()
 
 const { platform, arch } = process
 
-const target = family === null ? `${arch}-${platform}` : `${arch}-${platform}-${family}`
+const target =
+	family === null ? `${arch}-${platform}` : `${arch}-${platform}-${family}`
 
 console.log("[okra] Detected target", target)
 
 const require = createRequire(import.meta.url)
 
-const { Tree, Scanner } = require(`./build/${target}/okra.node`)
+const { Tree, Source, Target } = require(`./build/${target}/okra.node`)
 
-export { Tree, Scanner }
+export { Tree, Source, Target }

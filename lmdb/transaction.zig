@@ -20,9 +20,6 @@ pub fn Transaction(comptime K: usize, comptime V: usize) type {
       const flags: c_uint = if (readOnly) lmdb.MDB_RDONLY else 0;
       try switch (lmdb.mdb_txn_begin(env.ptr, null, flags, &txn.ptr)) {
         0 => {},
-        // lmdb.MDB_PANIC => Error.LmdbPanic,
-        // lmdb.MDB_MAP_RESIZED => Error.LmdbMapResized,
-        // lmdb.MDB_READERS_FULL => Error.LmdbReadersFull,
         else => Error.LmdbTransactionError,
       };
 
