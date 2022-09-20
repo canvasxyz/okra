@@ -1,8 +1,9 @@
 const std = @import("std");
+const Sha256 = std.crypto.hash.sha2.Sha256;
 const hex = std.fmt.fmtSliceHexLower;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
-const Sha256 = std.crypto.hash.sha2.Sha256;
+const expectEqualSlices = std.testing.expectEqualSlices;
 
 const lmdb = @import("lmdb");
 const okra = @import("./lib.zig");
@@ -43,6 +44,16 @@ fn Driver(comptime X: usize, comptime Q: u8) type {
       self.target.close();
     }
 
+    pub fn sync(self: *Driver(X, Q)) !void {
+      var leaves = std.ArrayList(Node).init(self.allocator);
+      defer leaves.deinit();
+      try self.exec(&leaves);
+      for (leaves.items) |node| {
+        // std.log.warn("inserting {s} -> {s}", .{ hex(&node.leaf), hex(&node.hash) });
+        try self.target.tree.insert(&node.leaf, &node.hash);
+      }
+    }
+
     pub fn exec(self: *Driver(X, Q), leaves: *std.ArrayList(Node)) !void {
       const sourceRoot = [_]u8{ 0 } ** X;
       try self.enter(self.target.rootLevel, self.source.rootLevel, &sourceRoot, &self.source.rootValue, leaves);
@@ -61,6 +72,11 @@ fn Driver(comptime X: usize, comptime Q: u8) type {
       // at the target tree's root level and re-enter from all of them.
       // If the target tree is taller, we actually just call scan once,
       // but starting at the left edge on the source tree root's level.
+      // std.log.warn(
+      //   "enter(targetLevel: {d}, sourceLevel: {d}, sourceRoot: {s}, sourceValue: {s})",
+      //   .{ targetLevel, sourceLevel, hex(sourceRoot), hex(sourceValue) },
+      // );
+
       if (sourceLevel > targetLevel) {
         var nodes = std.ArrayList(Node).init(self.allocator);
         defer nodes.deinit();
@@ -107,7 +123,46 @@ fn Driver(comptime X: usize, comptime Q: u8) type {
   };
 }
 
-test "pipe iota(500) with a fixed skip list" {
+test "sync iota(100) into an empty tree" {
+  const X = 6;
+  const Q = 0x42;
+  const Tree = okra.Tree(X, Q);
+  const allocator = std.heap.c_allocator;
+
+  std.debug.print("\n", .{});
+
+  var tmp = std.testing.tmpDir(.{});
+  defer tmp.cleanup();
+
+  const sourcePath = try utils.resolvePath(allocator, tmp.dir, "source.mdb");
+  defer allocator.free(sourcePath);
+
+  const targetPath = try utils.resolvePath(allocator, tmp.dir, "target.mdb");
+  defer allocator.free(targetPath);
+
+  var source: Tree = undefined;
+  try source.init(allocator, sourcePath, .{ });
+  defer source.close();
+
+  var target: Tree = undefined;
+  try target.init(allocator, targetPath, .{ });
+  defer target.close();
+
+  try iota(X, Q, &source, 100, null);
+
+  var driver: Driver(X, Q) = undefined;
+  try driver.init(allocator, &target, &source);
+  defer driver.close();
+
+  try driver.sync();
+
+  try expectEqualSlices(u8, &source.rootValue, &target.rootValue);
+}
+
+// The rest of the tests here all create a "skip set",
+// which is a HashMap(u32, bool) of elements to exclude from the target tree.
+
+test "sync iota(500) with a fixed skip set" {
   const X = 6;
   const Q = 0x42;
   const allocator = std.heap.c_allocator;
@@ -122,7 +177,7 @@ test "pipe iota(500) with a fixed skip list" {
   try testSkipList(X, Q, n, &skip);
 }
 
-test "pipe iota(10000) with a random skip list" {
+test "sync iota(10000) with a random skip set" {
   const X = 6;
   const Q = 0x42;
 
@@ -144,7 +199,7 @@ test "pipe iota(10000) with a random skip list" {
   try testSkipList(X, Q, n, &skip);
 }
 
-test "pipe iota(10000) with a single missing element" {
+test "sync iota(10000) with a single missing element" {
   const X = 6;
   const Q = 0x42;
 
@@ -207,14 +262,15 @@ fn testSkipList(comptime X: usize, comptime Q: u8, n: u32, skip: *std.AutoHashMa
 
 fn iota(comptime X: usize, comptime Q: u8, tree: *okra.Tree(X, Q), n: u32, skip: ?*std.AutoHashMap(u32, bool)) !void {
   var leaf = [_]u8{ 0 } ** X;
-  var value = [_]u8{ 0 } ** 32;
+  var hash = [_]u8{ 0 } ** 32;
 
   var i: u32 = 0;
   while (i < n) : (i += 1) {
     if (skip) |map| if (map.contains(i)) continue;
 
     std.mem.writeIntBig(u32, leaf[X-4..], i + 1);
-    Sha256.hash(&leaf, &value, .{});
-    try tree.insert(&leaf, &value);
+    Sha256.hash(&leaf, &hash, .{});
+    // std.log.warn("inserting {s} -> {s}", .{ hex(&leaf), hex(&hash) });
+    try tree.insert(&leaf, &hash);
   }
 }

@@ -48,6 +48,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
     dbi: lmdb.DBI,
 
     rootLevel: u16,
+    rootValue: Value,
     newChildren: std.ArrayList(Node),
 
     prefix: std.ArrayList(u8),
@@ -73,13 +74,14 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
         if (self.rootLevel == 0 or !isKeyLeftEdge(root)) {
           return Error.InvalidDatabase;
         }
+        std.mem.copy(u8, &self.rootValue, try cursor.getCurrentValue());
       } else {
         var key = [_]u8 { 0 } ** K;
         var value = [_]u8{ 0 } ** V;
         try self.set(&txn, &key, &value);
-        Sha256.hash(&[_]u8{}, &value, .{});
+        Sha256.hash(&value, &self.rootValue, .{});
         setLevel(&key, 1);
-        try self.set(&txn, &key, &value);
+        try self.set(&txn, &key, &self.rootValue);
         self.rootLevel = 1;
       }
 
@@ -106,6 +108,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       }
 
       var cursor = try Cursor.open(txn, self.dbi);
+      errdefer cursor.close();
 
       try self.update(&txn, &cursor, leaf, value);
 
@@ -192,6 +195,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       }
 
       try self.set(txn, &rootKey, &rootValue);
+      self.rootValue = rootValue;
 
       if (try cursor.goToLast()) |lastKey| {
         if (self.log) |log| try log.print("last key: {s}\n", .{ printKey(lastKey) });
@@ -202,6 +206,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       while (try cursor.goToPrevious()) |previousKey| {
         if (!isKeyLeftEdge(previousKey)) break;
         self.rootLevel = getLevel(previousKey);
+        std.mem.copy(u8, &self.rootValue, try cursor.getCurrentValue());
         try self.delete(txn, &rootKey);
         setLevel(&rootKey, self.rootLevel);
         if (self.log) |log| try log.print("replaced root key: {d}\n", .{ self.rootLevel });
@@ -318,7 +323,6 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
             // if the target is not the first child, we still need to check if the previous child
             // was the first child.
             if (isLeftEdge or isSplit(&previousChildValue)) {
-              // parentResult = InsertResult.update;
               parentResult = InsertResult{ .update = undefined };
               try self.hashRange( cursor, firstChild, &parentResult.update);
             } else {
