@@ -39,18 +39,18 @@ pub fn build(b: *std.build.Builder) void {
   source_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
   source_tests.addCSourceFiles(lmdbSources, &.{ });
   
-  const pipe_tests = b.addTest("src/pipe.zig");
-  pipe_tests.setTarget(target);
-  pipe_tests.setBuildMode(mode);
-  pipe_tests.addPackage(lmdb);
-  pipe_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
-  pipe_tests.addCSourceFiles(lmdbSources, &.{ });
+  const driver_tests = b.addTest("src/driver.zig");
+  driver_tests.setTarget(target);
+  driver_tests.setBuildMode(mode);
+  driver_tests.addPackage(lmdb);
+  driver_tests.addIncludeDir("libs/openldap/libraries/liblmdb");
+  driver_tests.addCSourceFiles(lmdbSources, &.{ });
 
   const test_step = b.step("test", "Run unit tests");
   test_step.dependOn(&lmdb_tests.step);
   test_step.dependOn(&okra_tests.step);
   test_step.dependOn(&source_tests.step);
-  test_step.dependOn(&pipe_tests.step);
+  test_step.dependOn(&driver_tests.step);
 }
 
 const lmdb = std.build.Pkg{ .name = "lmdb", .path = .{ .path = "lmdb/lib.zig" } };

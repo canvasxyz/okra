@@ -8,7 +8,13 @@ const lmdb = @import("lmdb");
 const okra = @import("./lib.zig");
 const utils = @import("./utils.zig");
 
-fn Pipe(comptime X: usize, comptime Q: u8) type {
+// Source and Target are designed to expose the basic operations required by each participant,
+// but there is still a "driver" component that wires them together and encapsulates any async
+// or streaming logic if the source and target are not in the same process.
+
+// The struct here is a sync Zig reference implementation of the driver algorithm,
+// used for unit-testing Target and by the CLI.
+fn Driver(comptime X: usize, comptime Q: u8) type {
   return struct {
     const K = 2 + X;
     const V = 32;
@@ -25,25 +31,25 @@ fn Pipe(comptime X: usize, comptime Q: u8) type {
     target: Target,
     calls: u32,
 
-    pub fn init(self: *Pipe(X, Q), allocator: std.mem.Allocator, target: *Tree, source: *Tree) !void {
+    pub fn init(self: *Driver(X, Q), allocator: std.mem.Allocator, target: *Tree, source: *Tree) !void {
       self.allocator = allocator;
       self.calls = 0;
       try self.target.init(allocator, target);
       try self.source.init(allocator, source);
     }
 
-    pub fn close(self: *Pipe(X, Q)) void {
+    pub fn close(self: *Driver(X, Q)) void {
       self.source.close();
       self.target.close();
     }
 
-    pub fn exec(self: *Pipe(X, Q), leaves: *std.ArrayList(Node)) !void {
+    pub fn exec(self: *Driver(X, Q), leaves: *std.ArrayList(Node)) !void {
       const sourceRoot = [_]u8{ 0 } ** X;
       try self.enter(self.target.rootLevel, self.source.rootLevel, &sourceRoot, &self.source.rootValue, leaves);
     }
 
     fn enter(
-      self: *Pipe(X, Q),
+      self: *Driver(X, Q),
       targetLevel: u16,
       sourceLevel: u16,
       sourceRoot: *const Tree.Leaf,
@@ -71,7 +77,7 @@ fn Pipe(comptime X: usize, comptime Q: u8) type {
     }
 
     fn scan(
-      self: *Pipe(X, Q),
+      self: *Driver(X, Q),
       level: u16,
       sourceRoot: *const Tree.Leaf,
       sourceValue: *const Tree.Value,
@@ -184,11 +190,11 @@ fn testSkipList(comptime X: usize, comptime Q: u8, n: u32, skip: *std.AutoHashMa
 
   var leaves = std.ArrayList(Node).init(allocator);
 
-  var pipe: Pipe(X, Q) = undefined;
-  try pipe.init(allocator, &target, &source);
-  defer pipe.close();
+  var driver: Driver(X, Q) = undefined;
+  try driver.init(allocator, &target, &source);
+  defer driver.close();
 
-  try pipe.exec(&leaves);
+  try driver.exec(&leaves);
 
   try expect(leaves.items.len == skip.count());
   for (leaves.items) |node| {
@@ -196,7 +202,7 @@ fn testSkipList(comptime X: usize, comptime Q: u8, n: u32, skip: *std.AutoHashMa
     try expect(skip.contains(v - 1));
   }
 
-  std.log.warn("CALLS: {d}", .{ pipe.calls });
+  std.log.warn("CALLS: {d}", .{ driver.calls });
 }
 
 fn iota(comptime X: usize, comptime Q: u8, tree: *okra.Tree(X, Q), n: u32, skip: ?*std.AutoHashMap(u32, bool)) !void {
