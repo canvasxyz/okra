@@ -126,6 +126,7 @@ fn Driver(comptime X: usize, comptime Q: u8) type {
 test "sync iota(100) into an empty tree" {
   const X = 6;
   const Q = 0x42;
+  const Node = okra.Node(X);
   const Tree = okra.Tree(X, Q);
   const allocator = std.heap.c_allocator;
 
@@ -150,13 +151,29 @@ test "sync iota(100) into an empty tree" {
 
   try iota(X, Q, &source, 100, null);
 
-  var driver: Driver(X, Q) = undefined;
-  try driver.init(allocator, &target, &source);
-  defer driver.close();
+  // targetToSource
+  {
+    var driver: Driver(X, Q) = undefined;
+    try driver.init(allocator, &source, &target);
+    defer driver.close();
 
-  try driver.sync();
+    var leaves = std.ArrayList(Node).init(allocator);
+    defer leaves.deinit();
 
-  try expectEqualSlices(u8, &source.rootValue, &target.rootValue);
+    try driver.exec(&leaves);
+    try expectEqualSlices(Node, leaves.items, &.{});
+  }
+
+  // sourceToTarget
+  {
+    var driver: Driver(X, Q) = undefined;
+    try driver.init(allocator, &target, &source);
+    defer driver.close();
+
+    try driver.sync();
+
+    try expectEqualSlices(u8, &source.rootValue, &target.rootValue);
+  }
 }
 
 // The rest of the tests here all create a "skip set",
