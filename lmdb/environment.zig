@@ -33,7 +33,7 @@ pub fn Environment(comptime K: usize, V: usize) type {
         else => Error.LmdbEnvironmentError,
       };      
 
-      const flags = lmdb.MDB_WRITEMAP | lmdb.MDB_NOSUBDIR;
+      const flags = lmdb.MDB_WRITEMAP | lmdb.MDB_NOSUBDIR | lmdb.MDB_NOLOCK;
       const mode = 0o664;
 
       errdefer lmdb.mdb_env_close(env.ptr);
