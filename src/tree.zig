@@ -122,7 +122,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
         return Error.Duplicate;
       }
 
-      var cursor = try Cursor.open(txn, self.dbi);
+      var cursor = try Cursor.open(txn.*, self.dbi);
       defer cursor.close();
 
       try self.update(txn, &cursor, leaf, value);
@@ -536,7 +536,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
 
     // value utils
     pub fn isSplit(value: *const Value) bool {
-      return value[0] < Q;
+      return value[K-1] < Q;
     }
   };
 }

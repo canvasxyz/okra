@@ -23,6 +23,7 @@ pub fn Target(comptime X: usize, comptime Q: u8) type {
     txn: Txn,
     cursor: Cursor,
     rootLevel: u16,
+    rootValue: Tree.Value,
     allocator: std.mem.Allocator,
     keys: [][K]u8,
 
@@ -34,6 +35,7 @@ pub fn Target(comptime X: usize, comptime Q: u8) type {
         const level = Tree.getLevel(key);
         if (Tree.isKeyLeftEdge(key) and level > 0) {
           self.rootLevel = level;
+          std.mem.copy(u8, &self.rootValue, try self.cursor.getCurrentValue());
         } else {
           return Error.InvalidDatabase;
         }
@@ -49,7 +51,9 @@ pub fn Target(comptime X: usize, comptime Q: u8) type {
       }
     }
 
-    pub fn seek(self: *Target(X, Q), level: u16, sourceRoot: *const Tree.Leaf) !void {
+    pub const Pointer = struct { key: *const Tree.Key, value: *const Tree.Value };
+
+    pub fn seek(self: *Target(X, Q), level: u16, sourceRoot: *const Tree.Leaf) !Pointer {
       assert(level > 0);
       const index = self.rootLevel - level;
       const targetRootKey = &self.keys[index];
@@ -78,6 +82,11 @@ pub fn Target(comptime X: usize, comptime Q: u8) type {
           }
         }
       }
+
+      return Pointer{
+        .key = try self.cursor.getCurrentKey(),
+        .value = try self.cursor.getCurrentValue(),
+      };
     }
 
     pub fn filter(self: *Target(X, Q), nodes: []Node, leaves: *std.ArrayList(Node)) !void {

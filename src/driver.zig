@@ -64,7 +64,7 @@ fn Driver(comptime X: usize, comptime Q: u8) type {
       targetLevel: u16,
       sourceLevel: u16,
       sourceRoot: *const Tree.Leaf,
-      sourceValue: *const Tree.Value,
+      sourceHash: *const Tree.Value,
       leaves: *std.ArrayList(Node),
     ) Error!void {
       // So the first step here is to figure out which tree is taller.
@@ -73,14 +73,14 @@ fn Driver(comptime X: usize, comptime Q: u8) type {
       // If the target tree is taller, we actually just call scan once,
       // but starting at the left edge on the source tree root's level.
       // std.log.warn(
-      //   "enter(targetLevel: {d}, sourceLevel: {d}, sourceRoot: {s}, sourceValue: {s})",
-      //   .{ targetLevel, sourceLevel, hex(sourceRoot), hex(sourceValue) },
+      //   "enter(targetLevel: {d}, sourceLevel: {d}, sourceRoot: {s}, sourceHash: {s})",
+      //   .{ targetLevel, sourceLevel, hex(sourceRoot), hex(sourceHash) },
       // );
 
       if (sourceLevel > targetLevel) {
         var nodes = std.ArrayList(Node).init(self.allocator);
         defer nodes.deinit();
-        try self.source.get(sourceLevel, sourceRoot, &nodes);
+        try self.source.getChildren(sourceLevel, sourceRoot, &nodes);
         self.calls += 1;
         assert(nodes.items.len > 0);
 
@@ -88,7 +88,7 @@ fn Driver(comptime X: usize, comptime Q: u8) type {
           try self.enter(targetLevel, sourceLevel - 1, &node.leaf, &node.hash, leaves);
         }
       } else {
-        try self.scan(sourceLevel, sourceRoot, sourceValue, leaves);
+        try self.scan(sourceLevel, sourceRoot, sourceHash, leaves);
       }
     }
 
@@ -96,20 +96,19 @@ fn Driver(comptime X: usize, comptime Q: u8) type {
       self: *Driver(X, Q),
       level: u16,
       sourceRoot: *const Tree.Leaf,
-      sourceValue: *const Tree.Value,
+      sourceHash: *const Tree.Value,
       leaves: *std.ArrayList(Node),
     ) Error!void {
-      try self.target.seek(level, sourceRoot);
-
-      const targetKey = try self.target.cursor.getCurrentKey();
-      const targetValue = try self.target.cursor.getCurrentValue();
-      if (std.mem.eql(u8, sourceRoot, Tree.getLeaf(targetKey)) and std.mem.eql(u8, sourceValue, targetValue)) {
-        return;
+      const pointer = try self.target.seek(level, sourceRoot);
+      if (std.mem.eql(u8, sourceRoot, Tree.getLeaf(pointer.key))) {
+        if (std.mem.eql(u8, sourceHash, pointer.value)) {
+          return;
+        }
       }
 
       var nodes = std.ArrayList(Node).init(self.allocator);
       defer nodes.deinit();
-      try self.source.get(level, sourceRoot, &nodes);
+      try self.source.getChildren(level, sourceRoot, &nodes);
       self.calls += 1;
       assert(nodes.items.len > 0);
 

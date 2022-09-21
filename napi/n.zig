@@ -285,3 +285,12 @@ pub fn getUndefined(env: c.napi_env) Error!c.napi_value {
 
   return result;
 }
+
+pub fn wrapArray(env: c.napi_env, elements: []c.napi_value) Error!c.napi_value {
+  const result = try createArrayWithLength(env, elements.len);
+  for (elements) |element, i| {
+    try setElement(env, result, @intCast(u32, i), element);
+  }
+
+  return result;
+}

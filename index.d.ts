@@ -9,13 +9,21 @@ declare class Tree {
 declare class Source {
 	constructor(tree: Tree)
 	getRootLevel(): number
-	get(level: number, leaf: null | Buffer): { leaf: Buffer; hash: Buffer }[]
+	getRootHash(): Buffer
+	getChildren(
+		level: number,
+		leaf: null | Buffer
+	): { leaf: Buffer; hash: Buffer }[]
 	close(): void
 }
 
 declare class Target {
 	constructor(tree: Tree)
 	getRootLevel(): number
-	filter(nodes: { leaf: Buffer; hash: Buffer }[]): Buffer[]
+	getRootHash(): Buffer
+	seek(level: number, leaf: Buffer): { leaf: Buffer; hash: Buffer }
+	filter(
+		nodes: { leaf: Buffer; hash: Buffer }[]
+	): { leaf: Buffer; hash: Buffer }[]
 	close(): void
 }

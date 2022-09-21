@@ -8,7 +8,6 @@ const lmdb = @import("lmdb");
 const okra = @import("okra");
 
 const X: comptime_int = 14;
-// const X: comptime_int = 6;
 const K: comptime_int = 2 + X;
 const V: comptime_int = 32;
 const Q: comptime_int = 0x42;
@@ -16,7 +15,7 @@ const Q: comptime_int = 0x42;
 const Env = lmdb.Environment(K, V);
 const Txn = lmdb.Transaction(K, V);
 const Cursor = lmdb.Cursor(K, V);
-const T = okra.Tree(X, Q);
+const Tree = okra.Tree(X, Q);
 const Builder = okra.Builder(X, Q);
 
 const allocator = std.heap.c_allocator;
@@ -221,7 +220,7 @@ fn ls(args: []const []const u8) !void {
   var cursor = try Cursor.open(txn, dbi);
   defer cursor.close();
 
-  var rootLevel: u16 = if (try cursor.goToLast()) |root| T.getLevel(root) else {
+  var rootLevel: u16 = if (try cursor.goToLast()) |root| Tree.getLevel(root) else {
     return fail("database not initialized", .{});
   };
 
@@ -230,7 +229,7 @@ fn ls(args: []const []const u8) !void {
   var initialLevel: u16 = if (level == -1) rootLevel else @intCast(u16, level);
   var initialDepth: u16 = if (depth == -1 or depth > initialLevel) initialLevel else @intCast(u16, depth);
 
-  const key = T.createKey(initialLevel, &leaf);
+  const key = Tree.createKey(initialLevel, &leaf);
   const value = try txn.get(dbi, &key);
   
   const prefix = try allocator.alloc(u8, 2 * initialDepth);
@@ -238,11 +237,11 @@ fn ls(args: []const []const u8) !void {
   std.mem.set(u8, prefix, '-');
 
   prefix[0] = '+';
-  try stdout.print("{s}- {s} {s}\n", .{ prefix, T.printKey(&key), hex(value.?) });
+  try stdout.print("{s}- {s} {s}\n", .{ prefix, Tree.printKey(&key), hex(value.?) });
 
   prefix[0] = '|';
   prefix[1] = ' ';
-  var firstChild = T.getChild(&key);
+  var firstChild = Tree.getChild(&key);
   try listChildren(prefix, &cursor, &firstChild, initialDepth, stdout);
 }
 
@@ -251,11 +250,11 @@ const ListChildrenError = Cursor.Error || std.mem.Allocator.Error || std.fs.File
 fn listChildren(
   prefix: []u8,
   cursor: *Cursor,
-  firstChild: *T.Key,
+  firstChild: *Tree.Key,
   depth: u16,
   log: std.fs.File.Writer,
 ) ListChildrenError!void {
-  const level = T.getLevel(firstChild);
+  const level = Tree.getLevel(firstChild);
 
   prefix[prefix.len-2*depth] = '|';
   prefix[prefix.len-2*depth+1] = ' ';
@@ -264,29 +263,29 @@ fn listChildren(
   const firstChildValue = try cursor.getCurrentValue();
   
   if (depth == 1) {
-    try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(firstChild), hex(firstChildValue) });
+    try log.print("{s}- {s} {s}\n", .{ prefix, Tree.printKey(firstChild), hex(firstChildValue) });
     while (try cursor.goToNext()) |key| {
       const value = try cursor.getCurrentValue();
-      if (T.getLevel(key) != level) break;
-      if (T.isSplit(value)) break;
-      try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(key), hex(value) });
+      if (Tree.getLevel(key) != level) break;
+      if (Tree.isSplit(value)) break;
+      try log.print("{s}- {s} {s}\n", .{ prefix, Tree.printKey(key), hex(value) });
     }
   } else if (depth > 1) {
     prefix[prefix.len-2*depth+2] = '+';
-    try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(firstChild), hex(firstChildValue) });
+    try log.print("{s}- {s} {s}\n", .{ prefix, Tree.printKey(firstChild), hex(firstChildValue) });
 
-    var grandChild = T.getChild(firstChild);
+    var grandChild = Tree.getChild(firstChild);
     try listChildren(prefix, cursor, &grandChild, depth - 1, log);
     try cursor.goToKey(firstChild);
     while (try cursor.goToNext()) |key| {
       const value = try cursor.getCurrentValue();
-      if (T.getLevel(key) != level) break;
-      if (T.isSplit(value)) break;
+      if (Tree.getLevel(key) != level) break;
+      if (Tree.isSplit(value)) break;
 
       prefix[prefix.len-2*depth+2] = '+';
-      try log.print("{s}- {s} {s}\n", .{ prefix, T.printKey(key), hex(value) });
+      try log.print("{s}- {s} {s}\n", .{ prefix, Tree.printKey(key), hex(value) });
       std.mem.copy(u8, firstChild, key);
-      grandChild = T.getChild(key);
+      grandChild = Tree.getChild(key);
       try listChildren(prefix, cursor, &grandChild, depth - 1, log);
       try cursor.goToKey(firstChild);
     }
@@ -307,7 +306,7 @@ fn init(args: []const []const u8) !void {
   }
 
   const log = if (verbose) std.io.getStdOut().writer() else null;
-  var tree: T = undefined;
+  var tree: Tree = undefined;
   try tree.init(allocator, getCString(path), .{ .log = log });
   defer tree.close();
 
@@ -350,7 +349,7 @@ fn insert(args: []const []const u8) !void {
   _ = try std.fmt.hexToBytes(&hash, hashArg);
 
   const log = if (verbose) std.io.getStdOut().writer() else null;
-  var tree: T = undefined;
+  var tree: Tree = undefined;
   try tree.init(allocator, getCString(path), .{ .log = log });
   defer tree.close();
 
@@ -382,7 +381,7 @@ fn razeTree(path: []const u8) !void {
 
   var cursor = try Cursor.open(txn, dbi);
 
-  const firstKey = T.createKey(1, null);
+  const firstKey = Tree.createKey(1, null);
   try cursor.goToKey(&firstKey);
   try cursor.deleteCurrentKey();
   while (try cursor.goToNext()) |_| try cursor.deleteCurrentKey();

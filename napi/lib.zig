@@ -41,15 +41,19 @@ export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) callco
   const sourceMethods = [_]n.Method{
     .{ .name = "close", .callback = sourceCloseMethod },
     .{ .name = "getRootLevel", .callback = sourceGetRootLevelMethod },
-    .{ .name = "get", .callback = sourceGetMethod },
+    .{ .name = "getRootHash", .callback = sourceGetRootHashMethod },
+    .{ .name = "getChildren", .callback = sourceGetChildrenMethod },
   };
 
   n.defineClass("Source", createSource, sourceMethods.len, &sourceMethods, env, exports) catch return null;
 
   const targetMethods = [_]n.Method{
     .{ .name = "close", .callback = targetCloseMethod },
-    .{ .name = "filter", .callback = targetFilterMethod },
     .{ .name = "getRootLevel", .callback = targetGetRootLevelMethod },
+    .{ .name = "getRootHash", .callback = targetGetRootHashMethod },
+    .{ .name = "seek", .callback = targetSeekMethod },
+    .{ .name = "filter", .callback = targetFilterMethod },
+    // .{ .name = "insert", .callback = targetInsertMethod },
   };
 
   n.defineClass("Target", createTarget, targetMethods.len, &targetMethods, env, exports) catch return null;
@@ -120,7 +124,7 @@ pub fn createSource(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.
     return null;
   };
 
-  source.init(tree) catch |err| {
+  source.init(allocator, tree) catch |err| {
     _ = c.napi_throw_error(env, null, @errorName(err));
     return null;
   };
@@ -158,7 +162,14 @@ fn sourceGetRootLevelMethod(env: c.napi_env, info: c.napi_callback_info) callcon
   return result;
 }
 
-fn sourceGetMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+fn sourceGetRootHashMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+  const stat = n.parseCallbackInfo(0, env, info) catch return null;
+  const source = n.unwrap(Source, &SourceTypeTag, env, stat.thisArg, false) catch return null;
+
+  return n.createBuffer(env, &source.rootValue) catch return null;
+}
+
+fn sourceGetChildrenMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
   const stat = n.parseCallbackInfo(2, env, info) catch return null;
 
   const level = n.parseUint32(env, stat.argv[0]) catch return null;
@@ -182,7 +193,7 @@ fn sourceGetMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.n
 
   var nodes = std.ArrayList(Node).init(allocator);
   defer nodes.deinit();
-  source.get(@intCast(u16, level), leaf, &nodes) catch |err| {
+  source.getChildren(@intCast(u16, level), leaf, &nodes) catch |err| {
     _ = c.napi_throw_error(env, null, @errorName(err));
     return null;
   };
@@ -213,7 +224,7 @@ pub fn createTarget(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.
     return null;
   };
 
-  target.init(tree) catch |err| {
+  target.init(allocator, tree) catch |err| {
     _ = c.napi_throw_error(env, null, @errorName(err));
     return null;
   };
@@ -251,6 +262,13 @@ fn targetGetRootLevelMethod(env: c.napi_env, info: c.napi_callback_info) callcon
   return result;
 }
 
+fn targetGetRootHashMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+  const stat = n.parseCallbackInfo(0, env, info) catch return null;
+  const target = n.unwrap(Target, &TargetTypeTag, env, stat.thisArg, false) catch return null;
+
+  return n.createBuffer(env, &target.rootValue) catch return null;
+}
+
 fn targetFilterMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
   const stat = n.parseCallbackInfo(1, env, info) catch return null;
   const target = n.unwrap(Target, &TargetTypeTag, env, stat.thisArg, false) catch return null;
@@ -265,8 +283,8 @@ fn targetFilterMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) 
     return null;
   }
 
-  var hashes = std.ArrayList(c.napi_value).init(allocator);
-  defer hashes.deinit();
+  var nodes = std.ArrayList(c.napi_value).init(allocator);
+  defer nodes.deinit();
 
   const leafProperty = n.createString(env, "leaf") catch return null;
   const hashProperty = n.createString(env, "hash") catch return null;
@@ -296,7 +314,7 @@ fn targetFilterMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) 
           return null;
         }
       } else {
-        hashes.append(hash) catch |err| {
+        nodes.append(element) catch |err| {
           _ = c.napi_throw_error(env, null, @errorName(err));
           return null;
         };
@@ -307,23 +325,48 @@ fn targetFilterMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) 
     }
   }
 
-  var result = n.createArrayWithLength(env, hashes.items.len) catch return null;
-  for (hashes.items) |hash, i| {
-    n.setElement(env, result, @intCast(u32, i), hash) catch return null;
-  }
-
-  return result;
+  return n.wrapArray(env, nodes.items) catch return null;
 }
 
-// fn targetGetRootLevelMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-//   const stat = n.parseCallbackInfo(0, env, info) catch return null;
+fn targetSeekMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+  const stat = n.parseCallbackInfo(2, env, info) catch return null;
+  const target = n.unwrap(Target, &TargetTypeTag, env, stat.thisArg, false) catch return null;
+
+  const level = n.parseUint32(env, stat.argv[0]) catch return null;
+  const sourceRoot = n.parseBuffer(env, X, stat.argv[1]) catch return null;
+
+  if (level == 0 or level > target.rootLevel) {
+    _ = c.napi_throw_range_error(env, null, "out of range");
+    return null;
+  }
+
+  const pointer = target.seek(@intCast(u16, level), sourceRoot) catch |err| {
+    _ = c.napi_throw_range_error(env, null, @errorName(err));
+    return null;
+  };
+
+  const leaf = n.createBuffer(env, Tree.getLeaf(pointer.key)) catch return null;
+  const hash = n.createBuffer(env, pointer.value) catch return null;
+
+  const object = n.createObject(env) catch return null;
+  const leafProperty = n.createString(env, "leaf") catch return null;
+  const hashProperty = n.createString(env, "hash") catch return null;
+  n.setProperty(env, object, leafProperty, leaf) catch return null;
+  n.setProperty(env, object, hashProperty, hash) catch return null;
+
+  return object;
+}
+
+// fn targetInsertMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+//   const stat = n.parseCallbackInfo(2, env, info) catch return null;
+//   const leaf = n.parseBuffer(env, X, stat.argv[0]) catch return null;
+//   const hash = n.parseBuffer(env, V, stat.argv[1]) catch return null;
 //   const target = n.unwrap(Target, &TargetTypeTag, env, stat.thisArg, false) catch return null;
 
-//   var result: c.napi_value = undefined;
-//   if (c.napi_create_uint32(env, target.rootLevel, &result) != c.napi_ok) {
-//     _ = c.napi_throw_error(env, null, "failed to create unsigned integer");
+//   if (target.insert(leaf, hash)) |_| {
+//     return n.getUndefined(env) catch return null;
+//   } else |err| {
+//     _ = c.napi_throw_error(env, null, @errorName(err));
 //     return null;
 //   }
-
-//   return result;
 // }
