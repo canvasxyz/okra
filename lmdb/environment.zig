@@ -7,7 +7,7 @@ const Options = struct {
   mapSize: usize = 10485760,
 };
 
-pub fn Environment(comptime K: usize, V: usize) type {
+pub fn Environment(comptime K: usize, comptime V: usize) type {
   return struct {
     pub const Error = error {
       LmdbVersionMismatch,
