@@ -201,7 +201,8 @@ test "sync iota(10000) with a random skip set" {
 
   const n: u32 = 10000;
 
-  var random = std.rand.DefaultPrng.init(0x0000000000000000).random();
+  var prng = std.rand.DefaultPrng.init(0x0000000000000000);
+  var random = prng.random();
   var skip = std.AutoHashMap(u32, bool).init(allocator);
   var i: u32 = 0;
   while (i < 100) : (i += 1) {
@@ -223,7 +224,8 @@ test "sync iota(10000) with a single missing element" {
 
   const n: u32 = 10000;
 
-  var random = std.rand.DefaultPrng.init(0x0000000000000000).random();
+  var prng = std.rand.DefaultPrng.init(0x0000000000000000);
+  var random = prng.random();
   var skip = std.AutoHashMap(u32, bool).init(allocator);
   var r = random.uintLessThan(u32, n);
   try skip.put(r, true);
