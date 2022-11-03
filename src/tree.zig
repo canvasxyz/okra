@@ -18,10 +18,10 @@ const Options = struct {
 };
 
 /// A Tree is a struct generic in two paramers X and Q.
-/// X is the byte size of leaf keys and for now(due to alignment issues)
+/// X is the byte size of leaf keys and for now (due to alignment issues)
 /// must be two less than a multiple of eight.
 /// Q is the fanout degree expressed as a u8 limit: hashes whose
-/// first byte are less than Q are considered splits.
+/// last byte are less than Q are considered splits.
 /// Open a tree with Tree.open(path, .{}), insert leaves with
 /// tree.insert(leaf, hash), and close the tree with tree.close().
 pub fn Tree(comptime X: usize, comptime Q: u8) type {
@@ -266,7 +266,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       if (self.log) |log| try log.print("{s}targetKey  {s}\n", .{ self.prefix.items, printKey(&targetKey) });
 
       const isFirstChild = std.mem.eql(u8, &targetKey, firstChild);
-      if (self.log) |log| try log.print("{s}isFirstChild {d}\n", .{ self.prefix.items, isFirstChild });
+      if (self.log) |log| try log.print("{s}isFirstChild {any}\n", .{ self.prefix.items, isFirstChild });
 
       const depth = self.prefix.items.len;
       if (self.log != null) {
@@ -345,7 +345,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
           
           const isTargetSplit = isSplit(&parentValue);
           if (self.log) |log|
-            try log.print("{s}isTargetSplit {d}\n", .{ self.prefix.items, isTargetSplit });
+            try log.print("{s}isTargetSplit {any}\n", .{ self.prefix.items, isTargetSplit });
 
           if (isFirstChild) {
             // isFirstChild means either targetKey's original value was already a split, or isLeftEdge is true.
