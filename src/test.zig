@@ -295,7 +295,8 @@ test "Tree(6, 0x30) on randomly shuffled permutations of 10000" {
   var i: u16 = 0;
   while (i < 10000) : (i += 1) permutations[0][i] = i;
 
-  var random = std.rand.DefaultPrng.init(0x0000000000000000).random();
+  var prng = std.rand.DefaultPrng.init(0x0000000000000000);
+  var random = prng.random();
   std.rand.Random.shuffle(random, u16, &permutations[0]);
 
   try testPermutations(6, 0x30, 10000, &permutations, .{ .mapSize = 2 * 1024 * 1024 * 1024});
