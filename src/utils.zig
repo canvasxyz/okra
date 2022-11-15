@@ -79,7 +79,7 @@ pub fn copy(dst: *std.ArrayList(u8), src: []const u8) !void {
     std.mem.copy(u8, dst.items, src);
 }
 
-// pub fn update(cursor: *lmdb.Cursor, level: u16, variant: Variant, hash: *Sha256) !void {
+// pub fn update(cursor: lmdb.Cursor, level: u16, variant: Variant, hash: *Sha256) !void {
 //     if (level > 0) {
 //         const value = try cursor.getCurrentValue();
 //         assert(value.len == 32);

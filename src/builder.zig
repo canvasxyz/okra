@@ -22,7 +22,6 @@ pub const Builder = struct {
     const Options = struct {
         degree: u8 = 32,
         variant: utils.Variant = utils.Variant.UnorderedSet,
-        // log: ?std.fs.File.Writer = null,
     };
 
     txn: lmdb.Transaction,
@@ -57,7 +56,7 @@ pub const Builder = struct {
 
         var level: u16 = 0;
         const height = while (true) : (level += 1) {
-            const count = try self.buildLevel(&cursor, level);
+            const count = try self.buildLevel(cursor, level);
             if (count == 0) {
                 break level;
             } else if (count == 1) {
@@ -81,7 +80,7 @@ pub const Builder = struct {
         self.txn.abort();
     }
     
-    fn buildLevel(self: *Builder, cursor: *lmdb.Cursor, level: u16) !usize {
+    fn buildLevel(self: *Builder, cursor: lmdb.Cursor, level: u16) !usize {
         var parent_count: usize = 0;
         var child_count: usize = 0;
 
@@ -139,6 +138,14 @@ var path_buffer: [4096]u8 = undefined;
 
 const Entry = [2][]const u8;
 
+fn printEntries(cursor: lmdb.Cursor, writer: std.fs.File.Writer) !void {
+    var entry = try cursor.goToFirst();
+    while (entry) |key| : (entry = try cursor.goToNext()) {
+        const value = try cursor.getCurrentValue();
+        try writer.print("{s} <- {s}\n", .{ hex(value), hex(key) });
+    }
+}
+
 fn testEntryList(leaves: []const Entry, entries: []const Entry, options: Builder.Options) !void {
     const log = std.io.getStdErr().writer();
     try log.print("\n", .{});
@@ -159,20 +166,14 @@ fn testEntryList(leaves: []const Entry, entries: []const Entry, options: Builder
     for (leaves) |leaf| try builder.set(leaf[0], leaf[1]);
 
     try builder.commit();
-    
+
     var txn = try lmdb.Transaction.open(env, true);
     defer txn.abort();
 
     var cursor = try lmdb.Cursor.open(txn);
 
-    {
-        var entry = try cursor.goToFirst();
-        while (entry) |key| : (entry = try cursor.goToNext()) {
-            const value = try cursor.getCurrentValue();
-            try log.print("{s} <- {s}\n", .{ hex(value), hex(key) });
-        }
-    }
-
+    try log.print("----------------------------------------------------------------\n", .{});
+    try printEntries(cursor, log);
     
     var index: usize = 0;
     var entry = try cursor.goToFirst();
@@ -186,7 +187,7 @@ fn testEntryList(leaves: []const Entry, entries: []const Entry, options: Builder
     try expectEqual(index, entries.len);
     
     try log.print("----------------------------------------------------------------\n", .{});
-    try print(allocator, env, log);
+    try print(allocator, env, log, .{ .compact = true });
 }
 
 test "Builder()" {
