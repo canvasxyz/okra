@@ -37,7 +37,7 @@ fn testPermutations(comptime X: usize, comptime Q: u8, comptime N: usize, permut
   }
 
   _ = try builder.finalize(null);
-  const referenceEnv = try lmdb.Environment(2+X, 32).open(referencePath, .{});
+  const referenceEnv = try lmdb.Environment.open(referencePath, .{});
 
   var nameBuffer: [32]u8 = undefined;
   for (permutations) |permutation, p| {
@@ -53,7 +53,7 @@ fn testPermutations(comptime X: usize, comptime Q: u8, comptime N: usize, permut
       try tree.insert(&key, &value);
     }
 
-    try expectEqual(@as(usize, 0), try lmdb.compareEntries(2+X, 32, referenceEnv, tree.env, .{}));
+    try expectEqual(@as(usize, 0), try lmdb.compareEntries(referenceEnv, tree.env, .{}));
     tree.close();
   }
 

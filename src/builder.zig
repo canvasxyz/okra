@@ -1,187 +1,278 @@
 const std = @import("std");
+const hex = std.fmt.fmtSliceHexLower;
+const assert = std.debug.assert;
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const lmdb = @import("lmdb");
 
 const utils = @import("./utils.zig");
+const print = @import("./print.zig").print;
 
 const allocator = std.heap.c_allocator;
-
-const Options = struct {
-  mapSize: usize = 10485760,
-};
 
 /// A Builder is naive bottom-up tree builder used to construct large trees
 /// at once and for reference when unit testing the actual Tree.
 /// Create a builder with Builder.init(path, options), insert as many leaves
-/// as you want using .insert(key, value), and then call .finalize().
+/// as you want using .set(key, value), and then call .commit().
 /// Builder is also used in the rebuild cli command.
-pub fn Builder(comptime X: usize, comptime Q: u8) type {
-  const K = 2 + X;
-  const V = 32;
+pub const Builder = struct {
+    const Options = struct {
+        degree: u8 = 32,
+        variant: utils.Variant = utils.Variant.UnorderedSet,
+        log: ?std.fs.File.Writer = null,
+    };
 
-  return struct {
-    pub const Leaf = [X]u8;
-    pub const Key = [K]u8;
-    pub const Value = [V]u8;
+    txn: lmdb.Transaction,
+    key: std.ArrayList(u8),
+    value: [32]u8 = undefined,
+    limit: u8,
+    options: Options,
+    
+    pub fn init(env: lmdb.Environment, options: Options) !Builder {
+        var txn = try lmdb.Transaction.open(env, false);
+        errdefer txn.abort();
+        
+        const key = std.ArrayList(u8).init(allocator);
+        const limit = @intCast(u8, 256 / @intCast(u16, options.degree));
+        var builder = Builder { .txn = txn, .key = key, .limit = limit, .options = options };
 
-    env: lmdb.Environment(K, V),
-    dbi: lmdb.DBI,
-    txn: lmdb.Transaction(K, V),
-    key: Key = [_]u8{ 0 } ** K,
-    value: Value = [_]u8{ 0 } ** V,
-
-    pub fn init(path: [*:0]const u8, options: Options) !Builder(X, Q) {
-      var env = try lmdb.Environment(K, V).open(path, .{ .mapSize = options.mapSize });
-      errdefer env.close();
-
-      var txn = try lmdb.Transaction(K, V).open(env, false);
-      errdefer txn.abort();
-
-      const dbi = try txn.openDBI();
-
-      const builder = Builder(X, Q){ .env = env, .dbi = dbi, .txn = txn };
-      try txn.set(dbi, &builder.key, &builder.value);
-      return builder;
+        Sha256.hash(&[0]u8 { }, &builder.value, .{});
+        try txn.set(&[_]u8 { 0x00, 0x00 }, &builder.value);
+        return builder;
+    }
+    
+    pub fn set(self: *Builder, key: []const u8, value: []const u8) !void {
+        try self.setKey(0, key);
+        try self.txn.set(self.key.items, value);
     }
 
-    pub fn insert(self: *Builder(X, Q), leaf: *const [X]u8, hash: *const [32]u8) !void {
-      std.mem.copy(u8, self.key[2..], leaf);
-      try self.txn.set(self.dbi, &self.key, hash);
+    pub fn commit(self: *Builder) !void {
+        defer self.key.deinit();
+
+        var cursor = try lmdb.Cursor.open(self.txn);
+        try cursor.goToKey(&[_]u8 { 0, 0 });
+
+        var level: u16 = 0;
+        const height = while (true) : (level += 1) {
+            const count = try self.buildLevel(&cursor, level);
+            if (count == 0) {
+                break level;
+            } else if (count == 1) {
+                break level + 1;
+            }
+        };
+
+        cursor.close();
+
+        try utils.setMetadata(self.txn, .{
+            .degree = self.options.degree,
+            .variant = self.options.variant,
+            .height = height,
+        });
+
+        try self.txn.commit();
     }
-
-    pub fn finalize(self: *Builder(X, Q), root: ?*[32]u8) !u16 {
-      var cursor = try lmdb.Cursor(K, V).open(self.txn, self.dbi);
-
-      var level: u16 = 0;
-      while ((try self.buildLevel(level, &cursor)) > 1) level += 1;
-
-      if (root) |ptr| {
-        _ = try cursor.goToLast();
-        std.mem.copy(u8, ptr, try cursor.getCurrentValue());
-      }
-
-      cursor.close();
-      try self.txn.commit();
-      
-      self.env.close();
-      return level + 1;
+    
+    pub fn abort(self: *Builder) void {
+        self.key.deinit();
+        self.txn.abort();
     }
+    
+    fn buildLevel(self: *Builder, cursor: *lmdb.Cursor, level: u16) !usize {
+        var parent_count: usize = 0;
+        var child_count: usize = 0;
 
-    fn getLevel(key: *const [K]u8) u16 {
-      return std.mem.readIntBig(u16, key[0..2]);
-    }
-
-    fn setLevel(key: *[K]u8, level: u16) void {
-      std.mem.writeIntBig(u16, key[0..2], level);
-    }
-
-    fn buildLevel(self: *Builder(X, Q), level: u16, cursor: *lmdb.Cursor(K, V)) !usize {
-      var count: usize = 0;
-
-      setLevel(&self.key, level);
-      std.mem.set(u8, self.key[2..], 0);
-      try cursor.goToKey(&self.key);
-
-      var hash = Sha256.init(.{});
-      hash.update(try cursor.getCurrentValue());
-
-      while (try cursor.goToNext()) |key| {
-        if (getLevel(key) != level) break;
-
-        const value = try cursor.getCurrentValue();
-        if (value[K-1] < Q) {
-          hash.final(&self.value);
-          setLevel(&self.key, level + 1);
-          try self.txn.set(self.dbi, &self.key, &self.value);
-          count += 1;
-
-          hash = Sha256.init(.{});
-          hash.update(value);
-          std.mem.copy(u8, &self.key, key);
-        } else {
-          hash.update(value);
+        {
+            const key = try cursor.getCurrentKey();
+            assert(key.len == 2);
+            assert(utils.getLevel(key) == level);
         }
-      }
+        
+        var hash = Sha256.init(.{});
+        // if (self.log) |log| try log.print("hashing {s}\n", .{ hex(try cursor.getCurrentValue()) });
+        hash.update(try cursor.getCurrentValue());
 
-      hash.final(&self.value);
-      setLevel(&self.key, level + 1);
-      try self.txn.set(self.dbi, &self.key, &self.value);
-      count += 1;
+        try self.setKey(level + 1, &[_]u8 {});
+        while (try cursor.goToNext()) |key| {
+            if (utils.getLevel(key) != level) break;
 
-      return count;
+            child_count += 1;
+            const value = try cursor.getCurrentValue();
+
+            if (self.isSplit(value)) {
+                hash.final(&self.value);
+                try self.txn.set(self.key.items, &self.value);
+                parent_count += 1;
+
+                try self.setKey(level + 1, key[2..]);
+                hash = Sha256.init(.{});
+                // if (self.log) |log| try log.print("hashing {s}\n", .{ hex(value) });
+                hash.update(value);
+            } else {
+                // if (self.log) |log| try log.print("hashing {s}\n", .{ hex(value) });
+                hash.update(value);
+            }
+        }
+        
+        if (child_count == 0) {
+            return 0;
+        }
+        
+        hash.final(&self.value);
+        try self.txn.set(self.key.items, &self.value);
+        return parent_count + 1;
     }
-  };
+    
+    fn setKey(self: *Builder, level: u16, key: []const u8) !void {
+        try self.key.resize(2 + key.len);
+        utils.setLevel(self.key.items, level);
+        std.mem.copy(u8, self.key.items[2..], key);
+    }
+    
+    fn isSplit(self: *const Builder, value: []const u8) bool {
+        return value[value.len - 1] < self.limit;
+    }
+};
+
+
+var path_buffer: [4096]u8 = undefined;
+
+const Entry = [2][]const u8;
+
+fn testEntryList(leaves: []const Entry, entries: []const Entry, options: Builder.Options) !void {
+    const log = std.io.getStdErr().writer();
+    try log.print("\n", .{});
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    
+    var tmp_path = try tmp.dir.realpath(".", &path_buffer);
+
+    var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
+    defer allocator.free(path);
+    
+    var env = try lmdb.Environment.open(path, .{});
+    defer env.close();
+
+    var builder = try Builder.init(env, options);
+    try log.print("LIMIT: {d}\n", .{ builder.limit });
+
+    for (leaves) |leaf| try builder.set(leaf[0], leaf[1]);
+
+    try builder.commit();
+    
+    var txn = try lmdb.Transaction.open(env, true);
+    defer txn.abort();
+
+    var cursor = try lmdb.Cursor.open(txn);
+
+    // log the entire database
+    {
+        var entry = try cursor.goToFirst();
+        while (entry) |key| : (entry = try cursor.goToNext()) {
+            const value = try cursor.getCurrentValue();
+            try log.print("{s} <- {s}\n", .{ hex(value), hex(key) });
+        }
+    }
+    
+    var index: usize = 0;
+    var entry = try cursor.goToFirst();
+    while (entry) |key| : (entry = try cursor.goToNext()) {
+        try expect(index < entries.len);
+        try expectEqualSlices(u8, entries[index][0], key);
+        try expectEqualSlices(u8, entries[index][1], try cursor.getCurrentValue());
+        index += 1;
+    }
+
+    try expectEqual(index, entries.len);
+    
+    // log the entire database again :)
+    try print(allocator, env, log);
 }
 
-fn testIota(comptime X: usize, comptime Q: u8, comptime N: u16, expected: *const [32]u8) !void {
-  var tmp = std.testing.tmpDir(.{});
-  const tmpPath = try tmp.dir.realpath(".", &utils.pathBuffer);
-  const path = try std.fs.path.joinZ(allocator, &[_][]const u8{ tmpPath, "reference.mdb" });
-  defer allocator.free(path);
+test "Builder()" {
+    const leaves = [_][2][]const u8 { };
 
-  var builder = try Builder(X, Q).init(path, .{});
+    const entries = [_][2][]const u8 {
+        .{ &[_]u8 { 0x00, 0x00 }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
+        .{ &[_]u8 { 0xFF, 0xFF }, &[_]u8 { 0x01, 0x20, 0x00, 0x00, 0x00 } },
+    };
 
-  var key = [_]u8{ 0 } ** X;
-  var value: [32]u8 = undefined;
-
-  var i: u16 = 0;
-  while (i < N) : (i += 1) {
-    std.mem.writeIntBig(u16, key[X-2..], i + 1);
-    Sha256.hash(&key, &value, .{});
-    try builder.insert(&key, &value);
-  }
-
-  var actual: [32]u8 = undefined;
-  _ = try builder.finalize(&actual);
-
-  try expectEqualSlices(u8, expected, &actual);
-
-  tmp.cleanup();
+    try testEntryList(&leaves, &entries, .{ });
 }
 
-// test "testIota(6, 0x20, 10)" {
-//   const expected = utils.parseHash("3cf9c6cab5d9f9cadf51b7fe3a8f9215e0b7ec0fe9e87a3e22678fa5009862d3");
-//   try testIota(6, 0x20, 10, &expected);
-// }
+test "Builder(a, b, c)" {
+    const leaves = [_][2][]const u8 {
+        .{ "a", &utils.hash("foo") },
+        .{ "b", &utils.hash("bar") },
+        .{ "c", &utils.hash("baz") },
+    };
 
-// test "testIota(6, 0x30, 10)" {
-//   const expected = utils.parseHash("c786feeecdff049766bbbd49adc0a3ec47016c39d725f10c4d405931283fa93c");
-//   try testIota(6, 0x30, 10, &expected);  
-// }
+    const entries = [_][2][]const u8 {
+        .{ &[_]u8 { 0x00, 0x00      }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
+        .{ &[_]u8 { 0x00, 0x00, 'a' }, &utils.parseHash("2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae") },
+        .{ &[_]u8 { 0x00, 0x00, 'b' }, &utils.parseHash("fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9") },
+        .{ &[_]u8 { 0x00, 0x00, 'c' }, &utils.parseHash("baa5a0964d3320fbc0c6a922140453c8513ea24ab8fd0577034804a967248096") },
+        .{ &[_]u8 { 0x00, 0x01      }, &utils.parseHash("1ca9140a5b30b5576694b7d45ce1af298d858a58dfa2376302f540ee75a89348") },
+        .{ &[_]u8 { 0xFF, 0xFF      }, &[_]u8 { 0x01, 0x04, 0x00, 0x00, 0x01 } },
+    };
 
-// test "testIota(6, 0x42, 10)" {
-//   const expected = utils.parseHash("d42d03b3176a17c253875be90daaf2cb58c8beb00c612d36410a13793aa03c7c");
-//   try testIota(6, 0x42, 10, &expected);  
-// }
+    try testEntryList(&leaves, &entries, .{ .degree = 4 });
+}
 
-// test "testIota(6, 0x20, 100)" {
-//   const expected = utils.parseHash("c49441921bb10659e23b703c7d028fc8b5f677b2df042b9bd043703771b145a6");
-//   try testIota(6, 0x20, 100, &expected);
-// }
+test "Builder(a, b, c, d)" {
+    const leaves = [_][2][]const u8 {
+        .{ "a", &utils.hash("foo") },
+        .{ "b", &utils.hash("bar") },
+        .{ "c", &utils.hash("baz") },
+        .{ "d", &utils.hash("wow") },
+    };
 
-// test "testIota(6, 0x30, 100)" {
-//   const expected = utils.parseHash("523f3244068a31634b1acf2d8637fbbf02c1e920e27d007f01237aca894216d3");
-//   try testIota(6, 0x30, 100, &expected);
-// }
+    const entries = [_][2][]const u8 {
+        .{ &[_]u8 { 0x00, 0x00      }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
+        .{ &[_]u8 { 0x00, 0x00, 'a' }, &utils.parseHash("2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae") },
+        .{ &[_]u8 { 0x00, 0x00, 'b' }, &utils.parseHash("fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9") },
+        .{ &[_]u8 { 0x00, 0x00, 'c' }, &utils.parseHash("baa5a0964d3320fbc0c6a922140453c8513ea24ab8fd0577034804a967248096") },
+        .{ &[_]u8 { 0x00, 0x00, 'd' }, &utils.parseHash("b6dc933311bc2357cc5fc636a4dbe41a01b7a33b583d043a7f870f3440697e27") },
+        .{ &[_]u8 { 0x00, 0x01      }, &utils.parseHash("1ca9140a5b30b5576694b7d45ce1af298d858a58dfa2376302f540ee75a89348") },
+        .{ &[_]u8 { 0x00, 0x01, 'd' }, &utils.parseHash("9171bd83fa38f12d3b2df9bd02ba891aafb00dcca723e3ed6820492ba9d7284e") },
+        .{ &[_]u8 { 0x00, 0x02,     }, &utils.parseHash("d31d890779b01bfa5d949717d89dedc097902ef468ca04b8290d0a032e562f0a") },
+        .{ &[_]u8 { 0xFF, 0xFF      }, &[_]u8 { 0x01, 0x04, 0x00, 0x00, 0x02 } },
+    };
 
-// test "testIota(6, 0x20, 1000)" {
-//   const expected = utils.parseHash("56759fe8e408eda58af94bb89140e1621a69b16f813599eb027f2f0ba8067f11");
-//   try testIota(6, 0x20, 1000, &expected);
-// }
+    try testEntryList(&leaves, &entries, .{ .degree = 4 });
+}
 
-// test "testIota(6, 0x30, 1000)" {
-//   const expected = utils.parseHash("5c05e591d73de7635e28d5c0147e7ff5fa36c8f80ec79a0a73d4db6af4f35135");
-//   try testIota(6, 0x30, 1000, &expected);
-// }
+test "Builder(a, b, c, d, e)" {
+    const leaves = [_][2][]const u8 {
+        .{ "a", &utils.hash("foo") },
+        .{ "b", &utils.hash("bar") },
+        .{ "c", &utils.hash("baz") },
+        .{ "d", &utils.hash("wow") },
+        .{ "e", &utils.hash("ooo") },
+    };
 
-// test "testIota(6, 0x20, 10000)" {
-//   const expected = utils.parseHash("aaea41e828b19f6d89bdf943e67877dee1f500db8cd2becf050f42dae815e668");
-//   try testIota(6, 0x20, 10000, &expected);
-// }
+    const entries = [_][2][]const u8 {
+        .{ &[_]u8 { 0x00, 0x00      }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
+        .{ &[_]u8 { 0x00, 0x00, 'a' }, &utils.parseHash("2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae") },
+        .{ &[_]u8 { 0x00, 0x00, 'b' }, &utils.parseHash("fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9") },
+        .{ &[_]u8 { 0x00, 0x00, 'c' }, &utils.parseHash("baa5a0964d3320fbc0c6a922140453c8513ea24ab8fd0577034804a967248096") },
+        .{ &[_]u8 { 0x00, 0x00, 'd' }, &utils.parseHash("b6dc933311bc2357cc5fc636a4dbe41a01b7a33b583d043a7f870f3440697e27") },
+        .{ &[_]u8 { 0x00, 0x00, 'e' }, &utils.parseHash("1ad25d0002690dc02e2708a297d8c9df1f160d376f663309cc261c7c921367e7") },
+        .{ &[_]u8 { 0x00, 0x01      }, &utils.parseHash("1ca9140a5b30b5576694b7d45ce1af298d858a58dfa2376302f540ee75a89348") },
+        .{ &[_]u8 { 0x00, 0x01, 'd' }, &utils.parseHash("7a4861380d8de83d51f59d9cf42e47f6b955b90302f0328c1ec27cb349596f07") },
+        .{ &[_]u8 { 0x00, 0x02,     }, &utils.parseHash("b8d64c1df3806e394ba9b56a74b6b10eb90e5c0979a3564b8e9efec9791c68cb") },
+        .{ &[_]u8 { 0x00, 0x02, 'd' }, &utils.parseHash("b008970bf72be98f3614caccbbf30baccc64273c197c539a20c1cd4b7cac8b05") },
+        .{ &[_]u8 { 0x00, 0x03,     }, &utils.parseHash("87913c5185f2175261903739964148c744b183c0991ae003ed6289d0541e3ad5") },
+        .{ &[_]u8 { 0x00, 0x03, 'd' }, &utils.parseHash("5916a54da06b4a95b841f5da524e871a014cd1bf72e6ed400bc35a3754294c05") },
+        .{ &[_]u8 { 0x00, 0x04,     }, &utils.parseHash("b097bc997119c6a0aa2fd760163ecdf184f4c490b2e86476ab15e2d80fca1146") },
+        .{ &[_]u8 { 0x00, 0x04, 'd' }, &utils.parseHash("3e8a33e514301e57922b4a4c5737e28dd65db1d2b4f49da619e772ab8e4a714d") },
+        .{ &[_]u8 { 0x00, 0x05,     }, &utils.parseHash("ac62313cd354bb52f897110b9ca4c840532e09eced40f59879c06689c5588f30") },
+        .{ &[_]u8 { 0xFF, 0xFF      }, &[_]u8 { 0x01, 0x04, 0x00, 0x00, 0x05 } },
+    };
 
-// test "testIota(6, 0x30, 10000)" {
-//   const expected = utils.parseHash("470fe0318cf569eb22250484312a3ed3bbd53252edfa4724378e500986bda706");
-//   try testIota(6, 0x30, 10000, &expected);
-// }
+    try testEntryList(&leaves, &entries, .{ .degree = 4 });
+}

@@ -13,8 +13,8 @@ const InsertResult = union(InsertResultTag) {
 };
 
 const Options = struct {
-  log: ?std.fs.File.Writer = null,
   mapSize: usize = 10485760,
+  log: ?std.fs.File.Writer = null,
 };
 
 /// A Tree is a struct generic in two paramers X and Q.
@@ -28,23 +28,20 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
   return struct {
     const K = 2 + X;
     const V = 32;
-    pub const Env = lmdb.Environment(K, V);
-    pub const Txn = lmdb.Transaction(K, V);
-    pub const Cursor = lmdb.Cursor(K, V);
 
     pub const Error = error {
       InsertError,
       InvalidDatabase,
       KeyNotFound,
       Duplicate,
-    } || Txn.Error || Cursor.Error || std.mem.Allocator.Error || std.os.WriteError;
+    } || lmdb.Transaction.Error || lmdb.Cursor.Error || std.mem.Allocator.Error || std.os.WriteError;
 
     pub const Leaf = [X]u8;
     pub const Key = [K]u8;
     pub const Value = [V]u8;
     pub const Node = struct { key: Key, value: Value };
 
-    env: Env,
+    env: lmdb.Environment,
     dbi: lmdb.DBI,
 
     rootLevel: u16,
@@ -56,22 +53,23 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
 
     pub fn init(self: *Tree(X, Q), allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !void {
       self.log = options.log;
-      self.env = try Env.open(path, .{ .mapSize = options.mapSize });
+      self.env = try lmdb.Environment.open(path, .{ .mapSize = options.mapSize });
 
       self.newChildren = std.ArrayList(Node).init(allocator);
       self.prefix = std.ArrayList(u8).init(allocator);
 
-      var txn = try Txn.open(self.env, false);
+      var txn = try lmdb.Transaction.open(self.env, false);
       errdefer txn.abort();
 
       self.dbi = try txn.openDBI();
 
-      var cursor = try Cursor.open(txn, self.dbi);
+      var cursor = try lmdb.Cursor.open(txn, self.dbi);
       errdefer cursor.close();
 
       if (try cursor.goToLast()) |root| {
-        self.rootLevel = getLevel(root);
-        if (self.rootLevel == 0 or !isKeyLeftEdge(root)) {
+        const rootKey = root[0..K];
+        self.rootLevel = getLevel(rootKey);
+        if (self.rootLevel == 0 or !isKeyLeftEdge(rootKey)) {
           return Error.InvalidDatabase;
         }
         std.mem.copy(u8, &self.rootValue, try cursor.getCurrentValue());
@@ -94,12 +92,12 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       self.prefix.deinit();
     }
 
-    pub fn transaction(self: *Tree(X, Q)) !Txn {
-      return try Txn.open(self.env, false);
+    pub fn transaction(self: *Tree(X, Q)) !lmdb.Transaction {
+      return try lmdb.Transaction.open(self.env, false);
     }
 
     pub fn insert(self: *Tree(X, Q), leaf: *const Leaf, value: *const Value) !void {
-      var txn = try Txn.open(self.env, false);
+      var txn = try lmdb.Transaction.open(self.env, false);
       errdefer txn.abort();
 
       const key = createKey(0, leaf);
@@ -107,7 +105,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
         return Error.Duplicate;
       }
 
-      var cursor = try Cursor.open(txn, self.dbi);
+      var cursor = try lmdb.Cursor.open(txn, self.dbi);
       errdefer cursor.close();
 
       try self.update(&txn, &cursor, leaf, value);
@@ -116,13 +114,13 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       try txn.commit();
     }
 
-    pub fn insertTxn(self: *Tree(X, Q), leaf: *const Leaf, value: *const Value, txn: *Txn) !void {
+    pub fn insertTxn(self: *Tree(X, Q), leaf: *const Leaf, value: *const Value, txn: *lmdb.Transaction) !void {
       const key = createKey(0, leaf);
       if (try self.get(txn, &key)) |_| {
         return Error.Duplicate;
       }
 
-      var cursor = try Cursor.open(txn.*, self.dbi);
+      var cursor = try lmdb.Cursor.open(txn.*, self.dbi);
       defer cursor.close();
 
       try self.update(txn, &cursor, leaf, value);
@@ -130,8 +128,8 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
 
     fn update(
       self: *Tree(X, Q),
-      txn: *Txn,
-      cursor: *Cursor,
+      txn: *lmdb.Transaction,
+      cursor: *lmdb.Cursor,
       leaf: *const Leaf,
       value: *const Value,
     ) Error!void {
@@ -215,8 +213,8 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
 
     fn insertLeaf(
       self: *Tree(X, Q),
-      txn: *Txn,
-      cursor: *Cursor,
+      txn: *lmdb.Transaction,
+      cursor: *lmdb.Cursor,
       firstChild: *const Key,
       leaf: *const Leaf,
       value: *const Value,
@@ -246,8 +244,8 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
 
     fn insertNode(
       self: *Tree(X, Q),
-      txn: *Txn,
-      cursor: *Cursor,
+      txn: *lmdb.Transaction,
+      cursor: *lmdb.Cursor,
       firstChild: *const Key,
       leaf: *const Leaf,
       value: *const Value,
@@ -384,7 +382,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       return parentResult;
     }
 
-    fn goToPreviousChild(self: *Tree(X, Q), txn: *Txn, cursor: *Cursor, targetKey: *const Key) !Key {
+    fn goToPreviousChild(self: *Tree(X, Q), txn: *lmdb.Transaction, cursor: *lmdb.Cursor, targetKey: *const Key) !Key {
       try cursor.goToKey(targetKey);
       while (try cursor.goToPrevious()) |previousChild| {
         const previousGrandChild = getChild(previousChild);
@@ -400,7 +398,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       return Error.KeyNotFound;
     }
 
-    fn findTargetKey(_: *const Tree(X, Q), cursor: *Cursor, firstChild: *const Key, leaf: *const Leaf) !Key {
+    fn findTargetKey(_: *const Tree(X, Q), cursor: *lmdb.Cursor, firstChild: *const Key, leaf: *const Leaf) !Key {
       const level = getLevel(firstChild);
       assert(level > 0);
 
@@ -417,7 +415,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       return previousChild;
     }
 
-    fn hashRange(self: *const Tree(X, Q), cursor: *Cursor, firstChild: *const Key, hash: *Value) !void {
+    fn hashRange(self: *const Tree(X, Q), cursor: *lmdb.Cursor, firstChild: *const Key, hash: *Value) !void {
       if (self.log) |log|
         try log.print("{s}hashRange({s})\n", .{ self.prefix.items, printKey(firstChild) });
 
@@ -436,7 +434,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
         value = try cursor.getCurrentValue();
         if (getLevel(key) != level or isSplit(value)) break;
         if (self.log) |log|
-          try log.print("{s}- hashing {s} -> {s}\n", .{ self.prefix.items, printKey(key), hex(value) });
+          try log.print("{s}- hashing {s} -> {s}\n", .{ self.prefix.items, printKey(key[0..K]), hex(value) });
 
         digest.update(value);
       }
@@ -460,22 +458,22 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       return key;
     }
 
-    fn set(self: *Tree(X, Q), txn: *Txn, key: *const Key, value: *const Value) !void {
+    fn set(self: *Tree(X, Q), txn: *lmdb.Transaction, key: *const Key, value: *const Value) !void {
       if (self.log) |log|
         try log.print("{s}txn.set({s}, {s})\n", .{ self.prefix.items, hex(key), hex(value) });
 
       try txn.set(self.dbi, key, value);
     }
 
-    fn delete(self: *Tree(X, Q), txn: *Txn, key: *const Key) !void {
+    fn delete(self: *Tree(X, Q), txn: *lmdb.Transaction, key: *const Key) !void {
       if (self.log) |log|
         try log.print("{s}txn.delete({s})\n", .{ self.prefix.items, hex(key) });
 
       try txn.delete(self.dbi, key);
     }
 
-    fn get(self: *const Tree(X, Q), txn: *Txn, key: *const Key) !?*Value {
-      return txn.get(self.dbi, key);
+    fn get(self: *const Tree(X, Q), txn: *lmdb.Transaction, key: *const Key) !?*Value {
+      return if (try txn.get(self.dbi, key)) |value| value[0..V] else null;
     }
 
     // key utils
@@ -483,7 +481,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       std.mem.writeIntBig(u16, key[0..2], level);
     }
 
-    pub fn getLevel(key: *const Key) u16 {
+    pub fn getLevel(key: []const u8) u16 {
       return std.mem.readIntBig(u16, key[0..2]);
     }
 
@@ -535,7 +533,7 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
     }
 
     // value utils
-    pub fn isSplit(value: *const Value) bool {
+    pub fn isSplit(value: []const u8) bool {
       return value[K-1] < Q;
     }
   };

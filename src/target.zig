@@ -10,7 +10,7 @@ pub fn Target(comptime X: usize, comptime Q: u8) type {
     const K = 2 + X;
     const V = 32;
 
-    const Env = lmdb.Environment(K, V);
+    const Env = lmdb.Environment;
     const Txn = lmdb.Transaction(K, V);
     const Cursor = lmdb.Cursor(K, V);
     const Node = okra.Node(X);
