@@ -1,7 +1,7 @@
 const std = @import("std");
 const c = @import("./c.zig");
 
-pub const Callback = fn(c.napi_env, c.napi_callback_info) callconv(.C) c.napi_value;
+pub const Callback = *const fn(c.napi_env, c.napi_callback_info) callconv(.C) c.napi_value;
 
 pub const Method = struct {
   name: [*:0]const u8,

@@ -69,12 +69,14 @@ pub fn createTree(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.na
   defer allocator.free(path);
 
   const tree = allocator.create(Tree) catch |err| {
-    _ = c.napi_throw_error(env, null, @errorName(err));
+    const name = @errorName(err);
+    _ = c.napi_throw_error(env, null, name.ptr);
     return null;
   };
 
   tree.init(allocator, path, .{}) catch |err| {
-    _ = c.napi_throw_error(env, null, @errorName(err));
+    const name = @errorName(err);
+    _ = c.napi_throw_error(env, null, name.ptr);
     return null;
   };
 
@@ -108,7 +110,8 @@ fn treeInsertMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.
   if (tree.insert(leaf, hash)) |_| {
     return n.getUndefined(env) catch return null;
   } else |err| {
-    _ = c.napi_throw_error(env, null, @errorName(err));
+    const name = @errorName(err);
+    _ = c.napi_throw_error(env, null, name.ptr);
     return null;
   }
 }
@@ -120,12 +123,14 @@ pub fn createSource(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.
   const tree = n.unwrap(Tree, &TreeTypeTag, env, stat.argv[0], false) catch return null;
 
   const source = allocator.create(Source) catch |err| {
-    _ = c.napi_throw_error(env, null, @errorName(err));
+    const name = @errorName(err);
+    _ = c.napi_throw_error(env, null, name.ptr);
     return null;
   };
 
   source.init(allocator, tree) catch |err| {
-    _ = c.napi_throw_error(env, null, @errorName(err));
+    const name = @errorName(err);
+    _ = c.napi_throw_error(env, null, name.ptr);
     return null;
   };
 
@@ -194,7 +199,8 @@ fn sourceGetChildrenMethod(env: c.napi_env, info: c.napi_callback_info) callconv
   var nodes = std.ArrayList(Node).init(allocator);
   defer nodes.deinit();
   source.getChildren(@intCast(u16, level), leaf, &nodes) catch |err| {
-    _ = c.napi_throw_error(env, null, @errorName(err));
+    const name = @errorName(err);
+    _ = c.napi_throw_error(env, null, name.ptr);
     return null;
   };
 
@@ -220,12 +226,14 @@ pub fn createTarget(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.
   const tree = n.unwrap(Tree, &TreeTypeTag, env, stat.argv[0], false) catch return null;
 
   const target = allocator.create(Target) catch |err| {
-    _ = c.napi_throw_error(env, null, @errorName(err));
+    const name = @errorName(err);
+    _ = c.napi_throw_error(env, null, name.ptr);
     return null;
   };
 
   target.init(allocator, tree) catch |err| {
-    _ = c.napi_throw_error(env, null, @errorName(err));
+    const name = @errorName(err);
+    _ = c.napi_throw_error(env, null, name.ptr);
     return null;
   };
 
@@ -315,12 +323,14 @@ fn targetFilterMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) 
         }
       } else {
         nodes.append(element) catch |err| {
-          _ = c.napi_throw_error(env, null, @errorName(err));
+          const name = @errorName(err);
+          _ = c.napi_throw_error(env, null, name.ptr);
           return null;
         };
       }
     } else |err| {
-      _ = c.napi_throw_error(env, null, @errorName(err));
+      const name = @errorName(err);
+      _ = c.napi_throw_error(env, null, name.ptr);
       return null;
     }
   }
@@ -341,7 +351,8 @@ fn targetSeekMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.
   }
 
   const pointer = target.seek(@intCast(u16, level), sourceRoot) catch |err| {
-    _ = c.napi_throw_range_error(env, null, @errorName(err));
+    const name = @errorName(err);
+    _ = c.napi_throw_range_error(env, null, name.ptr);
     return null;
   };
 
