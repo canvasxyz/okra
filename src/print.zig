@@ -14,7 +14,7 @@ const Printer = struct {
 
     pub fn init(allocator: std.mem.Allocator, env: lmdb.Environment, writer: std.fs.File.Writer) !Printer {
         var cursor = try SkipListCursor.open(allocator, env, true);
-        if (try utils.getMetadata(&cursor.txn)) |metadata| {
+        if (try utils.getMetadata(cursor.txn)) |metadata| {
             const limit = @intCast(u8, 256 / @intCast(u16, metadata.degree));
             return Printer {
                 .cursor = cursor,

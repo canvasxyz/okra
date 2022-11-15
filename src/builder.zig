@@ -22,7 +22,7 @@ pub const Builder = struct {
     const Options = struct {
         degree: u8 = 32,
         variant: utils.Variant = utils.Variant.UnorderedSet,
-        log: ?std.fs.File.Writer = null,
+        // log: ?std.fs.File.Writer = null,
     };
 
     txn: lmdb.Transaction,
@@ -92,7 +92,6 @@ pub const Builder = struct {
         }
         
         var hash = Sha256.init(.{});
-        // if (self.log) |log| try log.print("hashing {s}\n", .{ hex(try cursor.getCurrentValue()) });
         hash.update(try cursor.getCurrentValue());
 
         try self.setKey(level + 1, &[_]u8 {});
@@ -109,10 +108,8 @@ pub const Builder = struct {
 
                 try self.setKey(level + 1, key[2..]);
                 hash = Sha256.init(.{});
-                // if (self.log) |log| try log.print("hashing {s}\n", .{ hex(value) });
                 hash.update(value);
             } else {
-                // if (self.log) |log| try log.print("hashing {s}\n", .{ hex(value) });
                 hash.update(value);
             }
         }
@@ -158,7 +155,6 @@ fn testEntryList(leaves: []const Entry, entries: []const Entry, options: Builder
     defer env.close();
 
     var builder = try Builder.init(env, options);
-    try log.print("LIMIT: {d}\n", .{ builder.limit });
 
     for (leaves) |leaf| try builder.set(leaf[0], leaf[1]);
 
@@ -169,7 +165,6 @@ fn testEntryList(leaves: []const Entry, entries: []const Entry, options: Builder
 
     var cursor = try lmdb.Cursor.open(txn);
 
-    // log the entire database
     {
         var entry = try cursor.goToFirst();
         while (entry) |key| : (entry = try cursor.goToNext()) {
@@ -177,6 +172,7 @@ fn testEntryList(leaves: []const Entry, entries: []const Entry, options: Builder
             try log.print("{s} <- {s}\n", .{ hex(value), hex(key) });
         }
     }
+
     
     var index: usize = 0;
     var entry = try cursor.goToFirst();
@@ -189,7 +185,7 @@ fn testEntryList(leaves: []const Entry, entries: []const Entry, options: Builder
 
     try expectEqual(index, entries.len);
     
-    // log the entire database again :)
+    try log.print("----------------------------------------------------------------\n", .{});
     try print(allocator, env, log);
 }
 
