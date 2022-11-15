@@ -1,5 +1,7 @@
 const std = @import("std");
+const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectEqualSlices = std.testing.expectEqualSlices;
 
 const Environment = @import("./environment.zig").Environment;
 const Transaction = @import("./transaction.zig").Transaction;
@@ -10,47 +12,100 @@ const compareEntries = @import("./compare.zig").compareEntries;
 const allocator = std.heap.c_allocator;
 
 test "compareEntries" {
-  const K: comptime_int = 1;
-  const V: comptime_int = 3;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-  var buffer: [4096]u8 = undefined;
-  var tmp = std.testing.tmpDir(.{});
-  var tmpPath = try tmp.dir.realpath(".", &buffer);
+    var buffer: [4096]u8 = undefined;
+    var tmp_path = try tmp.dir.realpath(".", &buffer);
 
-  var pathA = try std.fs.path.joinZ(allocator, &.{ tmpPath, "a.mdb" });
-  defer allocator.free(pathA);
-  var pathB = try std.fs.path.joinZ(allocator, &.{ tmpPath, "b.mdb" });
-  defer allocator.free(pathB);
+    var path_a = try std.fs.path.joinZ(allocator, &.{ tmp_path, "a.mdb" });
+    defer allocator.free(path_a);
+    var path_b = try std.fs.path.joinZ(allocator, &.{ tmp_path, "b.mdb" });
+    defer allocator.free(path_b);
 
-  var envA = try Environment(K, V).open(pathA, .{});
-  var txnA = try Transaction(K, V).open(envA, false);
-  var dbiA = try txnA.openDBI();
+    var env_a = try Environment.open(path_a, .{});
+    defer env_a.close();
 
-  try txnA.set(dbiA, "x", "foo");
-  try txnA.set(dbiA, "y", "bar");
-  try txnA.set(dbiA, "z", "baz");
-  try txnA.commit();
+    var txn_a = try Transaction.open(env_a, false);
+    errdefer txn_a.abort();
 
-  var envB = try Environment(K, V).open(pathB, .{});
-  var txnB = try Transaction(K, V).open(envB, false);
-  var dbiB = try txnB.openDBI();
-  try txnB.set(dbiB, "y", "bar");
-  try txnB.set(dbiB, "z", "qux");
-  try txnB.commit();
+    try txn_a.set("x", "foo");
+    try txn_a.set("y", "bar");
+    try txn_a.set("z", "baz");
+    try txn_a.commit();
 
-  try expectEqual(try compareEntries(K, V, envA, envB, .{}), 2);
-  try expectEqual(try compareEntries(K, V, envB, envA, .{}), 2);
+    var env_b = try Environment.open(path_b, .{});
+    defer env_b.close();
 
-  txnB = try Transaction(K, V).open(envB, false);
-  try txnB.set(dbiB, "x", "foo");
-  try txnB.set(dbiB, "z", "baz");
-  try txnB.commit();
+    var txn_b = try Transaction.open(env_b, false);
+    errdefer txn_b.abort();
 
-  try expectEqual(try compareEntries(K, V, envA, envB, .{}), 0);
-  try expectEqual(try compareEntries(K, V, envB, envA, .{}), 0);
+    try txn_b.set("y", "bar");
+    try txn_b.set("z", "qux");
+    try txn_b.commit();
 
-  envA.close();
-  envB.close();
+    try expectEqual(try compareEntries(env_a, env_b, .{}), 2);
+    try expectEqual(try compareEntries(env_b, env_a, .{}), 2);
 
-  tmp.cleanup();
+    txn_b = try Transaction.open(env_b, false);
+    try txn_b.set("x", "foo");
+    try txn_b.set("z", "baz");
+    try txn_b.commit();
+
+    try expectEqual(try compareEntries(env_a, env_b, .{}), 0);
+    try expectEqual(try compareEntries(env_b, env_a, .{}), 0);
+}
+
+test "set empty value" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var buffer: [4096]u8 = undefined;
+    var tmp_path = try tmp.dir.realpath(".", &buffer);
+
+    var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
+    defer allocator.free(path);
+    
+    var env = try Environment.open(path, .{});
+    defer env.close();
+    
+    var txn = try Transaction.open(env, false);
+    defer txn.abort();
+    
+    try txn.set("a", "");
+    if (try txn.get("a")) |value| {
+        try expect(value.len == 0);
+    } else {
+        return error.KeyNotFound;
+    }
+}
+
+test "delete while iterating" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var buffer: [4096]u8 = undefined;
+    var tmp_path = try tmp.dir.realpath(".", &buffer);
+
+    var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
+    defer allocator.free(path);
+    
+    var env = try Environment.open(path, .{});
+    defer env.close();
+    
+    var txn = try Transaction.open(env, false);
+    defer txn.abort();
+    
+    try txn.set("a", "foo");
+    try txn.set("b", "bar");
+    try txn.set("c", "baz");
+    try txn.set("d", "qux");
+    
+    var cursor = try Cursor.open(txn);
+    try cursor.goToKey("c");
+    try expectEqualSlices(u8, try cursor.getCurrentValue(), "baz");
+    try txn.delete("c");
+    try expect(try cursor.goToPrevious() != null);
+    try expectEqualSlices(u8, try cursor.getCurrentKey(), "b");
+    try expectEqualSlices(u8, try cursor.getCurrentValue(), "bar");
 }
