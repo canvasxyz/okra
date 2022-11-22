@@ -30,21 +30,17 @@ pub fn setMetadata(txn: lmdb.Transaction, metadata: Metadata) !void {
 
 pub fn getMetadata(txn: lmdb.Transaction) !?Metadata {
     if (try txn.get(&constants.METADATA_KEY)) |value| {
-        return try parseMetadata(value);
+        if (value.len < 3) {
+            return error.InvalidDatabase;
+        } else if (value[0] != constants.DATABASE_VERSION) {
+            return error.UnsupportedVersion;
+        } else {
+            const variant = @intToEnum(Variant, value[2]);
+            const height = std.mem.readIntBig(u16, value[3..5]);
+            return Metadata { .degree = value[1], .variant = variant, .height = height };
+        }
     } else {
         return null;
-    }
-}
-
-pub fn parseMetadata(value: []const u8) !Metadata {
-    if (value.len < 3) {
-        return error.InvalidDatabase;
-    } else if (value[0] != constants.DATABASE_VERSION) {
-        return error.UnsupportedVersion;
-    } else {
-        const variant = @intToEnum(Variant, value[2]);
-        const height = std.mem.readIntBig(u16, value[3..5]);
-        return Metadata { .degree = value[1], .variant = variant, .height = height };
     }
 }
 
