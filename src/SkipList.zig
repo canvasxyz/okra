@@ -37,6 +37,10 @@ pub const SkipList = struct {
     };
     
     pub fn open(allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !SkipList {
+        if (options.degree == 0) {
+            return error.InvalidDegree;
+        }
+
         const env = try lmdb.Environment.open(path, .{ .map_size = options.map_size });
 
         var skip_list = SkipList {
@@ -51,15 +55,15 @@ pub const SkipList = struct {
 
         // Initialize the metadata and root entries if necessary
         const txn = try lmdb.Transaction.open(env, false);
-        errdefer txn.abort();
-
         if (try utils.getMetadata(txn)) |metadata| {
+            defer txn.abort();
             if (metadata.degree != options.degree) {
                 return error.InvalidDegree;
             } else if (metadata.variant != options.variant) {
                 return error.InvalidVariant;
             }
         } else {
+            errdefer txn.abort();
             Sha256.hash(&[0]u8 { }, &skip_list.value_buffer, .{});
             try txn.set(&[_]u8 { 0, 0 }, &skip_list.value_buffer);
             try utils.setMetadata(txn, .{ .degree = options.degree, .variant = options.variant, .height = 0 });
@@ -79,8 +83,8 @@ pub const SkipList = struct {
     }
 
     fn allocate(self: *SkipList, height: u16) !void {
-        try self.log_prefix.resize(0);
-        try self.new_siblings.resize(0);
+        self.log_prefix.shrinkAndFree(0);
+        self.new_siblings.shrinkAndFree(0);
 
         const target_keys_len = self.target_keys.items.len;
         if (target_keys_len < height) {
@@ -97,23 +101,25 @@ pub const SkipList = struct {
         try self.log("insert({s}, {s})", .{ hex(key), hex(value) });
 
         var metadata = try utils.getMetadata(cursor.txn) orelse return error.InvalidDatabase;
-        try self.log("height: {d}\n", .{ metadata.height });
+        try self.log("height: {d}", .{ metadata.height });
         try self.allocate(metadata.height);
 
-        try self.log_prefix.appendSlice("| ");
+        var root_level = metadata.height;
+        if (metadata.height == 0) {
+            root_level = 1;
+            try cursor.set(0, key, value);
+            if (self.isSplit(value)) {
+                try self.new_siblings.append(key);
+            }
+        } else {
+            const result = try self.insertNode(cursor, root_level - 1, &[_]u8 {}, key, value);
+            switch (result) {
+                .delete => return error.InsertError,
+                .update => {},
+            }
+        }
 
-        const result = try switch (metadata.height) {
-            0 => self.insertLeaf(cursor, key, value),
-            else => self.insertNode(cursor, 1, metadata.height - 1, &[_]u8 {}, key, value),
-        };
-
-        try self.log_prefix.resize(0);
-        
-        var root_level = if (metadata.height == 0) 1 else metadata.height;
-        var root_value = try switch (result) {
-            .delete => error.InsertError,
-            .update => self.hashRange(cursor, root_level, &[_]u8 {}),
-        };
+        var root_value = try self.hashRange(cursor, root_level, &[_]u8 {});
 
         try self.log("new root: {d} @ {s}", .{ root_level, hex(root_value) });
         try cursor.set(root_level, &[_]u8 { }, root_value);
@@ -153,17 +159,20 @@ pub const SkipList = struct {
     fn insertNode(
         self: *SkipList,
         cursor: *SkipListCursor,
-        depth: u16,
         level: u16,
         first_child: []const u8,
         key: []const u8,
         value: []const u8,
     ) !InsertResult {
         if (first_child.len == 0) {
-            try self.log("insertNode({d}, null, {s}, {s})", .{ level, hex(key), hex(value) });
+            try self.log("insertNode({d}, null)", .{ level });
         } else {
-            try self.log("insertNode({d}, {s}, {s}, {s})", .{ level, hex(first_child), hex(key), hex(value) });
+            try self.log("insertNode({d}, {s})", .{ level, hex(first_child)});
         }
+
+        const log_prefix_size = self.log_prefix.items.len;
+        try self.log_prefix.appendSlice("| ");
+        defer self.log_prefix.shrinkAndFree(log_prefix_size);
 
         if (std.mem.eql(u8, key, first_child)) {
             return Error.Duplicate;
@@ -172,7 +181,7 @@ pub const SkipList = struct {
         assert(std.mem.lessThan(u8, first_child, key));
         
         if (level == 0) {
-            try cursor.set(0, key, value);
+            try cursor.set(level, key, value);
             if (self.isSplit(value)) {
                 try self.new_siblings.append(key);
             }
@@ -193,15 +202,11 @@ pub const SkipList = struct {
         const is_first_child = std.mem.eql(u8, target, first_child);
         try self.log("is_first_child: {any}", .{ is_first_child });
 
-        try self.log_prefix.appendSlice("| ");
-
-        const result = try self.insertNode(cursor, depth + 1, level - 1, target, key, value);
+        const result = try self.insertNode(cursor, level - 1, target, key, value);
         switch (result) {
             InsertResult.delete => try self.log("result: delete", .{ }),
             InsertResult.update => try self.log("result: update", .{}),
         }
-    
-        try self.log_prefix.resize(depth * 2);
 
         try self.log("new siblings: {d}", .{ self.new_siblings.items.len });
         for (self.new_siblings.items) |child|
@@ -272,28 +277,8 @@ pub const SkipList = struct {
             }
         }
     }
-
-    fn insertLeaf(self: *SkipList,
-        cursor: *SkipListCursor,
-        key: []const u8,
-        value: []const u8,
-    ) !InsertResult {
-        try cursor.set(0, key, value);
-
-        if (self.isSplit(value)) {
-            try self.new_siblings.append(key);
-        }
-
-        return InsertResult.update;
-    }
     
-    fn findTargetKey(
-        self: *SkipList,
-        cursor: *SkipListCursor,
-        level: u16,
-        first_child: []const u8,
-        key: []const u8,
-    ) ![]const u8 {
+    fn findTargetKey(self: *SkipList, cursor: *SkipListCursor, level: u16, first_child: []const u8, key: []const u8) ![]const u8 {
         assert(level > 0);
         const target = &self.target_keys.items[level - 1];
         try utils.copy(target, first_child);
@@ -318,7 +303,7 @@ pub const SkipList = struct {
         try cursor.deleteCurrentKey();
         while (try cursor.goToPrevious()) |previous_child| {
             if (previous_child.len == 0) {
-                try target.resize(0);
+                target.shrinkAndFree(0);
                 return target.items;
             } else if (try cursor.get(level - 1, previous_child)) |previous_grand_child_value| {
                 if (self.isSplit(previous_grand_child_value)) {
@@ -374,7 +359,7 @@ pub const SkipList = struct {
             }
         }
 
-        try self.new_siblings.resize(new_index);
+        self.new_siblings.shrinkAndFree(new_index);
     }
 
     fn isSplit(self: *const SkipList, value: []const u8) bool {
