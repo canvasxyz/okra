@@ -17,30 +17,30 @@ pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) 
 
     var differences: usize = 0;
 
-    var txn_a = try Transaction.open(env_a, true);
-    var txn_b = try Transaction.open(env_b, true);
-    var cursor_a = try Cursor.open(txn_a);
-    var cursor_b = try Cursor.open(txn_b);
+    const txn_a = try Transaction.open(env_a, true);
+    const txn_b = try Transaction.open(env_b, true);
+    const cursor_a = try Cursor.open(txn_a);
+    const cursor_b = try Cursor.open(txn_b);
 
     var key_a = try cursor_a.goToFirst();
     var key_b = try cursor_b.goToFirst();
     while (key_a != null or key_b != null) {
-        if (key_a) |bytes_a| {
+        if (key_a) |key_a_bytes| {
             const value_a = try cursor_a.getCurrentValue();
-            if (key_b) |bytes_b| {
+            if (key_b) |key_b_bytes| {
                 const value_b = try cursor_b.getCurrentValue();
-                switch (std.mem.order(u8, bytes_a, bytes_b)) {
+                switch (std.mem.order(u8, key_a_bytes, key_b_bytes)) {
                     .lt => {
                         differences += 1;
                         if (options.log) |log|
-                            try log.print("{s}\n- a: {s}\n- b: null\n", .{ hex(bytes_a), hex(value_a), });
+                            try log.print("{s}\n- a: {s}\n- b: null\n", .{ hex(key_a_bytes), hex(value_a), });
 
                         key_a = try cursor_a.goToNext();
                     },
                     .gt => {
                         differences += 1;
                         if (options.log) |log|
-                            try log.print("{s}\n- a: null\n- b: {s}\n", .{ hex(bytes_a), hex(value_b), });
+                            try log.print("{s}\n- a: null\n- b: {s}\n", .{ hex(key_b_bytes), hex(value_b), });
 
                         key_b = try cursor_b.goToNext();
                     },
@@ -48,7 +48,7 @@ pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) 
                         if (!std.mem.eql(u8, value_a, value_b)) {
                             differences += 1;
                             if (options.log) |log|
-                                try log.print("{s}\n- a: {s}\n- b: {s}\n", .{ hex(bytes_a), hex(value_a), hex(value_b) });
+                                try log.print("{s}\n- a: {s}\n- b: {s}\n", .{ hex(key_a_bytes), hex(value_a), hex(value_b) });
                         }
 
                         key_a = try cursor_a.goToNext();
@@ -58,7 +58,7 @@ pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) 
             } else {
                 differences += 1;
                 if (options.log) |log|
-                    try log.print("{s}\n- a: {s}\n- b: null\n", .{ hex(bytes_a), hex(value_a) });
+                    try log.print("{s}\n- a: {s}\n- b: null\n", .{ hex(key_a_bytes), hex(value_a) });
 
                 key_a = try cursor_a.goToNext();
             }
@@ -87,10 +87,10 @@ pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) 
 }
 
 pub fn expectEqualEntries(env: Environment, entries: []const [2][]const u8) !void {
-    var txn = try Transaction.open(env, true);
+    const txn = try Transaction.open(env, true);
     defer txn.abort();
 
-    var cursor = try Cursor.open(txn);
+    const cursor = try Cursor.open(txn);
     defer cursor.close();
     
     var i: usize = 0;
@@ -114,20 +114,22 @@ test "expectEqualEntries" {
     var buffer: [4096]u8 = undefined;
     var tmp_path = try tmp.dir.realpath(".", &buffer);
 
-    var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
+    const path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
     defer allocator.free(path);
     
-    var env = try Environment.open(path, .{});
+    const env = try Environment.open(path, .{});
     defer env.close();
     
-    var txn = try Transaction.open(env, false);
-    errdefer txn.abort();
-    
-    try txn.set("a", "foo");
-    try txn.set("b", "bar");
-    try txn.set("c", "baz");
-    try txn.set("d", "qux");
-    try txn.commit();
+    {
+        const txn = try Transaction.open(env, false);
+        errdefer txn.abort();
+        
+        try txn.set("a", "foo");
+        try txn.set("b", "bar");
+        try txn.set("c", "baz");
+        try txn.set("d", "qux");
+        try txn.commit();
+    }
     
     try expectEqualEntries(env, &[_][2][]const u8{
        .{ "a", "foo" },

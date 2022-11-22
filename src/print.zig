@@ -1,9 +1,22 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
 const assert = std.debug.assert;
+
 const lmdb = @import("lmdb");
 const utils = @import("./utils.zig");
 const SkipListCursor = @import("./SkipListCursor.zig").SkipListCursor;
+
+pub fn printEntries(env: lmdb.Environment, writer: std.fs.File.Writer) !void {
+    const txn = try lmdb.Transaction.open(env, true);
+    defer txn.abort();
+
+    const cursor = try lmdb.Cursor.open(txn);
+    var entry = try cursor.goToFirst();
+    while (entry) |key| : (entry = try cursor.goToNext()) {
+        const value = try cursor.getCurrentValue();
+        try writer.print("{s} <- {s}\n", .{ hex(value), hex(key) });
+    }
+}
 
 const Printer = struct {
     const Options = struct {
@@ -53,7 +66,6 @@ const Printer = struct {
         assert(try self.printRange(0, self.height));
     }
     
-    // Assumes that the cursor has already been positioned at the first node of the range.
     fn printRange(self: *Printer, depth: u16, level: u16) !bool {
         if (level == 0) {
             var value = try self.cursor.getCurrentValue();
@@ -123,18 +135,11 @@ const Printer = struct {
             } else {
                 try self.writer.print("                                                                 ", .{});
             }
-            // if (i == 0) {
-            //     try self.writer.print("          ", .{})
-            // } else {
-            //     try self.writer.print("          ", .{})
-            // }
         }
-
-        // try self.writer.print("+-------- ", .{});
     }
 };
 
-pub fn print(allocator: std.mem.Allocator, env: lmdb.Environment, writer: std.fs.File.Writer, options: Printer.Options) !void {
+pub fn printTree(allocator: std.mem.Allocator, env: lmdb.Environment, writer: std.fs.File.Writer, options: Printer.Options) !void {
     var printer = try Printer.init(allocator, env, writer, options);
     try printer.print();
     printer.deinit();

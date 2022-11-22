@@ -168,7 +168,8 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
       var newChildrenCount = self.newChildren.items.len;
       while (newChildrenCount > 0) : (newChildrenCount = self.newChildren.items.len) {
         try self.set(txn, &rootKey, &rootValue);
-        for (self.newChildren.items) |node| try self.set(txn, &node.key, &node.value);
+        for (self.newChildren.items) |node|
+          try self.set(txn, &node.key, &node.value);
 
         try self.hashRange(cursor, &rootKey, &rootValue);
 
@@ -300,7 +301,8 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
             try log.print("{s}previousGrandChild {s}\n", .{ self.prefix.items, printKey(&previousGrandChild) });
           }
 
-          for (self.newChildren.items) |node| try self.set(txn, &node.key, &node.value);
+          for (self.newChildren.items) |node|
+            try self.set(txn, &node.key, &node.value);
 
           try self.delete(txn, &targetKey);
           
@@ -339,7 +341,8 @@ pub fn Tree(comptime X: usize, comptime Q: u8) type {
         InsertResult.update => |parentValue| {
           try self.set(txn, &targetKey, &parentValue);
 
-          for (self.newChildren.items) |node| try self.set(txn, &node.key, &node.value);
+          for (self.newChildren.items) |node|
+            try self.set(txn, &node.key, &node.value);
           
           const isTargetSplit = isSplit(&parentValue);
           if (self.log) |log|

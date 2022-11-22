@@ -22,16 +22,16 @@ pub fn build(b: *std.build.Builder) void {
     cli.linkLibC();
     cli.install();
 
-    // build node-api dylib
-    const napi = b.addSharedLibrary("okra", "./napi/lib.zig", .unversioned);
-    // napi.setBuildMode(mode);
-    napi.addPackage(okra);
-    napi.addIncludePath("/usr/local/include/node");
-    napi.addIncludePath("./libs/openldap/libraries/liblmdb");
-    napi.addCSourceFiles(lmdbSources, &.{ });
-    napi.linkLibC();
-    napi.linker_allow_shlib_undefined = true;
-    napi.install();
+    // // build node-api dylib
+    // const napi = b.addSharedLibrary("okra", "./napi/lib.zig", .unversioned);
+    // // napi.setBuildMode(mode);
+    // napi.addPackage(okra);
+    // napi.addIncludePath("/usr/local/include/node");
+    // napi.addIncludePath("./libs/openldap/libraries/liblmdb");
+    // napi.addCSourceFiles(lmdbSources, &.{ });
+    // napi.linkLibC();
+    // napi.linker_allow_shlib_undefined = true;
+    // napi.install();
 
     // buildArchOS(b, "aarch64-macos");
     // buildArchOS(b, "aarch64-linux-gnu");
@@ -68,24 +68,24 @@ pub fn build(b: *std.build.Builder) void {
     okra_tests.addIncludePath("libs/openldap/libraries/liblmdb");
     okra_tests.addCSourceFiles(lmdbSources, &.{ });
 
-    const source_tests = b.addTest("src/source.zig");
-    source_tests.addPackage(lmdb);
-    source_tests.addIncludePath("libs/openldap/libraries/liblmdb");
-    source_tests.addCSourceFiles(lmdbSources, &.{ });
+    // const source_tests = b.addTest("src/source.zig");
+    // source_tests.addPackage(lmdb);
+    // source_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    // source_tests.addCSourceFiles(lmdbSources, &.{ });
 
-    const driver_tests = b.addTest("src/driver.zig");
-    driver_tests.addPackage(lmdb);
-    driver_tests.addIncludePath("libs/openldap/libraries/liblmdb");
-    driver_tests.addCSourceFiles(lmdbSources, &.{ });
+    // const driver_tests = b.addTest("src/driver.zig");
+    // driver_tests.addPackage(lmdb);
+    // driver_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    // driver_tests.addCSourceFiles(lmdbSources, &.{ });
 
     const test_step = b.step("test", "Run unit tests");
 
-    test_step.dependOn(lmdb_test_step);
-    test_step.dependOn(builder_test_step);
-    test_step.dependOn(skip_list_test_step);
+    // test_step.dependOn(lmdb_test_step);
+    // test_step.dependOn(builder_test_step);
+    // test_step.dependOn(skip_list_test_step);
     test_step.dependOn(&okra_tests.step);
-    test_step.dependOn(&source_tests.step);
-    test_step.dependOn(&driver_tests.step);
+    // test_step.dependOn(&source_tests.step);
+    // test_step.dependOn(&driver_tests.step);
 }
 
 const lmdb = std.build.Pkg{

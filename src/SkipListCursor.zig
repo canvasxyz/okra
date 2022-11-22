@@ -16,9 +16,9 @@ pub const SkipListCursor = struct {
     pub fn open(allocator: std.mem.Allocator, env: lmdb.Environment, read_only: bool) !SkipListCursor {
         const key = try std.ArrayList(u8).initCapacity(allocator, INITIAL_KEY_CAPACITY);
         errdefer key.deinit();
-        var txn = try lmdb.Transaction.open(env, read_only);
+        const txn = try lmdb.Transaction.open(env, read_only);
         errdefer txn.abort();
-        var cursor = try lmdb.Cursor.open(txn);
+        const cursor = try lmdb.Cursor.open(txn);
         return SkipListCursor { .key = key, .txn = txn, .cursor = cursor };
     }
 
@@ -64,13 +64,26 @@ pub const SkipListCursor = struct {
     }
 
     pub fn goToPrevious(self: *SkipListCursor) !?[]const u8 {
-        if (try self.cursor.toToPrevious()) |key| {
+        if (try self.cursor.goToPrevious()) |key| {
             if (utils.getLevel(key) == self.level) {
                 return key[2..];
             }
         }
 
         return null;
+    }
+
+    pub fn goToLast(self: *SkipListCursor, level: u16) ![]const u8 {
+        try self.goToNode(level + 1, &[_]u8 {});
+
+        self.level = level;
+        if (try self.cursor.goToPrevious()) |previous_key| {
+            if (utils.getLevel(previous_key) == level) {
+                return previous_key[2..];
+            }
+        }
+
+        return error.KeyNotFound;
     }
 
     pub fn get(self: *SkipListCursor, level: u16, key: []const u8) !?[]const u8 {
@@ -86,6 +99,10 @@ pub const SkipListCursor = struct {
     pub fn delete(self: *SkipListCursor, level: u16, key: []const u8) !void {
         try self.setKey(level, key);
         try self.txn.delete(self.key.items);
+    }
+
+    pub fn deleteCurrentKey(self: *SkipListCursor) !void {
+        try self.cursor.deleteCurrentKey();
     }
     
     // pub fn isSplit() {

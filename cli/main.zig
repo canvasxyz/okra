@@ -7,553 +7,466 @@ const cli = @import("zig-cli");
 const lmdb = @import("lmdb");
 const okra = @import("okra");
 
-const X: comptime_int = 14;
-const K: comptime_int = 2 + X;
-const V: comptime_int = 32;
-const Q: comptime_int = 0x42;
-
-const Env = lmdb.Environment(K, V);
-const Txn = lmdb.Transaction(K, V);
-const Cursor = lmdb.Cursor(K, V);
-const Tree = okra.Tree(X, Q);
-const Builder = okra.Builder(X, Q);
+const utils = @import("./utils.zig");
 
 const allocator = std.heap.c_allocator;
 
-var pathOption = cli.Option{
-  .long_name = "path",
-  .short_alias = 'p',
-  .help = "path to the database",
-  .value = cli.OptionValue{ .string = null },
-  .required = true,
-};
-
-var aOption = cli.Option{
-  .long_name = "a",
-  .help = "path to the first database",
-  .value = cli.OptionValue{ .string = null },
-  .required = true,
-};
-
-var bOption = cli.Option{
-  .long_name = "b",
-  .help = "path to the second database",
-  .value = cli.OptionValue{ .string = null },
-  .required = true,
-};
-
-var verboseOption = cli.Option{
-  .long_name = "verbose",
-  .short_alias = 'v',
-  .help = "print debugging log to stdout",
-  .value = cli.OptionValue{ .bool = false },
-};
+// var verboseOption = cli.Option{
+//     .long_name = "verbose",
+//     .short_alias = 'v',
+//     .help = "print debugging log to stdout",
+//     .value = cli.OptionValue{ .bool = false },
+// };
 
 var iotaOption = cli.Option{
-  .long_name = "iota",
-  .help = "initialize the tree with hashes of the first iota positive integers as sample data",
-  .value = cli.OptionValue{ .int = 0 },
+    .long_name = "iota",
+    .help = "initialize the tree with hashes of the first iota positive integers as sample data",
+    .value = cli.OptionValue{ .int = 0 },
 };
 
-var levelOption = cli.Option{
-  .long_name = "level",
-  .short_alias = 'l',
-  .help = "level within the tree (use -1 for the root)",
-  .value = cli.OptionValue{ .int = -1 },
-  .required = false,
-};
+// var levelOption = cli.Option{
+//   .long_name = "level",
+//   .short_alias = 'l',
+//   .help = "level within the tree (use -1 for the root)",
+//   .value = cli.OptionValue{ .int = -1 },
+//   .required = false,
+// };
 
-var depthOption = cli.Option{
-  .long_name = "depth",
+// var depthOption = cli.Option{
+//   .long_name = "depth",
+//   .short_alias = 'd',
+//   .help = "number of levels to print",
+//   .value = cli.OptionValue{ .int = 1 },
+//   .required = false,
+// };
+
+var degreeOption = cli.Option{
+  .long_name = "degree",
   .short_alias = 'd',
-  .help = "number of levels to print",
-  .value = cli.OptionValue{ .int = 1 },
+  .help = "target fanout degree",
+  .value = cli.OptionValue{ .int = 32 },
   .required = false,
 };
 
 var app = &cli.Command{
-  .name = "okra",
-  .help = "okra is a deterministic pseudo-random merkle tree built on LMDB",
-  .subcommands = &.{
-    &cli.Command{
-      .name = "cat",
-      .help = "print the entries of the database to stdout",
-      .options = &.{ &pathOption },
-      .action = cat,
-    },
-    &cli.Command{
-      .name = "ls",
-      .help = "list the children of an intermediate node",
-      .options = &.{ &pathOption, &levelOption, &depthOption },
-      .action = ls,
-    },
-    &cli.Command{
-      .name = "init",
-      .help = "initialize an empty database",
-      .options = &.{ &pathOption, &verboseOption, &iotaOption },
-      .action = init,
-    },
-    &cli.Command{
-      .name = "insert",
-      .help = "insert a new leaf",
-      .options = &.{ &pathOption, &verboseOption },
-      .action = insert,
-    },
-    &cli.Command{
-      .name = "rebuild",
-      .help = "rebuild the tree from the leaf layer",
-      .options = &.{ &pathOption },
-      .action = rebuild,
-    },
-    &cli.Command{
-      .name = "internal",
-      .help = "unsafely access the underlying LMDB database directly",
-      .subcommands = &.{
+    .name = "okra",
+    .help = "okra is a deterministic pseudo-random merkle tree built on LMDB",
+    .subcommands = &.{
         &cli.Command{
-          .name = "cat",
-          .help = "print the entries of the database to stdout",
-          .options = &.{ &pathOption },
-          .action = internalCat,
+            .name = "cat",
+            .help = "print the key/value entries to stdout",
+            .options = &.{ },
+            .action = cat,
         },
         &cli.Command{
-          .name = "get",
-          .help = "get the value for a key",
-          .description = "okra internal get [KEY]\n[KEY] - hex-encoded key",
-          .options = &.{ &pathOption },
-          .action = internalGet,
+            .name = "stat",
+            .help = "print metadata",
+            .options = &.{ },
+            .action = stat,
         },
         &cli.Command{
-          .name = "set",
-          .help = "set a key/value entry",
-          .description = "okra internal set [KEY] [VALUE]\n[KEY] - hex-encoded key\n[VALUE] - hex-encoded value",
-          .options = &.{ &pathOption },
-          .action = internalSet,
+            .name = "ls",
+            .help = "print the tree structure",
+            .options = &.{ &degreeOption },
+            .action = ls,
         },
         &cli.Command{
-          .name = "delete",
-          .help = "delete a key",
-          .description = "okra internal delete [KEY]\n[KEY] - hex-encoded key",
-          .options = &.{ &pathOption },
-          .action = internalDelete,
+            .name = "init",
+            .help = "initialize an empty database",
+            .options = &.{ &iotaOption, &degreeOption },
+            .action = init,
         },
+        // &cli.Command{
+        //   .name = "insert",
+        //   .help = "insert a new leaf",
+        //   .options = &.{ &pathOption, &verboseOption },
+        //   .action = insert,
+        // },
+        // &cli.Command{
+        //   .name = "rebuild",
+        //   .help = "rebuild the tree from the leaf layer",
+        //   .options = &.{ &pathOption },
+        //   .action = rebuild,
+        // },
         &cli.Command{
-          .name = "diff",
-          .help = "print the diff between two databases",
-          .description = "okra internal diff [A] [B]\n[A] - path to database file\n[B] - path to database file",
-          .options = &.{ &aOption, &bOption },
-          .action = internalDiff,
-        },
-      }
-    }
-  },
+          .name = "internal",
+          .help = "interact with the underlying LMDB database",
+          .subcommands = &.{
+            &cli.Command{
+              .name = "cat",
+              .help = "print the entries of the database to stdout",
+              .options = &.{ },
+              .action = internalCat,
+            },
+            // &cli.Command{
+            //   .name = "get",
+            //   .help = "get the value for a key",
+            //   .description = "okra internal get [KEY]\n[KEY] - hex-encoded key",
+            //   .options = &.{ &pathOption },
+            //   .action = internalGet,
+            // },
+            // &cli.Command{
+            //   .name = "set",
+            //   .help = "set a key/value entry",
+            //   .description = "okra internal set [KEY] [VALUE]\n[KEY] - hex-encoded key\n[VALUE] - hex-encoded value",
+            //   .options = &.{ &pathOption },
+            //   .action = internalSet,
+            // },
+            // &cli.Command{
+            //   .name = "delete",
+            //   .help = "delete a key",
+            //   .description = "okra internal delete [KEY]\n[KEY] - hex-encoded key",
+            //   .options = &.{ &pathOption },
+            //   .action = internalDelete,
+            // },
+            // &cli.Command{
+            //   .name = "diff",
+            //   .help = "print the diff between two databases",
+            //   .description = "okra internal diff [A] [B]\n[A] - path to database file\n[B] - path to database file",
+            //   .options = &.{ &aOption, &bOption },
+            //   .action = internalDiff,
+            // },
+          }
+        }
+    },
 };
 
 fn cat(args: []const []const u8) !void {
-  const path = pathOption.value.string orelse unreachable;
-
-  if (args.len > 0) {
-    fail("too many arguments", .{});
-  }
-
-  const stdout = std.io.getStdOut().writer();
-
-  var env = try Env.open(getCString(path), .{});
-  defer env.close();
-
-  var txn = try Txn.open(env, true);
-  defer txn.abort();
-
-  const dbi = try txn.openDBI();
-
-  var cursor = try Cursor.open(txn, dbi);
-  defer cursor.close();
-
-  const anchorKey = [_]u8{ 0 } ** K;
-  if (try cursor.goToFirst()) |firstKey| {
-    if (!std.mem.eql(u8, firstKey, &anchorKey)) return Error.InvalidDatabase;
-    const firstValue = try cursor.getCurrentValue();
-    if (!isZero(firstValue)) return Error.InvalidDatabase;
-    while (try cursor.goToNext()) |key| {
-      if (std.mem.readIntBig(u16, key[0..2]) > 0) break;
-      const value = try cursor.getCurrentValue();
-      try stdout.print("{s} {s}\n", .{ hex(key[2..]), hex(value) });
+    if (args.len > 1) {
+        fail("too many arguments", .{});
+    } else if (args.len == 0) {
+        fail("path required", .{});
     }
-  }
+
+    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
+    defer allocator.free(path);
+
+    try std.fs.accessAbsoluteZ(path, .{ .mode = .read_only });
+
+    const stdout = std.io.getStdOut().writer();
+
+    const env = try lmdb.Environment.open(path, .{});
+    defer env.close();
+
+    var skip_list_cursor = try okra.SkipListCursor.open(allocator, env, true);
+    defer skip_list_cursor.abort();
+
+    try skip_list_cursor.goToNode(0, &[_]u8 {});
+    while (try skip_list_cursor.goToNext()) |key| {
+        const value = try skip_list_cursor.getCurrentValue();
+        try stdout.print("{s} <- {s}\n", .{ hex(value), hex(key) });
+    }
+}
+
+fn stat(args: []const []const u8) !void {
+    if (args.len > 1) {
+        fail("too many arguments", .{});
+    } else if (args.len == 0) {
+        fail("path required", .{});
+    }
+
+    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
+    defer allocator.free(path);
+
+    const stdout = std.io.getStdOut().writer();
+
+    const env = try lmdb.Environment.open(path, .{});
+    defer env.close();
+
+    const txn = try lmdb.Transaction.open(env, true);
+    defer txn.abort();
+    if (try okra.getMetadata(txn)) |metadata| {
+        try stdout.print("degree: {d}\n", .{ metadata.degree });
+        try stdout.print("variant: {any}\n", .{ metadata.variant });
+        try stdout.print("height: {d}\n", .{ metadata.height });
+    } else {
+        return error.InvalidDatabase;
+    }
 }
 
 fn ls(args: []const []const u8) !void {
-  const path = pathOption.value.string orelse unreachable;
-  var depth = depthOption.value.int orelse unreachable;
-  var level = levelOption.value.int orelse unreachable;
-
-  if (depth < -1) fail("depth must be -1 or a non-negative integer", .{});
-  if (level < -1 or level == 0) fail("level must be -1 or a positive integer", .{});
-
-  if (args.len > 1) {
-    fail("too many arguments", .{});
-  } else if (level != -1 and args.len == 0) {
-    fail("you must specify a leaf for non-root levels", .{});
-  } else if (level == -1 and args.len == 1) {
-    fail("you cannot specify a leaf for the root level", .{});
-  }
-
-  var leaf = [_]u8{ 0 } ** X;
-  if (args.len > 0) {
-    const leafArg = args[0];
-    if (leafArg.len != 2 * X) {
-      fail("invalid leaf size - expected exactly {d} hex bytes", .{ X });
+    if (args.len > 1) {
+        fail("too many arguments", .{});
+    } else if (args.len == 0) {
+        fail("path required", .{});
     }
 
-    _ = try std.fmt.hexToBytes(&leaf, leafArg);
-  }
+    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
+    defer allocator.free(path);
 
-  const stdout = std.io.getStdOut().writer();
+    const stdout = std.io.getStdOut().writer();
 
-  var env = try Env.open(getCString(path), .{});
-  defer env.close();
-
-  var txn = try Txn.open(env, true);
-  defer txn.abort();
-
-  const dbi = try txn.openDBI();
-
-  var cursor = try Cursor.open(txn, dbi);
-  defer cursor.close();
-
-  var rootLevel: u16 = if (try cursor.goToLast()) |root| Tree.getLevel(root) else {
-    return fail("database not initialized", .{});
-  };
-
-  if (rootLevel == 0) return Error.InvalidDatabase;
-
-  var initialLevel: u16 = if (level == -1) rootLevel else @intCast(u16, level);
-  var initialDepth: u16 = if (depth == -1 or depth > initialLevel) initialLevel else @intCast(u16, depth);
-
-  const key = Tree.createKey(initialLevel, &leaf);
-  const value = try txn.get(dbi, &key);
-  
-  const prefix = try allocator.alloc(u8, 2 * initialDepth);
-  defer allocator.free(prefix);
-  std.mem.set(u8, prefix, '-');
-
-  prefix[0] = '+';
-  try stdout.print("{s}- {s} {s}\n", .{ prefix, Tree.printKey(&key), hex(value.?) });
-
-  prefix[0] = '|';
-  prefix[1] = ' ';
-  var firstChild = Tree.getChild(&key);
-  try listChildren(prefix, &cursor, &firstChild, initialDepth, stdout);
-}
-
-const ListChildrenError = Cursor.Error || std.mem.Allocator.Error || std.fs.File.WriteError;
-
-fn listChildren(
-  prefix: []u8,
-  cursor: *Cursor,
-  firstChild: *Tree.Key,
-  depth: u16,
-  log: std.fs.File.Writer,
-) ListChildrenError!void {
-  const level = Tree.getLevel(firstChild);
-
-  prefix[prefix.len-2*depth] = '|';
-  prefix[prefix.len-2*depth+1] = ' ';
-
-  try cursor.goToKey(firstChild);
-  const firstChildValue = try cursor.getCurrentValue();
-  
-  if (depth == 1) {
-    try log.print("{s}- {s} {s}\n", .{ prefix, Tree.printKey(firstChild), hex(firstChildValue) });
-    while (try cursor.goToNext()) |key| {
-      const value = try cursor.getCurrentValue();
-      if (Tree.getLevel(key) != level) break;
-      if (Tree.isSplit(value)) break;
-      try log.print("{s}- {s} {s}\n", .{ prefix, Tree.printKey(key), hex(value) });
-    }
-  } else if (depth > 1) {
-    prefix[prefix.len-2*depth+2] = '+';
-    try log.print("{s}- {s} {s}\n", .{ prefix, Tree.printKey(firstChild), hex(firstChildValue) });
-
-    var grandChild = Tree.getChild(firstChild);
-    try listChildren(prefix, cursor, &grandChild, depth - 1, log);
-    try cursor.goToKey(firstChild);
-    while (try cursor.goToNext()) |key| {
-      const value = try cursor.getCurrentValue();
-      if (Tree.getLevel(key) != level) break;
-      if (Tree.isSplit(value)) break;
-
-      prefix[prefix.len-2*depth+2] = '+';
-      try log.print("{s}- {s} {s}\n", .{ prefix, Tree.printKey(key), hex(value) });
-      std.mem.copy(u8, firstChild, key);
-      grandChild = Tree.getChild(key);
-      try listChildren(prefix, cursor, &grandChild, depth - 1, log);
-      try cursor.goToKey(firstChild);
-    }
-  } else @panic("depth must be >= 1");
-
-  prefix[prefix.len-2*depth] = '-';
-  prefix[prefix.len-2*depth+1] = '-';
+    const env = try lmdb.Environment.open(path, .{});
+    defer env.close();
+    try okra.printTree(allocator, env, stdout, .{ .compact = true });
 }
 
 fn init(args: []const []const u8) !void {
-  const path = pathOption.value.string orelse unreachable;
-  const verbose = verboseOption.value.bool;
-  const iota = iotaOption.value.int orelse unreachable;
-  if (iota < 0) fail("iota must be a non-negative integer", .{});
+    if (args.len > 1) {
+        fail("too many arguments", .{});
+    } else if (args.len == 0) {
+        fail("path required", .{});
+    }
 
-  if (args.len > 0) {
-    fail("too many arguments", .{});
-  }
+    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
+    defer allocator.free(path);
 
-  const log = if (verbose) std.io.getStdOut().writer() else null;
-  var tree: Tree = undefined;
-  try tree.init(allocator, getCString(path), .{ .log = log });
-  defer tree.close();
+    const iota = iotaOption.value.int orelse unreachable;
+    if (iota <= 0) {
+        fail("iota must be a positive integer", .{});
+    } else if (iota > 0xFFFF) {
+        fail("iota must be less than 65536", .{});
+    }
 
-  var leaf = [_]u8{ 0 } ** X;
-  var value = [_]u8{ 0 } ** V;
+    const degree = degreeOption.value.int orelse unreachable;
+    if (degree < 0) {
+        fail("degree must be a non-negative integer", .{});
+    } else if (degree > 0xFF) {
+        fail("iota must be less than 256", .{});
+    }
 
-  var i: u32 = 0;
-  while (i < iota) : (i += 1) {
-    std.mem.writeIntBig(u32, leaf[X-4..], i + 1);
-    Sha256.hash(&leaf, &value, .{});
-    try tree.insert(&leaf, &value);
-  }
+    const env = try lmdb.Environment.open(path, .{});
+    defer env.close();
+
+    var builder = try okra.Builder.init(env, .{ .degree = @intCast(u8, degree) });
+    errdefer builder.abort();
+
+    var key: [2]u8 = undefined;
+    var value: [32]u8 = undefined;
+
+    var i: i32 = 0;
+    while (i < iota) : (i += 1) {
+        std.mem.writeIntBig(u16, &key, @intCast(u16, i));
+        Sha256.hash(&key, &value, .{});
+        try builder.set(&key, &value);
+    }
+
+    try builder.commit();
 }
 
-fn insert(args: []const []const u8) !void {
-  const path = pathOption.value.string orelse unreachable;
-  const verbose = verboseOption.value.bool;
+// fn insert(args: []const []const u8) !void {
+//     const path = pathOption.value.string orelse unreachable;
+//     const verbose = verboseOption.value.bool;
 
-  if (args.len == 0) {
-    fail("missing leaf argument", .{});
-  } else if (args.len == 1) {
-    fail("missing hash argument", .{});
-  } else if (args.len > 2) {
-    fail("too many arguments", .{});
-  }
+//     if (args.len == 0) {
+//         fail("missing leaf argument", .{});
+//     } else if (args.len == 1) {
+//         fail("missing hash argument", .{});
+//     } else if (args.len > 2) {
+//         fail("too many arguments", .{});
+//     }
 
-  const leafArg = args[0];
-  const hashArg = args[1];
+//     const leafArg = args[0];
+//     const hashArg = args[1];
 
-  if (leafArg.len != 2 * X) {
-    fail("invalid leaf size - expected exactly {d} hex bytes", .{ X });
-  } else if (hashArg.len != 2 * V) {
-    fail("invalid hash size - expected exactly {d} hex bytes", .{ V });
-  }
+//     if (leafArg.len != 2 * X) {
+//         fail("invalid leaf size - expected exactly {d} hex bytes", .{ X });
+//     } else if (hashArg.len != 2 * V) {
+//         fail("invalid hash size - expected exactly {d} hex bytes", .{ V });
+//     }
 
-  var leaf = [_]u8{ 0 } ** X;
-  var hash = [_]u8{ 0 } ** V;
+//     var leaf = [_]u8{ 0 } ** X;
+//     var hash = [_]u8{ 0 } ** V;
 
-  _ = try std.fmt.hexToBytes(&leaf, leafArg);
-  _ = try std.fmt.hexToBytes(&hash, hashArg);
+//     _ = try std.fmt.hexToBytes(&leaf, leafArg);
+//     _ = try std.fmt.hexToBytes(&hash, hashArg);
 
-  const log = if (verbose) std.io.getStdOut().writer() else null;
-  var tree: Tree = undefined;
-  try tree.init(allocator, getCString(path), .{ .log = log });
-  defer tree.close();
+//     const log = if (verbose) std.io.getStdOut().writer() else null;
+//     var tree: Tree = undefined;
+//     try tree.init(allocator, getCString(path), .{ .log = log });
+//     defer tree.close();
 
-  try tree.insert(&leaf, &hash);
-}
+//     try tree.insert(&leaf, &hash);
+// }
 
-fn rebuild(args: []const []const u8) !void {
-  const path = pathOption.value.string orelse unreachable;
-  if (args.len > 0) {
-    fail("too many arguments", .{});
-  }
+// fn rebuild(args: []const []const u8) !void {
+//     const path = pathOption.value.string orelse unreachable;
+//     if (args.len > 0) {
+//         fail("too many arguments", .{});
+//     }
 
-  try razeTree(path);
+//     try razeTree(path);
 
-  var builder = try Builder.init(getCString(path), .{});
-  _ = try builder.finalize(null);
-  const stdout = std.io.getStdOut().writer();
-  try stdout.print("Successfully rebuilt {s}\n", .{ path });
-}
+//     var builder = try Builder.init(getCString(path), .{});
+//     _ = try builder.finalize(null);
+//     const stdout = std.io.getStdOut().writer();
+//     try stdout.print("Successfully rebuilt {s}\n", .{ path });
+// }
 
-fn razeTree(path: []const u8) !void {
-  var env = try Env.open(getCString(path), .{});
-  defer env.close();
+// fn razeTree(path: []const u8) !void {
+//     var env = try Env.open(getCString(path), .{});
+//     defer env.close();
 
-  var txn = try Txn.open(env, false);
-  errdefer txn.abort();
+//     var txn = try Txn.open(env, false);
+//     errdefer txn.abort();
 
-  const dbi = try txn.openDBI();
+//     const dbi = try txn.openDBI();
 
-  var cursor = try Cursor.open(txn, dbi);
+//     var cursor = try Cursor.open(txn, dbi);
 
-  const firstKey = Tree.createKey(1, null);
-  try cursor.goToKey(&firstKey);
-  try cursor.deleteCurrentKey();
-  while (try cursor.goToNext()) |_| try cursor.deleteCurrentKey();
+//     const firstKey = Tree.createKey(1, null);
+//     try cursor.goToKey(&firstKey);
+//     try cursor.deleteCurrentKey();
+//     while (try cursor.goToNext()) |_| try cursor.deleteCurrentKey();
 
-  cursor.close();
-  try txn.commit();
-}
+//     cursor.close();
+//     try txn.commit();
+// }
 
 fn internalCat(args: []const []const u8) !void {
-  const path = pathOption.value.string orelse unreachable;
+    if (args.len > 1) {
+        fail("too many arguments", .{});
+    } else if (args.len == 0) {
+        fail("path required", .{});
+    }
 
-  if (args.len > 0) {
-    fail("too many arguments", .{});
-  }
+    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
+    defer allocator.free(path);
 
-  const stdout = std.io.getStdOut().writer();
+    const stdout = std.io.getStdOut().writer();
 
-  var env = try Env.open(getCString(path), .{});
-  defer env.close();
+    const env = try lmdb.Environment.open(path, .{});
+    defer env.close();
 
-  var txn = try Txn.open(env, true);
-  defer txn.abort();
+    const txn = try lmdb.Transaction.open(env, true);
+    defer txn.abort();
 
-  const dbi = try txn.openDBI();
+    const cursor = try lmdb.Cursor.open(txn);
+    defer cursor.close();
 
-  var cursor = try Cursor.open(txn, dbi);
-  defer cursor.close();
-
-  var next = try cursor.goToFirst();
-  while (next) |key| : (next = try cursor.goToNext()) {
-    const value = try cursor.getCurrentValue();
-    try stdout.print("{s} {s}\n", .{ hex(key), hex(value) });
-  }
+    var entry = try cursor.goToFirst();
+    while (entry) |key| : (entry = try cursor.goToNext()) {
+        const value = try cursor.getCurrentValue();
+        try stdout.print("{s} <- {s}\n", .{ hex(value), hex(key) });
+    }
 }
 
-fn internalSet(args: []const []const u8) !void {
-  const path = pathOption.value.string orelse unreachable;
+// fn internalSet(args: []const []const u8) !void {
+//     const path = pathOption.value.string orelse unreachable;
 
-  if (args.len == 0) {
-    fail("missing key argument", .{});
-  } else if (args.len == 1) {
-    fail("missing value argument", .{});
-  } else if (args.len > 2) {
-    fail("too many arguments", .{});
-  }
+//     if (args.len == 0) {
+//         fail("missing key argument", .{});
+//     } else if (args.len == 1) {
+//         fail("missing value argument", .{});
+//     } else if (args.len > 2) {
+//         fail("too many arguments", .{});
+//     }
 
-  const keyArg = args[0];
-  const valueArg = args[1];
+//     const keyArg = args[0];
+//     const valueArg = args[1];
 
-  if (keyArg.len != 2 * K) {
-    fail("invalid key size - expected exactly {d} hex bytes", .{ K });
-  } else if (valueArg.len != 2 * V) {
-    fail("invalid value size - expected exactly {d} hex bytes", .{ V });
-  }
+//     if (keyArg.len != 2 * K) {
+//         fail("invalid key size - expected exactly {d} hex bytes", .{ K });
+//     } else if (valueArg.len != 2 * V) {
+//         fail("invalid value size - expected exactly {d} hex bytes", .{ V });
+//     }
 
-  var env = try Env.open(getCString(path), .{});
-  defer env.close();
-  var txn = try Txn.open(env, false);
-  errdefer txn.abort();
-  const dbi = try txn.openDBI();
+//     var env = try Env.open(getCString(path), .{});
+//     defer env.close();
+//     var txn = try Txn.open(env, false);
+//     errdefer txn.abort();
+//     const dbi = try txn.openDBI();
 
-  var value = [_]u8{ 0 } ** V;
-  _ = try std.fmt.hexToBytes(&value, valueArg);
+//     var value = [_]u8{ 0 } ** V;
+//     _ = try std.fmt.hexToBytes(&value, valueArg);
 
-  var key = [_]u8{ 0 } ** K;
-  _ = try std.fmt.hexToBytes(&key, keyArg);
+//     var key = [_]u8{ 0 } ** K;
+//     _ = try std.fmt.hexToBytes(&key, keyArg);
 
-  try txn.set(dbi, &key, &value);
-  try txn.commit();
-}
+//     try txn.set(dbi, &key, &value);
+//     try txn.commit();
+// }
 
-fn internalGet(args: []const []const u8) !void {
-  const path = pathOption.value.string orelse unreachable;
+// fn internalGet(args: []const []const u8) !void {
+//     const path = pathOption.value.string orelse unreachable;
 
-  if (args.len == 0) {
-    fail("key argument required", .{});
-  } else if (args.len > 1) {
-    fail("too many arguments", .{});
-  }
+//     if (args.len == 0) {
+//         fail("key argument required", .{});
+//     } else if (args.len > 1) {
+//         fail("too many arguments", .{});
+//     }
 
-  const keyArg = args[0];
-  if (keyArg.len != 2 * K) {
-    fail("invalid key size - expected exactly {d} hex bytes", .{ K });
-  }
+//     const keyArg = args[0];
+//     if (keyArg.len != 2 * K) {
+//         fail("invalid key size - expected exactly {d} hex bytes", .{ K });
+//     }
 
-  const stdout = std.io.getStdOut().writer();
+//     const stdout = std.io.getStdOut().writer();
 
-  var env = try Env.open(getCString(path), .{});
-  defer env.close();
-  var txn = try Txn.open(env, true);
-  defer txn.abort();
-  const dbi = try txn.openDBI();
+//     var env = try Env.open(getCString(path), .{});
+//     defer env.close();
+//     var txn = try Txn.open(env, true);
+//     defer txn.abort();
+//     const dbi = try txn.openDBI();
 
-  var key = [_]u8{ 0 } ** K;
-  _ = try std.fmt.hexToBytes(&key, keyArg);
+//     var key = [_]u8{ 0 } ** K;
+//     _ = try std.fmt.hexToBytes(&key, keyArg);
 
-  if (try txn.get(dbi, &key)) |value| {
-    try stdout.print("{s}\n", .{ hex(value) });
-  }
-}
+//     if (try txn.get(dbi, &key)) |value| {
+//         try stdout.print("{s}\n", .{ hex(value) });
+//     }
+// }
 
-fn internalDelete(args: []const []const u8) !void {
-  const path = pathOption.value.string orelse unreachable;
+// fn internalDelete(args: []const []const u8) !void {
+//     const path = pathOption.value.string orelse unreachable;
 
-  if (args.len == 0) {
-    fail("key argument required", .{});
-  } else if (args.len > 1) {
-    fail("too many arguments", .{});
-  }
+//     if (args.len == 0) {
+//         fail("key argument required", .{});
+//     } else if (args.len > 1) {
+//         fail("too many arguments", .{});
+//     }
 
-  const keyArg = args[0];
-  if (keyArg.len != 2 * K) {
-    fail("invalid key size - expected exactly {d} hex bytes", .{ K });
-  }
+//     const keyArg = args[0];
+//     if (keyArg.len != 2 * K) {
+//         fail("invalid key size - expected exactly {d} hex bytes", .{ K });
+//     }
 
-  var env = try Env.open(getCString(path), .{});
-  defer env.close();
-  var txn = try Txn.open(env, false);
-  errdefer txn.abort();
-  const dbi = try txn.openDBI();
-  
-  var key = [_]u8{ 0 } ** K;
-  _ = try std.fmt.hexToBytes(&key, keyArg);
-  try txn.delete(dbi, &key);
-  try txn.commit();
-}
+//     var env = try Env.open(getCString(path), .{});
+//     defer env.close();
+//     var txn = try Txn.open(env, false);
+//     errdefer txn.abort();
+//     const dbi = try txn.openDBI();
+    
+//     var key = [_]u8{ 0 } ** K;
+//     _ = try std.fmt.hexToBytes(&key, keyArg);
+//     try txn.delete(dbi, &key);
+//     try txn.commit();
+// }
 
-fn internalDiff(args: []const []const u8) !void {
-  const a = aOption.value.string orelse unreachable;
-  const b = bOption.value.string orelse unreachable;
+// fn internalDiff(args: []const []const u8) !void {
+//     const a = aOption.value.string orelse unreachable;
+//     const b = bOption.value.string orelse unreachable;
 
-  if (args.len > 0) {
-    fail("too many arguments", .{});
-  }
+//     if (args.len > 0) {
+//         fail("too many arguments", .{});
+//     }
 
-  const stdout = std.io.getStdOut().writer();
+//     const stdout = std.io.getStdOut().writer();
 
-  const pathA = getCString(a);
-  const envA = try Env.open(pathA, .{});
-  defer envA.close();
-  const pathB = getCString(b);
-  const envB = try Env.open(pathB, .{});
-  defer envB.close();
-  _ = try lmdb.compareEntries(K, V, envA, envB, .{ .log = stdout });
-
-}
-
-const Error = error {
-  InvalidDatabase,
-};
+//     const pathA = getCString(a);
+//     const envA = try Env.open(pathA, .{});
+//     defer envA.close();
+//     const pathB = getCString(b);
+//     const envB = try Env.open(pathB, .{});
+//     defer envB.close();
+//     _ = try lmdb.compareEntries(K, V, envA, envB, .{ .log = stdout });
+// }
 
 pub fn main() !void {
-  return cli.run(app, allocator);
+    return cli.run(app, allocator);
 }
 
 fn fail(comptime fmt: []const u8, args: anytype) noreturn {
-  var w = std.io.getStdErr().writer();
-  std.fmt.format(w, "ERROR: ", .{}) catch unreachable;
-  std.fmt.format(w, fmt, args) catch unreachable;
-  std.fmt.format(w, "\n", .{}) catch unreachable;
-  std.os.exit(1);
+    var w = std.io.getStdErr().writer();
+    std.fmt.format(w, "ERROR: ", .{}) catch unreachable;
+    std.fmt.format(w, fmt, args) catch unreachable;
+    std.fmt.format(w, "\n", .{}) catch unreachable;
+    std.os.exit(1);
 }
 
-
-fn isZero(data: []const u8) bool {
-  for (data) |byte| if (byte != 0) return false;
-  return true;
-}
-
-var pathBuffer: [4096]u8 = undefined;
-pub fn getCString(path: []const u8) [:0]u8 {
-  std.mem.copy(u8, &pathBuffer, path);
-  pathBuffer[path.len] = 0;
-  return pathBuffer[0..path.len :0];
-}
+// var path_buffer: [4096]u8 = undefined;
+// pub fn getCString(path: []const u8) [:0]u8 {
+//     std.mem.copy(u8, &path_buffer, path);
+//     path_buffer[path.len] = 0;
+//     return path_buffer[0..path.len :0];
+// }
