@@ -112,7 +112,7 @@ pub const SkipList = struct {
         var root_level = if (metadata.height == 0) 1 else metadata.height;
         var root_value = try switch (result) {
             .delete => error.InsertError,
-            .update => self.hashRange(cursor, root_level - 1, &[_]u8 {}),
+            .update => self.hashRange(cursor, root_level, &[_]u8 {}),
         };
 
         try self.log("new root: {d} @ {s}", .{ root_level, hex(root_value) });
@@ -125,8 +125,8 @@ pub const SkipList = struct {
             try self.promote(cursor, root_level);
 
             // actually the same value over and over, but whatever
-            root_value = try self.hashRange(cursor, root_level, &[_]u8 {});
             root_level += 1;
+            root_value = try self.hashRange(cursor, root_level, &[_]u8 {});
             try self.log("new root: {d} @ {s}", .{ root_level, hex(root_value) });
             try cursor.set(root_level, &[_]u8 { },root_value);
 
@@ -222,7 +222,7 @@ pub const SkipList = struct {
 
                 try self.promote(cursor, level);
 
-                const previous_child_value = try self.hashRange(cursor, level - 1, previous_child);
+                const previous_child_value = try self.hashRange(cursor, level, previous_child);
                 try cursor.set(level, previous_child, previous_child_value);
                 
                 if (is_first_child or std.mem.lessThan(u8, previous_child, first_child)) {
@@ -246,7 +246,7 @@ pub const SkipList = struct {
                 }
             },
             InsertResult.update => {
-                const target_value = try self.hashRange(cursor, level - 1, target);
+                const target_value = try self.hashRange(cursor, level, target);
                 try cursor.set(level, target, target_value);
 
                 const is_target_split = self.isSplit(target_value);
@@ -334,18 +334,18 @@ pub const SkipList = struct {
     }
     
     // hashRange returns a pointer to self.value_buffer
-    fn hashRange(self: *SkipList, cursor: *SkipListCursor, level: u16, first_child: []const u8) ![]const u8 {
-        if (first_child.len == 0) {
+    fn hashRange(self: *SkipList, cursor: *SkipListCursor, level: u16, key: []const u8) ![]const u8 {
+        if (key.len == 0) {
             try self.log("hashRange({d}, null)", .{ level });
         } else {
-            try self.log("hashRange({d}, {s})", .{ level, hex(first_child) });
+            try self.log("hashRange({d}, {s})", .{ level, hex(key) });
         }
         
-        try cursor.goToNode(level, first_child);
+        try cursor.goToNode(level - 1, key);
         var digest = Sha256.init(.{});
         
         const value = try cursor.getCurrentValue();
-        try self.log("- hashing {s} <- {s}", .{ hex(value), hex(first_child) });
+        try self.log("- hashing {s} <- {s}", .{ hex(value), hex(key) });
         digest.update(value);
 
         while (try cursor.goToNext()) |next_key| {
@@ -366,7 +366,7 @@ pub const SkipList = struct {
         const new_sibling_count = self.new_siblings.items.len;
         while (old_index < new_sibling_count) : (old_index += 1) {
             const key = self.new_siblings.items[old_index];
-            const value = try self.hashRange(cursor, level - 1, key);
+            const value = try self.hashRange(cursor, level, key);
             try cursor.set(level, key, value);
             if (self.isSplit(value)) {
                 self.new_siblings.items[new_index] = key;
