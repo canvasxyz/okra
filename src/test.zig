@@ -133,7 +133,8 @@ fn testPseudoRandomPermutations(comptime N: u16, comptime P: u16, options: SkipL
 test "SkipList: 100 pseudo-random permutations of 1000" {
     // const log = std.io.getStdErr().writer();
     // try log.print("\n", .{});
-    try testPseudoRandomPermutations(10, 10000, .{ .degree = 4 });
+    // try testPseudoRandomPermutations(10, 1000, .{ .degree = 4, .log = log });
+    try testPseudoRandomPermutations(100, 1000, .{ .degree = 4 });
 }
 
 test "SkipList: 10 pseudo-random permutations of 10000" {

@@ -11,21 +11,14 @@ const utils = @import("./utils.zig");
 const constants = @import("./constants.zig");
 const printTree = @import("./print.zig").printTree;
 
-const Node = struct { key: []const u8, value: [32]u8 };
-
-// Possible sources of new_siblings node keys:
-// 1. the top-level key: []const u8 argument.
-// 2. the target_keys array, all of whose elements are allocated and freed
-//    by the entry SkipListp.insert() method.
-
 pub const SkipList = struct {
     allocator: std.mem.Allocator,
     limit: u8,
     env: lmdb.Environment,
     log_writer: ?std.fs.File.Writer,
     log_prefix: std.ArrayList(u8),
-    new_siblings: std.ArrayList(Node),
     target_keys: std.ArrayList(std.ArrayList(u8)),
+    new_siblings: std.ArrayList([]const u8),
 
     pub const Error = error {
         UnsupportedVersion,
@@ -33,7 +26,6 @@ pub const SkipList = struct {
         InvalidFanoutDegree,
         Duplicate,
         InsertError,
-        LMAO,
     };
 
     pub const Options = struct {
@@ -52,8 +44,8 @@ pub const SkipList = struct {
             .env = env,
             .log_writer = options.log,
             .log_prefix = std.ArrayList(u8).init(allocator),
-            .new_siblings = std.ArrayList(Node).init(allocator),
             .target_keys = std.ArrayList(std.ArrayList(u8)).init(allocator),
+            .new_siblings = std.ArrayList([]const u8).init(allocator),
         };
 
         // Initialize the metadata and root entries if necessary
@@ -81,14 +73,14 @@ pub const SkipList = struct {
         self.env.close();
         self.log_prefix.deinit();
 
-        self.new_siblings.deinit();
-
         for (self.target_keys.items) |key| key.deinit();
         self.target_keys.deinit();
+        self.new_siblings.deinit();
     }
 
     fn allocate(self: *SkipList, height: u16) !void {
         try self.log_prefix.resize(0);
+        try self.new_siblings.resize(0);
 
         const target_keys_len = self.target_keys.items.len;
         if (target_keys_len < height) {
@@ -97,22 +89,12 @@ pub const SkipList = struct {
                 key.* = std.ArrayList(u8).init(self.allocator);
             }
         }
-
-        try self.new_siblings.resize(0);
-        // const new_siblings_len = self.new_siblings.items.len;
-        // if (new_siblings_len < height) {
-        //     try self.new_siblings.resize(height);
-        //     for (self.new_siblings.items[new_siblings_len..]) |*node| {
-        //         node.key = std.ArrayList(u8).init(self.allocator);
-        //     }
-        // }
     }
     
-    const InsertResultTag = enum { delete, update };
-    const InsertResult = union (InsertResultTag) { delete: void, update: [32]u8 };
+    const InsertResult = enum { delete, update };
 
     pub fn insert(self: *SkipList, cursor: *SkipListCursor, key: []const u8, value: []const u8) !void {
-        try self.log("insert({s}, {s})\n", .{ hex(key), hex(value) });
+        try self.log("insert({s}, {s})", .{ hex(key), hex(value) });
 
         var metadata = try utils.getMetadata(cursor.txn) orelse return error.InvalidDatabase;
         try self.log("height: {d}\n", .{ metadata.height });
@@ -120,50 +102,56 @@ pub const SkipList = struct {
 
         try self.log_prefix.appendSlice("| ");
 
+        var new_children = std.ArrayList([]const u8).init(self.allocator);
+        defer new_children.deinit();
+
         const result = try switch (metadata.height) {
-            0 => self.insertLeaf(cursor, &[_]u8 {}, key, value),
-            else => self.insertNode(cursor, 1, metadata.height - 1, &[_]u8 {}, key, value),
+            0 => self.insertLeaf(cursor, &new_children, key, value),
+            else => self.insertNode(cursor, &new_children, 1, metadata.height - 1, &[_]u8 {}, key, value),
         };
 
         try self.log_prefix.resize(0);
-
+        
         var root_level = if (metadata.height == 0) 1 else metadata.height;
-        var root_value = try switch (result) {
-            .update => |root_value| root_value,
+        var root_value: [32]u8 = undefined;
+        try switch (result) {
             .delete => error.InsertError,
+            .update => self.hashRange(cursor, root_level - 1, &[_]u8 {}, &root_value),
         };
 
-        try self.log("new root: {d} @ {s}\n", .{ root_level, hex(&root_value) });
-        try self.log("new_siblings: {d}\n", .{ self.new_siblings.items.len });
-        for (self.new_siblings.items) |node|
-            try self.log("- {s} <- {s}\n", .{ hex(&node.value), hex(node.key) });
-        
-        var new_sibling_count = self.new_siblings.items.len;
-        while (new_sibling_count > 0) : (new_sibling_count = self.new_siblings.items.len) {
-            try cursor.set(root_level, &[_]u8 {}, &root_value);
-            for (self.new_siblings.items) |node|
-                try cursor.set(root_level, node.key, &node.value);
+        try self.log("new root: {d} @ {s}", .{ root_level, hex(&root_value) });
+        try cursor.set(root_level, &[_]u8 { }, &root_value);
 
-            try self.hashRange(cursor, root_level, &[_]u8 { }, &root_value);
-            
-            for (self.new_siblings.items) |node| {
-                if (self.isSplit(&node.value)) {
-                    var next = Node { .key = node.key, .value = undefined };
-                    try self.hashRange(cursor, root_level, next.key, &next.value);
-                    try self.new_siblings.append(next);
+        try self.log("new_children: {d}", .{ new_children.items.len });
+        for (new_children.items) |child| try self.log("- {s}", .{ hex(child) });
+        
+        var new_child_value: [32]u8 = undefined;
+        var new_child_count = new_children.items.len;
+        while (new_child_count > 0) : (new_child_count = new_children.items.len) {
+            var old_index: usize = 0;
+            var new_index: usize = 0;
+            while (old_index < new_child_count) : (old_index += 1) {
+                const child = new_children.items[old_index];
+                try self.hashRange(cursor, root_level - 1, child, &new_child_value);
+                try cursor.set(root_level, child, &new_child_value);
+                if (self.isSplit(&new_child_value)) {
+                    new_children.items[new_index] = child;
+                    new_index += 1;
                 }
             }
+
+            try new_children.resize(new_index);
+
+            try self.hashRange(cursor, root_level, &[_]u8 {}, &root_value);
             
             root_level += 1;
-            try self.log("new root: {d} @ {s}\n", .{ root_level, hex(&root_value) });
+            try self.log("new root: {d} @ {s}", .{ root_level, hex(&root_value) });
+            try cursor.set(root_level, &[_]u8 { }, &root_value);
 
-            try self.new_siblings.replaceRange(0, new_sibling_count, &.{});
-            try self.log("new_siblings: {d}\n", .{ self.new_siblings.items.len });
-            for (self.new_siblings.items) |node|
-                try self.log("- {s} -> {s}\n", .{ hex(node.key), hex(&node.value) });
+            // try new_children.replaceRange(0, new_child_count, &.{});
+            try self.log("new_children: {d}", .{ new_index });
+            for (new_children.items) |child| try self.log("- {s}", .{ hex(child) });
         }
-        
-        try cursor.set(root_level, &[_]u8 { }, &root_value);
 
         try cursor.goToNode(root_level, &[_]u8 { });
         while (root_level > 0) : (root_level -= 1) {
@@ -171,12 +159,12 @@ pub const SkipList = struct {
             if (last_key.len > 0) {
                 break;
             } else {
-                try self.log("trim root from {d} to {d}\n", .{ root_level, root_level - 1 });
+                try self.log("trim root from {d} to {d}", .{ root_level, root_level - 1 });
                 try cursor.delete(root_level, &[_]u8 { });
             }
         }
 
-        try self.log("writing metadata entry with height {d}\n", .{ root_level });
+        try self.log("writing metadata entry with height {d}", .{ root_level });
         metadata.height = root_level;
         try utils.setMetadata(cursor.txn, metadata);
     }
@@ -184,16 +172,18 @@ pub const SkipList = struct {
     fn insertNode(
         self: *SkipList,
         cursor: *SkipListCursor,
+        new_siblings: *std.ArrayList([]const u8),
         depth: u16,
         level: u16,
         first_child: []const u8,
         key: []const u8,
         value: []const u8,
     ) !InsertResult {
-        if (first_child.len == 0)
-            try self.log("insertNode({d}, null, {s}, {s})\n", .{ level, hex(key), hex(value) })
-        else
-            try self.log("insertNode({d}, {s}, {s}, {s})\n", .{ level, hex(first_child), hex(key), hex(value) });
+        if (first_child.len == 0) {
+            try self.log("insertNode({d}, null, {s}, {s})", .{ level, hex(key), hex(value) });
+        } else {
+            try self.log("insertNode({d}, {s}, {s}, {s})", .{ level, hex(first_child), hex(key), hex(value) });
+        }
 
         if (std.mem.eql(u8, key, first_child)) {
             return Error.Duplicate;
@@ -202,158 +192,139 @@ pub const SkipList = struct {
         assert(std.mem.lessThan(u8, first_child, key));
         
         if (level == 0) {
-            return try self.insertLeaf(cursor, first_child, key, value);
+            try cursor.set(0, key, value);
+            if (self.isSplit(value)) {
+                try new_siblings.append(key);
+            }
+
+            return InsertResult.update;
         }
 
         const target = try self.findTargetKey(cursor, level, first_child, key);
-        if (target.len == 0)
-            try self.log("target: null\n", .{ })
-        else
-            try self.log("target: {s}\n", .{ hex(target) });
-
-        const is_left_edge = first_child.len == 0;
-        try self.log("is_left_edge: {any}\n", .{ is_left_edge });
-
-        const is_first_child = std.mem.eql(u8, target, first_child);
-        try self.log("is_first_child: {any}\n", .{ is_first_child });
-
-        try self.log_prefix.appendSlice("| ");
-        const result = try self.insertNode(cursor, depth + 1, level - 1, target, key, value);
-        try self.log_prefix.resize(depth * 2);
-
-        switch (result) {
-            InsertResult.delete => try self.log("result: delete\n", .{ }),
-            InsertResult.update => |parent_value| try self.log("result: update ({s})\n", .{ hex(&parent_value) }),
+        if (target.len == 0) {
+            try self.log("target: null", .{ });
+        } else {
+            try self.log("target: {s}", .{ hex(target) });
         }
 
-        const old_sibling_count = self.new_siblings.items.len;
-        try self.log("new siblings: {d}\n", .{ old_sibling_count });
-        for (self.new_siblings.items) |new_sibling|
-            try self.log("- {s} <- {s}\n", .{ hex(&new_sibling.value), hex(new_sibling.key) });
+        const is_left_edge = first_child.len == 0;
+        try self.log("is_left_edge: {any}", .{ is_left_edge });
 
-        var parent_result: InsertResult = undefined;
-        
+        const is_first_child = std.mem.eql(u8, target, first_child);
+        try self.log("is_first_child: {any}", .{ is_first_child });
+
+        try self.log_prefix.appendSlice("| ");
+
+        var new_children = std.ArrayList([]const u8).init(self.allocator);
+        defer new_children.deinit();
+
+        const result = try self.insertNode(cursor, &new_children, depth + 1, level - 1, target, key, value);
+        switch (result) {
+            InsertResult.delete => try self.log("result: delete", .{ }),
+            InsertResult.update => try self.log("result: update", .{}),
+        }
+    
+        try self.log_prefix.resize(depth * 2);
+
+        try self.log("new children: {d}", .{ new_children.items.len });
+        for (new_children.items) |child|
+            try self.log("- {s}", .{ hex(child) });
+
         switch (result) {
             InsertResult.delete => {
                 assert(!is_left_edge or !is_first_child);
 
-                // var lmao: u16 = 0;
-                // if (lmao == 0) {
-                //     return error.LMAO;
-                // }
-                
                 // delete the entry and move to the previous child
+                // previous_child is the slice at target_keys[level - 1].items
                 const previous_child = try self.moveToPreviousChild(cursor, level);
+                if (previous_child.len == 0) {
+                    try self.log("previous_child: null", .{ });
+                } else {
+                    try self.log("previous_child: {s}", .{ hex(previous_child) });
+                }
+                
+                // In this case, some of the new_siblings could already be behind the target key.
+                var new_child_value: [32]u8 = undefined;
+                for (new_children.items) |child| {
+                    try self.hashRange(cursor, level - 1, child, &new_child_value);
+                    try cursor.set(level, child, &new_child_value);
+                    if (self.isSplit(&new_child_value)) {
+                        try new_siblings.append(child);
+                    }
+                }
 
-                // target now holds the previous child key
-                if (previous_child.len == 0)
-                    try self.log("previous_child: null\n", .{ })
-                else
-                    try self.log("previous_child: {s}\n", .{ hex(previous_child) });
-                
-                for (self.new_siblings.items) |node|
-                    try cursor.set(level, node.key, &node.value);
-                
                 var previous_child_value: [32]u8 = undefined;
                 try self.hashRange(cursor, level - 1, previous_child, &previous_child_value);
                 try cursor.set(level, previous_child, &previous_child_value);
                 
                 if (is_first_child or std.mem.lessThan(u8, previous_child, first_child)) {
-                    parent_result = InsertResult { .delete = {} };
-
                     if (self.isSplit(&previous_child_value)) {
-                        var new_sibling_value: [32]u8 = undefined;
-                        try self.hashRange(cursor, level, previous_child, &new_sibling_value);
-                        try self.new_siblings.append(Node {
-                            .key = previous_child,
-                            .value = new_sibling_value,
-                        });
+                        try new_siblings.append(previous_child);
                     }
+
+                    return InsertResult.delete;
                 } else if (std.mem.eql(u8, previous_child, first_child)) {
                     if (is_left_edge or self.isSplit(&previous_child_value)) {
-                        parent_result = InsertResult { .update = undefined };
-                        try self.hashRange(cursor, level, first_child, &parent_result.update);
+                        return InsertResult.update;
                     } else {
-                        parent_result = InsertResult { .delete = {} };
+                        return InsertResult.delete;
                     }
                 } else {
-                    parent_result = InsertResult { .update = undefined };
-                    try self.hashRange(cursor, level, first_child, &parent_result.update);
-
                     if (self.isSplit(&previous_child_value)) {
-                        var new_sibling_value: [32]u8 = undefined;
-                        try self.hashRange(cursor, level, previous_child, &new_sibling_value);
-                        try self.new_siblings.append(Node {
-                            .key = target,
-                            .value = new_sibling_value,
-                        });
+                        try new_siblings.append(target);
                     }
+
+                    return InsertResult.update;
                 }
             },
-            InsertResult.update => |parent_value| {
-                try cursor.set(level, target, &parent_value);
+            InsertResult.update => {
+                var target_value: [32]u8 = undefined;
+                try self.hashRange(cursor, level - 1, target, &target_value);
+                try cursor.set(level, target, &target_value);
                 
-                for (self.new_siblings.items) |node|
-                    try cursor.set(level, node.key, &node.value);
+                var new_child_value: [32]u8 = undefined;
+                for (new_children.items) |child| {
+                    try self.hashRange(cursor, level - 1, child, &new_child_value);
+                    try cursor.set(level, child, &new_child_value);
+                    if (self.isSplit(&new_child_value)) {
+                        try new_siblings.append(child);
+                    }
+                }
                 
-                const is_target_split = self.isSplit(&parent_value);
-                try self.log("is_target_split: {any}\n", .{ is_target_split });
+                const is_target_split = self.isSplit(&target_value);
+                try self.log("is_target_split: {any}", .{ is_target_split });
             
                 // is_first_child means either target's original value was a split,
                 // or is_left_edge is true.
                 if (is_first_child) {
                     if (is_target_split or is_left_edge) {
-                        parent_result = InsertResult { .update = undefined };
-                        try self.hashRange(cursor, level, target, &parent_result.update);
+                        return InsertResult.update;
                     } else {
-                        // !is_target_split && !is_left_edge means that the current target
-                        // has lost its status as a split and needs to get merged left.
-                        parent_result = InsertResult{ .delete = {} };
+                        return InsertResult.delete;
                     }
                 } else {
-                    parent_result = InsertResult { .update = undefined };
-                    try self.hashRange(cursor, level, first_child, &parent_result.update);
-
                     if (is_target_split) {
-                        var node = Node { .key = target, .value = undefined };
-                        try self.hashRange(cursor, level, target, &node.value);
-                        try self.new_siblings.append(node);
+                        try new_siblings.append(target);
                     }
+                    return InsertResult.update;
                 }
             }
         }
-        
-        for (self.new_siblings.items[0..old_sibling_count]) |old_sibling| {
-            if (self.isSplit(&old_sibling.value)) {
-                var node = Node { .key = old_sibling.key, .value = undefined };
-                try self.hashRange(cursor, level, old_sibling.key, &node.value);
-                try self.new_siblings.append(node);
-            }
-        }
-        
-        try self.new_siblings.replaceRange(0, old_sibling_count, &.{});
-        
-        return parent_result;
     }
 
     fn insertLeaf(self: *SkipList,
         cursor: *SkipListCursor,
-        first_child: []const u8,
+        new_siblings: *std.ArrayList([]const u8),
         key: []const u8,
         value: []const u8,
     ) !InsertResult {
-        var parent_value: [32]u8 = undefined;
-
         try cursor.set(0, key, value);
-        try self.hashRange(cursor, 0, first_child, &parent_value);
 
         if (self.isSplit(value)) {
-            var node = Node { .key = key, .value = undefined };
-            try self.hashRange(cursor, 0, key, &node.value);
-            try self.new_siblings.append(node);
+            try new_siblings.append(key);
         }
 
-        return InsertResult { .update = parent_value };
+        return InsertResult.update;
     }
     
     fn findTargetKey(
@@ -379,11 +350,7 @@ pub const SkipList = struct {
         return target.items;
     }
 
-    fn moveToPreviousChild(
-        self: *SkipList,
-        cursor: *SkipListCursor,
-        level: u16,
-    ) ![]const u8 {
+    fn moveToPreviousChild(self: *SkipList, cursor: *SkipListCursor, level: u16) ![]const u8 {
         const target = &self.target_keys.items[level - 1];
 
         // delete the entry and move to the previous child
@@ -413,28 +380,30 @@ pub const SkipList = struct {
         first_child: []const u8,
         result: *[32]u8,
     ) !void {
-        if (first_child.len == 0)
-            try self.log("hashRange({d}, null)\n", .{ level })
-        else
-            try self.log("hashRange({d}, {s})\n", .{ level, hex(first_child) });
+        if (first_child.len == 0) {
+            try self.log("hashRange({d}, null)", .{ level });
+        } else {
+            try self.log("hashRange({d}, {s})", .{ level, hex(first_child) });
+        }
         
         try cursor.goToNode(level, first_child);
         var digest = Sha256.init(.{});
         
         const value = try cursor.getCurrentValue();
-        try self.log("- hashing {s} <- {s}\n", .{ hex(value), hex(first_child) });
+        try self.log("- hashing {s} <- {s}", .{ hex(value), hex(first_child) });
         digest.update(value);
 
         while (try cursor.goToNext()) |next_key| {
             const next_value = try cursor.getCurrentValue();
             if (self.isSplit(next_value)) break;
-            try self.log("- hashing {s} <- {s}\n", .{ hex(next_value), hex(next_key) });
+            try self.log("- hashing {s} <- {s}", .{ hex(next_value), hex(next_key) });
             digest.update(next_value);
         }
 
         digest.final(result);
-        try self.log("--------- {s}\n", .{ hex(result) });
+        try self.log("--------- {s}", .{ hex(result) });
     }
+
 
     fn isSplit(self: *const SkipList, value: []const u8) bool {
         return value[value.len - 1] < self.limit;
@@ -443,7 +412,7 @@ pub const SkipList = struct {
     fn log(self: *const SkipList, comptime format: []const u8, args: anytype) !void {
         if (self.log_writer) |writer| {
             try writer.print("{s}", .{ self.log_prefix.items });
-            try writer.print(format, args);
+            try writer.print(format ++ "\n", args);
         }
     }
 };
