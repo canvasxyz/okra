@@ -130,7 +130,7 @@ pub const SkipList = struct {
         while (self.new_siblings.items.len > 0) {
             try self.promote(cursor, root_level);
 
-            // actually the same value over and over, but whatever
+            // actually the same root_value pointer over and over, but whatever
             root_level += 1;
             root_value = try self.hashRange(cursor, root_level, &[_]u8 {});
             try self.log("new root: {d} @ {s}", .{ root_level, hex(root_value) });
@@ -284,7 +284,7 @@ pub const SkipList = struct {
         try utils.copy(target, first_child);
 
         try cursor.goToNode(level, first_child);
-        while (try cursor.goToNext()) |next_child| {
+        while (try cursor.goToNext(level)) |next_child| {
             if (std.mem.lessThan(u8, key, next_child)) {
                 return target.items;
             } else {
@@ -301,7 +301,7 @@ pub const SkipList = struct {
         // delete the entry and move to the previous child
         try cursor.goToNode(level, target.items);
         try cursor.deleteCurrentKey();
-        while (try cursor.goToPrevious()) |previous_child| {
+        while (try cursor.goToPrevious(level)) |previous_child| {
             if (previous_child.len == 0) {
                 target.shrinkAndFree(0);
                 return target.items;
@@ -333,7 +333,7 @@ pub const SkipList = struct {
         try self.log("- hashing {s} <- {s}", .{ hex(value), hex(key) });
         digest.update(value);
 
-        while (try cursor.goToNext()) |next_key| {
+        while (try cursor.goToNext(level - 1)) |next_key| {
             const next_value = try cursor.getCurrentValue();
             if (self.isSplit(next_value)) break;
             try self.log("- hashing {s} <- {s}", .{ hex(next_value), hex(next_key) });

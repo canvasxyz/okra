@@ -68,17 +68,16 @@ fn testPermutations(comptime N: usize, permutations: []const [N]u16, options: Sk
     }
 }
 
-test "SkipList: static permutations of 10" {
-    const permutations = [_][10]u16{
-        .{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 },
-        .{ 4, 6, 7, 2, 5, 1, 8, 3, 9, 0 },
-        .{ 5, 0, 8, 2, 9, 3, 4, 7, 6, 1 },
-        .{ 4, 5, 8, 2, 0, 1, 6, 7, 9, 3 },
-        .{ 1, 7, 6, 5, 8, 3, 4, 2, 0, 9 },
-    };
+// test "SkipList: static permutation of 10" {
+//     const log = std.io.getStdErr().writer();
+//     try log.print("\n", .{});
 
-    try testPermutations(10, &permutations, .{ .degree = 4 });
-}
+//     const permutations = [1][10]u16{
+//         .{ 4, 5, 8, 2, 0, 1, 6, 7, 9, 3 },
+//     };
+
+//     try testPermutations(10, &permutations, .{ .degree = 4, .log = log });
+// }
 
 test "SkipList: static permutations of 100" {
     const permutations = [_][100]u16{
@@ -131,9 +130,6 @@ fn testPseudoRandomPermutations(comptime N: u16, comptime P: u16, options: SkipL
 }
 
 test "SkipList: 100 pseudo-random permutations of 1000" {
-    // const log = std.io.getStdErr().writer();
-    // try log.print("\n", .{});
-    // try testPseudoRandomPermutations(10, 1000, .{ .degree = 4, .log = log });
     try testPseudoRandomPermutations(100, 1000, .{ .degree = 4 });
 }
 
