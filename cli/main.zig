@@ -221,8 +221,8 @@ fn init(args: []const []const u8) !void {
     const degree = degreeOption.value.int orelse unreachable;
     if (degree < 0) {
         fail("degree must be a non-negative integer", .{});
-    } else if (degree > 0xFF) {
-        fail("iota must be less than 256", .{});
+    } else if (degree >= 0xFF) {
+        fail("iota must be less than 255", .{});
     }
 
     const env = try lmdb.Environment.open(path, .{});

@@ -65,7 +65,7 @@ pub const SkipList = struct {
         } else {
             errdefer txn.abort();
             Sha256.hash(&[0]u8 { }, &skip_list.value_buffer, .{});
-            try txn.set(&[_]u8 { 0, 0 }, &skip_list.value_buffer);
+            try txn.set(&[_]u8 { 0x00 }, &skip_list.value_buffer);
             try utils.setMetadata(txn, .{ .degree = options.degree, .variant = options.variant, .height = 0 });
             try txn.commit();
         }
@@ -82,7 +82,7 @@ pub const SkipList = struct {
         self.new_siblings.deinit();
     }
 
-    fn allocate(self: *SkipList, height: u16) !void {
+    fn allocate(self: *SkipList, height: u8) !void {
         self.log_prefix.shrinkAndFree(0);
         self.new_siblings.shrinkAndFree(0);
 
@@ -159,7 +159,7 @@ pub const SkipList = struct {
     fn insertNode(
         self: *SkipList,
         cursor: *SkipListCursor,
-        level: u16,
+        level: u8,
         first_child: []const u8,
         key: []const u8,
         value: []const u8,
@@ -278,7 +278,7 @@ pub const SkipList = struct {
         }
     }
     
-    fn findTargetKey(self: *SkipList, cursor: *SkipListCursor, level: u16, first_child: []const u8, key: []const u8) ![]const u8 {
+    fn findTargetKey(self: *SkipList, cursor: *SkipListCursor, level: u8, first_child: []const u8, key: []const u8) ![]const u8 {
         assert(level > 0);
         const target = &self.target_keys.items[level - 1];
         try utils.copy(target, first_child);
@@ -295,7 +295,7 @@ pub const SkipList = struct {
         return target.items;
     }
 
-    fn moveToPreviousChild(self: *SkipList, cursor: *SkipListCursor, level: u16) ![]const u8 {
+    fn moveToPreviousChild(self: *SkipList, cursor: *SkipListCursor, level: u8) ![]const u8 {
         const target = &self.target_keys.items[level - 1];
 
         // delete the entry and move to the previous child
@@ -319,7 +319,7 @@ pub const SkipList = struct {
     }
     
     // hashRange returns a pointer to self.value_buffer
-    fn hashRange(self: *SkipList, cursor: *SkipListCursor, level: u16, key: []const u8) ![]const u8 {
+    fn hashRange(self: *SkipList, cursor: *SkipListCursor, level: u8, key: []const u8) ![]const u8 {
         if (key.len == 0) {
             try self.log("hashRange({d}, null)", .{ level });
         } else {
@@ -345,7 +345,7 @@ pub const SkipList = struct {
         return &self.value_buffer;
     }
 
-    fn promote(self: *SkipList, cursor: *SkipListCursor, level: u16) !void {
+    fn promote(self: *SkipList, cursor: *SkipListCursor, level: u8) !void {
         var old_index: usize = 0;
         var new_index: usize = 0;
         const new_sibling_count = self.new_siblings.items.len;
@@ -390,8 +390,8 @@ test "SkipList()" {
     defer skip_list.close();
 
     try lmdb.expectEqualEntries(skip_list.env, &[_]Entry {
-        .{ &[_]u8 { 0x00, 0x00      }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
-        .{ &[_]u8 { 0xFF, 0xFF }, &[_]u8 { 0x01, 0x20, 0x00, 0x00, 0x00 } },
+        .{ &[_]u8 { 0x00,      }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
+        .{ &[_]u8 { 0xFF       }, &[_]u8 { 0x01, 0x20, 0x00, 0x00 } },
     });
 }
 
@@ -418,12 +418,12 @@ test "SkipList(a, b, c)" {
     try cursor.commit();
 
     try lmdb.expectEqualEntries(skip_list.env, &[_]Entry {
-        .{ &[_]u8 { 0x00, 0x00      }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
-        .{ &[_]u8 { 0x00, 0x00, 'a' }, &utils.parseHash("2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae") },
-        .{ &[_]u8 { 0x00, 0x00, 'b' }, &utils.parseHash("fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9") },
-        .{ &[_]u8 { 0x00, 0x00, 'c' }, &utils.parseHash("baa5a0964d3320fbc0c6a922140453c8513ea24ab8fd0577034804a967248096") },
-        .{ &[_]u8 { 0x00, 0x01      }, &utils.parseHash("1ca9140a5b30b5576694b7d45ce1af298d858a58dfa2376302f540ee75a89348") },
-        .{ &[_]u8 { 0xFF, 0xFF      }, &[_]u8 { 0x01, 0x04, 0x00, 0x00, 0x01 } },
+        .{ &[_]u8 { 0x00,     }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
+        .{ &[_]u8 { 0x00, 'a' }, &utils.parseHash("2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae") },
+        .{ &[_]u8 { 0x00, 'b' }, &utils.parseHash("fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9") },
+        .{ &[_]u8 { 0x00, 'c' }, &utils.parseHash("baa5a0964d3320fbc0c6a922140453c8513ea24ab8fd0577034804a967248096") },
+        .{ &[_]u8 { 0x01,     }, &utils.parseHash("1ca9140a5b30b5576694b7d45ce1af298d858a58dfa2376302f540ee75a89348") },
+        .{ &[_]u8 { 0xFF      }, &[_]u8 { 0x01, 0x04, 0x00, 0x01 } },
     });
 }
 
@@ -466,29 +466,29 @@ test "SkipList(10)" {
 
     // h(h(h(h(h()))), h(h(h(h([0]), h([1]), h([2]), h([3]), h([4]), h([5]), h([6]), h([7]), h([8]), h([9])))))
     const entries = [_]Entry {
-        .{ &[_]u8 { 0x00, 0x00    }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
-        .{ &[_]u8 { 0x00, 0x00, 0 }, &utils.parseHash("6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d") },
-        .{ &[_]u8 { 0x00, 0x00, 1 }, &utils.parseHash("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a") },
-        .{ &[_]u8 { 0x00, 0x00, 2 }, &utils.parseHash("dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986") },
-        .{ &[_]u8 { 0x00, 0x00, 3 }, &utils.parseHash("084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5") },
-        .{ &[_]u8 { 0x00, 0x00, 4 }, &utils.parseHash("e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71") },
-        .{ &[_]u8 { 0x00, 0x00, 5 }, &utils.parseHash("e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db") },
-        .{ &[_]u8 { 0x00, 0x00, 6 }, &utils.parseHash("67586e98fad27da0b9968bc039a1ef34c939b9b8e523a8bef89d478608c5ecf6") },
-        .{ &[_]u8 { 0x00, 0x00, 7 }, &utils.parseHash("ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879") },
-        .{ &[_]u8 { 0x00, 0x00, 8 }, &utils.parseHash("beead77994cf573341ec17b58bbf7eb34d2711c993c1d976b128b3188dc1829a") },
-        .{ &[_]u8 { 0x00, 0x00, 9 }, &utils.parseHash("2b4c342f5433ebe591a1da77e013d1b72475562d48578dca8b84bac6651c3cb9") },
+        .{ &[_]u8 { 0x00    }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
+        .{ &[_]u8 { 0x00, 0 }, &utils.parseHash("6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d") },
+        .{ &[_]u8 { 0x00, 1 }, &utils.parseHash("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a") },
+        .{ &[_]u8 { 0x00, 2 }, &utils.parseHash("dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986") },
+        .{ &[_]u8 { 0x00, 3 }, &utils.parseHash("084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5") },
+        .{ &[_]u8 { 0x00, 4 }, &utils.parseHash("e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71") },
+        .{ &[_]u8 { 0x00, 5 }, &utils.parseHash("e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db") },
+        .{ &[_]u8 { 0x00, 6 }, &utils.parseHash("67586e98fad27da0b9968bc039a1ef34c939b9b8e523a8bef89d478608c5ecf6") },
+        .{ &[_]u8 { 0x00, 7 }, &utils.parseHash("ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879") },
+        .{ &[_]u8 { 0x00, 8 }, &utils.parseHash("beead77994cf573341ec17b58bbf7eb34d2711c993c1d976b128b3188dc1829a") },
+        .{ &[_]u8 { 0x00, 9 }, &utils.parseHash("2b4c342f5433ebe591a1da77e013d1b72475562d48578dca8b84bac6651c3cb9") },
 
-        .{ &[_]u8 { 0x00, 0x01,   }, &utils.parseHash("5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456") },
-        .{ &[_]u8 { 0x00, 0x01, 0 }, &utils.parseHash("efbbac93ea2214b91bc2512d54c6b2a7237d60ac7263c64e1df4fce8f605f229") },
+        .{ &[_]u8 { 0x01,   }, &utils.parseHash("5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456") },
+        .{ &[_]u8 { 0x01, 0 }, &utils.parseHash("efbbac93ea2214b91bc2512d54c6b2a7237d60ac7263c64e1df4fce8f605f229") },
         
-        .{ &[_]u8 { 0x00, 0x02,   }, &utils.parseHash("aa6ac2d4961882f42a345c7615f4133dde8e6d6e7c1b6b40ae4ff6ee52c393d0") },
-        .{ &[_]u8 { 0x00, 0x02, 0 }, &utils.parseHash("d3593f844c700825cb75d0b1c2dd033f9cf7623b5e9e270dd6b75cefabcfa20b") },
+        .{ &[_]u8 { 0x02,   }, &utils.parseHash("aa6ac2d4961882f42a345c7615f4133dde8e6d6e7c1b6b40ae4ff6ee52c393d0") },
+        .{ &[_]u8 { 0x02, 0 }, &utils.parseHash("d3593f844c700825cb75d0b1c2dd033f9cf7623b5e9e270dd6b75cefabcfa20b") },
         
-        .{ &[_]u8 { 0x00, 0x03,   }, &utils.parseHash("75d7682c8b5955557b2ef33654f31512b9b3edd17f74b5bf422ccabbd7537e1a") },
-        .{ &[_]u8 { 0x00, 0x03, 0 }, &utils.parseHash("061fb8732969d3389707024854489c09f63e607be4a0e0bbd2efe0453a314c8c") },
+        .{ &[_]u8 { 0x03,   }, &utils.parseHash("75d7682c8b5955557b2ef33654f31512b9b3edd17f74b5bf422ccabbd7537e1a") },
+        .{ &[_]u8 { 0x03, 0 }, &utils.parseHash("061fb8732969d3389707024854489c09f63e607be4a0e0bbd2efe0453a314c8c") },
 
-        .{ &[_]u8 { 0x00, 0x04,   }, &utils.parseHash("8993e2613264a79ff4b128414b0afe77afc26ae4574cee9269fe73ba85119c45") },
-        .{ &[_]u8 { 0xFF, 0xFF    }, &[_]u8 { 0x01, 0x04, 0x00, 0x00, 0x04 } },
+        .{ &[_]u8 { 0x04,   }, &utils.parseHash("8993e2613264a79ff4b128414b0afe77afc26ae4574cee9269fe73ba85119c45") },
+        .{ &[_]u8 { 0xFF    }, &[_]u8 { 0x01, 0x04, 0x00, 0x04 } },
     };
 
     try lmdb.expectEqualEntries(skip_list.env, &entries);

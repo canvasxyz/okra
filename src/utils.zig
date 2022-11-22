@@ -16,15 +16,15 @@ pub const Variant = enum(u8) {
 pub const Metadata = struct {
     degree: u8,
     variant: Variant,
-    height: u16,
+    height: u8,
 };
 
 pub fn setMetadata(txn: lmdb.Transaction, metadata: Metadata) !void {
-    var value: [5]u8 = undefined;
+    var value: [4]u8 = undefined;
     value[0] = constants.DATABASE_VERSION;
     value[1] = metadata.degree;
     value[2] = @enumToInt(metadata.variant);
-    std.mem.writeIntBig(u16, value[3..5], metadata.height);
+    value[3] = metadata.height;
     try txn.set(&constants.METADATA_KEY, &value);
 }
 
@@ -35,9 +35,10 @@ pub fn getMetadata(txn: lmdb.Transaction) !?Metadata {
         } else if (value[0] != constants.DATABASE_VERSION) {
             return error.UnsupportedVersion;
         } else {
+            const degree = value[1];
             const variant = @intToEnum(Variant, value[2]);
-            const height = std.mem.readIntBig(u16, value[3..5]);
-            return Metadata { .degree = value[1], .variant = variant, .height = height };
+            const height = value[3];
+            return Metadata { .degree = degree, .variant = variant, .height = height };
         }
     } else {
         return null;
@@ -60,14 +61,6 @@ var path_buffer: [4096]u8 = undefined;
 pub fn resolvePath(allocator: std.mem.Allocator, dir: std.fs.Dir, name: []const u8) ![:0]u8 {
     const dir_path = try dir.realpath(".", &path_buffer);
     return std.fs.path.joinZ(allocator, &[_][]const u8{ dir_path, name });
-}
-
-pub fn getLevel(entry: []const u8) u16 {
-    return std.mem.readIntBig(u16, entry[0..2]);
-}
-
-pub fn setLevel(entry: []u8, level: u16) void {
-    std.mem.writeIntBig(u16, entry[0..2], level);
 }
 
 pub fn copy(dst: *std.ArrayList(u8), src: []const u8) !void {

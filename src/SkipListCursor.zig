@@ -33,67 +33,67 @@ pub const SkipListCursor = struct {
 
     pub fn getCurrentKey(self: *SkipListCursor) ![]const u8 {
         const key = try self.cursor.getCurrentKey();
-        return key[2..];
+        return key[1..];
     }
 
     pub fn getCurrentValue(self: *SkipListCursor) ![]const u8 {
         return self.cursor.getCurrentValue();
     }
 
-    fn setKey(self: *SkipListCursor, level: u16, key: []const u8) !void {
-        try self.key.resize(2 + key.len);
-        std.mem.writeIntBig(u16, self.key.items[0..2], level);
-        std.mem.copy(u8, self.key.items[2..], key);
+    fn setKey(self: *SkipListCursor, level: u8, key: []const u8) !void {
+        try self.key.resize(1 + key.len);
+        self.key.items[0] = level;
+        std.mem.copy(u8, self.key.items[1..], key);
     }
 
-    pub fn goToNode(self: *SkipListCursor, level: u16, key: []const u8) !void {
+    pub fn goToNode(self: *SkipListCursor, level: u8, key: []const u8) !void {
         try self.setKey(level, key);
         try self.cursor.goToKey(self.key.items);
     }
 
-    pub fn goToNext(self: *SkipListCursor, level: u16) !?[]const u8 {
+    pub fn goToNext(self: *SkipListCursor, level: u8) !?[]const u8 {
         if (try self.cursor.goToNext()) |key| {
-            if (utils.getLevel(key) == level) {
-                return key[2..];
+            if (key[0] == level) {
+                return key[1..];
             }
         }
 
         return null;
     }
 
-    pub fn goToPrevious(self: *SkipListCursor, level: u16) !?[]const u8 {
+    pub fn goToPrevious(self: *SkipListCursor, level: u8) !?[]const u8 {
         if (try self.cursor.goToPrevious()) |key| {
-            if (utils.getLevel(key) == level) {
-                return key[2..];
+            if (key[0] == level) {
+                return key[1..];
             }
         }
 
         return null;
     }
 
-    pub fn goToLast(self: *SkipListCursor, level: u16) ![]const u8 {
+    pub fn goToLast(self: *SkipListCursor, level: u8) ![]const u8 {
         try self.goToNode(level + 1, &[_]u8 {});
 
         if (try self.cursor.goToPrevious()) |previous_key| {
-            if (utils.getLevel(previous_key) == level) {
-                return previous_key[2..];
+            if (previous_key[0] == level) {
+                return previous_key[1..];
             }
         }
 
         return error.KeyNotFound;
     }
 
-    pub fn get(self: *SkipListCursor, level: u16, key: []const u8) !?[]const u8 {
+    pub fn get(self: *SkipListCursor, level: u8, key: []const u8) !?[]const u8 {
         try self.setKey(level, key);
         return self.txn.get(self.key.items);
     }
 
-    pub fn set(self: *SkipListCursor, level: u16, key: []const u8, value: []const u8) !void {
+    pub fn set(self: *SkipListCursor, level: u8, key: []const u8, value: []const u8) !void {
         try self.setKey(level, key);
         try self.txn.set(self.key.items, value);
     }
 
-    pub fn delete(self: *SkipListCursor, level: u16, key: []const u8) !void {
+    pub fn delete(self: *SkipListCursor, level: u8, key: []const u8) !void {
         try self.setKey(level, key);
         try self.txn.delete(self.key.items);
     }
