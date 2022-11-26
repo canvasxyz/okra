@@ -13,7 +13,7 @@ const Options = struct {
 };
 
 pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) !usize {
-    if (options.log) |log| try log.print("{s:-<80}\n", .{ "START DIFF " });
+    if (options.log) |log| try log.print("{s:-<80}\n", .{"START DIFF "});
 
     var differences: usize = 0;
 
@@ -33,18 +33,24 @@ pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) 
                     .lt => {
                         differences += 1;
                         if (options.log) |log|
-                            try log.print("{s}\n- a: {s}\n- b: null\n", .{ hex(key_a_bytes), hex(value_a), });
+                            try log.print("{s}\n- a: {s}\n- b: null\n", .{
+                                hex(key_a_bytes),
+                                hex(value_a),
+                            });
 
                         key_a = try cursor_a.goToNext();
                     },
                     .gt => {
                         differences += 1;
                         if (options.log) |log|
-                            try log.print("{s}\n- a: null\n- b: {s}\n", .{ hex(key_b_bytes), hex(value_b), });
+                            try log.print("{s}\n- a: null\n- b: {s}\n", .{
+                                hex(key_b_bytes),
+                                hex(value_b),
+                            });
 
                         key_b = try cursor_b.goToNext();
                     },
-                    .eq =>{
+                    .eq => {
                         if (!std.mem.eql(u8, value_a, value_b)) {
                             differences += 1;
                             if (options.log) |log|
@@ -53,7 +59,7 @@ pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) 
 
                         key_a = try cursor_a.goToNext();
                         key_b = try cursor_b.goToNext();
-                    }
+                    },
                 }
             } else {
                 differences += 1;
@@ -76,7 +82,7 @@ pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) 
         }
     }
 
-    if (options.log) |log| try log.print("{s:-<80}\n", .{ "END DIFF " });
+    if (options.log) |log| try log.print("{s:-<80}\n", .{"END DIFF "});
 
     cursor_a.close();
     cursor_b.close();
@@ -92,7 +98,7 @@ pub fn expectEqualEntries(env: Environment, entries: []const [2][]const u8) !voi
 
     const cursor = try Cursor.open(txn);
     defer cursor.close();
-    
+
     var i: usize = 0;
     var key = try cursor.goToFirst();
     while (key != null) : (key = try cursor.goToNext()) {
@@ -116,25 +122,25 @@ test "expectEqualEntries" {
 
     const path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
     defer allocator.free(path);
-    
+
     const env = try Environment.open(path, .{});
     defer env.close();
-    
+
     {
         const txn = try Transaction.open(env, false);
         errdefer txn.abort();
-        
+
         try txn.set("a", "foo");
         try txn.set("b", "bar");
         try txn.set("c", "baz");
         try txn.set("d", "qux");
         try txn.commit();
     }
-    
+
     try expectEqualEntries(env, &[_][2][]const u8{
-       .{ "a", "foo" },
-       .{ "b", "bar" },
-       .{ "c", "baz" },
-       .{ "d", "qux" },
+        .{ "a", "foo" },
+        .{ "b", "bar" },
+        .{ "c", "baz" },
+        .{ "d", "qux" },
     });
 }

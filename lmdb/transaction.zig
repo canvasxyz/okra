@@ -4,7 +4,7 @@ const Environment = @import("./environment.zig").Environment;
 const lmdb = @import("./lmdb.zig");
 
 pub const Transaction = struct {
-    pub const Error = error {
+    pub const Error = error{
         LmdbTransactionError,
         KeyNotFound,
         InvalidKeySize,
@@ -13,9 +13,9 @@ pub const Transaction = struct {
 
     ptr: ?*lmdb.MDB_txn,
     dbi: lmdb.MDB_dbi,
-    
+
     pub fn open(env: Environment, read_only: bool) !Transaction {
-        var txn = Transaction { .ptr = null, .dbi = 0 };
+        var txn = Transaction{ .ptr = null, .dbi = 0 };
 
         {
             const flags: c_uint = if (read_only) lmdb.MDB_RDONLY else 0;
@@ -69,7 +69,7 @@ pub const Transaction = struct {
             else => Error.LmdbTransactionError,
         };
     }
-    
+
     pub fn delete(self: Transaction, key: []const u8) !void {
         var k: lmdb.MDB_val = .{ .mv_size = key.len, .mv_data = @intToPtr([*]u8, @ptrToInt(key.ptr)) };
         try switch (lmdb.mdb_del(self.ptr, self.dbi, &k, null)) {

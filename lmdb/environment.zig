@@ -9,7 +9,7 @@ pub const Environment = struct {
         create: bool = true,
     };
 
-    pub const Error = error {
+    pub const Error = error{
         LmdbVersionMismatch,
         LmdbEnvironmentError,
         LmdbCorruptDatabase,
@@ -19,9 +19,9 @@ pub const Environment = struct {
     };
 
     ptr: ?*lmdb.MDB_env = null,
-    
+
     pub fn open(path: [*:0]const u8, options: Options) !Environment {
-        var env = Environment {};
+        var env = Environment{};
         try switch (lmdb.mdb_env_create(&env.ptr)) {
             0 => {},
             else => Error.LmdbEnvironmentError,
@@ -34,7 +34,7 @@ pub const Environment = struct {
 
         const flags = lmdb.MDB_WRITEMAP | lmdb.MDB_NOSUBDIR | lmdb.MDB_NOLOCK;
         const mode = 0o664;
-        
+
         errdefer lmdb.mdb_env_close(env.ptr);
         try switch (lmdb.mdb_env_open(env.ptr, path, flags, mode)) {
             0 => {},
@@ -45,10 +45,10 @@ pub const Environment = struct {
             @enumToInt(std.os.E.AGAIN) => Error.AGAIN,
             else => Error.LmdbEnvironmentError,
         };
-        
+
         return env;
     }
-    
+
     pub fn close(self: Environment) void {
         lmdb.mdb_env_close(self.ptr);
     }

@@ -6,12 +6,12 @@ const lmdb = @import("./lmdb.zig");
 const Transaction = @import("./transaction.zig").Transaction;
 
 pub const Cursor = struct {
-    pub const Error = error { LmdbCursorError, InvalidKeySize, InvalidValueSize, KeyNotFound };
+    pub const Error = error{ LmdbCursorError, InvalidKeySize, InvalidValueSize, KeyNotFound };
 
     ptr: ?*lmdb.MDB_cursor,
 
     pub fn open(txn: Transaction) !Cursor {
-        var cursor = Cursor { .ptr = null };
+        var cursor = Cursor{ .ptr = null };
 
         try switch (lmdb.mdb_cursor_open(txn.ptr, txn.dbi, &cursor.ptr)) {
             0 => {},

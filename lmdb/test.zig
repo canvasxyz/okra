@@ -70,13 +70,13 @@ test "set empty value" {
 
     var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
     defer allocator.free(path);
-    
+
     const env = try Environment.open(path, .{});
     defer env.close();
-    
+
     const txn = try Transaction.open(env, false);
     defer txn.abort();
-    
+
     try txn.set("a", "");
     if (try txn.get("a")) |value| {
         try expect(value.len == 0);
@@ -94,18 +94,18 @@ test "delete while iterating" {
 
     var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
     defer allocator.free(path);
-    
+
     const env = try Environment.open(path, .{});
     defer env.close();
-    
+
     const txn = try Transaction.open(env, false);
     defer txn.abort();
-    
+
     try txn.set("a", "foo");
     try txn.set("b", "bar");
     try txn.set("c", "baz");
     try txn.set("d", "qux");
-    
+
     const cursor = try Cursor.open(txn);
     try cursor.goToKey("c");
     try expectEqualSlices(u8, try cursor.getCurrentValue(), "baz");
