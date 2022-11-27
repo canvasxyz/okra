@@ -4,7 +4,7 @@ const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const lmdb = @import("lmdb");
 
-const constants = @import("./constants.zig");
+const constants = @import("constants.zig");
 
 pub const Variant = enum(u8) {
     UnorderedSet,
@@ -38,7 +38,7 @@ pub fn getMetadata(txn: lmdb.Transaction) !?Metadata {
             const degree = value[1];
             const variant = @intToEnum(Variant, value[2]);
             const height = value[3];
-            return Metadata { .degree = degree, .variant = variant, .height = height };
+            return Metadata{ .degree = degree, .variant = variant, .height = height };
         }
     } else {
         return null;
@@ -66,4 +66,12 @@ pub fn resolvePath(allocator: std.mem.Allocator, dir: std.fs.Dir, name: []const 
 pub fn copy(dst: *std.ArrayList(u8), src: []const u8) !void {
     try dst.resize(src.len);
     std.mem.copy(u8, dst.items, src);
+}
+
+pub fn getLimit(degree: u8) !u8 {
+    if (degree == 0) {
+        return error.InvalidDegree;
+    }
+
+    return @intCast(u8, 256 / @intCast(u16, degree));
 }

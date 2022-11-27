@@ -1,7 +1,8 @@
 const std = @import("std");
+const hex = std.fmt.fmtSliceHexLower;
 
-const Environment = @import("./environment.zig").Environment;
-const lmdb = @import("./lmdb.zig");
+const Environment = @import("environment.zig").Environment;
+const lmdb = @import("lmdb.zig");
 
 pub const Transaction = struct {
     pub const Error = error{

@@ -1,9 +1,10 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const hex = std.fmt.fmtSliceHexLower;
 
-const lmdb = @import("./lmdb.zig");
+const lmdb = @import("lmdb.zig");
 
-const Transaction = @import("./transaction.zig").Transaction;
+const Transaction = @import("transaction.zig").Transaction;
 
 pub const Cursor = struct {
     pub const Error = error{ LmdbCursorError, InvalidKeySize, InvalidValueSize, KeyNotFound };

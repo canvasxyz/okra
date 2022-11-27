@@ -3,8 +3,8 @@ const hex = std.fmt.fmtSliceHexLower;
 const assert = std.debug.assert;
 
 const lmdb = @import("lmdb");
-const utils = @import("./utils.zig");
-const SkipListCursor = @import("./SkipListCursor.zig").SkipListCursor;
+const utils = @import("utils.zig");
+const SkipListCursor = @import("SkipListCursor.zig").SkipListCursor;
 
 pub fn printEntries(env: lmdb.Environment, writer: std.fs.File.Writer) !void {
     const txn = try lmdb.Transaction.open(env, true);
@@ -25,7 +25,7 @@ const Printer = struct {
 
     writer: std.fs.File.Writer,
     cursor: SkipListCursor,
-    height: u16,
+    height: u8,
     limit: u8,
     key: std.ArrayList(u8),
     options: Options,
@@ -33,13 +33,13 @@ const Printer = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         env: lmdb.Environment,
-        writer: std.fs.File.Writer, 
+        writer: std.fs.File.Writer,
         options: Options,
     ) !Printer {
         var cursor = try SkipListCursor.open(allocator, env, true);
         if (try utils.getMetadata(cursor.txn)) |metadata| {
-            const limit = @intCast(u8, 256 / @intCast(u16, metadata.degree));
-            return Printer {
+            const limit = try utils.getLimit(metadata.degree);
+            return Printer{
                 .cursor = cursor,
                 .writer = writer,
                 .height = metadata.height,
@@ -51,7 +51,7 @@ const Printer = struct {
             return error.InvalidDatabase;
         }
     }
-    
+
     pub fn deinit(self: *Printer) void {
         self.key.deinit();
         self.cursor.abort();
@@ -60,75 +60,107 @@ const Printer = struct {
     fn isSplit(self: *const Printer, value: []const u8) bool {
         return value[31] < self.limit;
     }
-    
+
     pub fn print(self: *Printer) !void {
-        try self.cursor.goToNode(0, &[_]u8 {});
-        assert(try self.printRange(0, self.height));
+        try self.key.resize(0);
+        try self.cursor.goToNode(0, self.key.items);
+        assert(try self.printRange(0, self.height, self.key.items) == null);
     }
-    
-    fn printRange(self: *Printer, depth: u16, level: u16) !bool {
+
+    // const Result = enum { oef, fjdksla };
+    // returns the value of the first key of the next range
+    fn printRange(self: *Printer, depth: u8, level: u8, first_key: []const u8) !?[]const u8 {
         if (level == 0) {
             var value = try self.cursor.getCurrentValue();
-            if (self.options.compact) {
-                const tail = value[value.len-3..];
-                try self.writer.print("...{s} | {s}\n", .{ hex(tail), hex(self.key.items) });
-            } else {
-                try self.writer.print("{s} | {s}\n", .{ hex(value), hex(self.key.items) });
-            }
+            try self.printValue(value);
+            try self.writer.print("| {s}\n", .{hex(first_key)});
 
-            while (try self.cursor.goToNext()) |next_key| {
+            while (try self.cursor.goToNext(level)) |next_key| {
                 const next_value = try self.cursor.getCurrentValue();
                 if (self.isSplit(next_value)) {
                     try self.key.resize(next_key.len);
                     std.mem.copy(u8, self.key.items, next_key);
-                    return false;
+                    return self.key.items;
                 } else {
                     try self.printPrefix(depth);
-                    if (self.options.compact) {
-                        const tail = next_value[next_value.len-3..];
-                        try self.writer.print("...{s} | {s}\n", .{ hex(tail), hex(next_key) });
-                    } else {
-                        try self.writer.print("{s} | {s}\n", .{ hex(next_value), hex(next_key) });
-                    }
+                    try self.printValue(next_value);
+                    try self.writer.print("| {s}\n", .{hex(next_key)});
                 }
             }
 
-            return true;
-        } else if (try self.cursor.get(level, self.key.items)) |value| {
-            if (self.options.compact) {
-                const tail = value[value.len-3..];
-                try self.writer.print("...{s} ", .{ hex(tail) });
-            } else {
-                try self.writer.print("{s} ", .{ hex(value) });
-            }
+            return null;
+        }
 
-            if (try self.printRange(depth + 1, level - 1)) return true;
-            while (try self.cursor.get(level, self.key.items)) |next_value| {
+        if (try self.cursor.get(level, first_key)) |value| {
+            try self.printValue(value);
+        } else {
+            try self.writer.print("missing key {s} at level {d}\n", .{ hex(first_key), level });
+            return error.KeyNotFound;
+        }
+
+        var key = first_key;
+        while (try self.printRange(depth + 1, level - 1, key)) |next_key| : (key = next_key) {
+            if (try self.cursor.get(level, next_key)) |next_value| {
                 if (self.isSplit(next_value)) {
-                    return false;
+                    return next_key;
                 } else {
                     try self.printPrefix(depth);
-
-                    if (self.options.compact) {
-                        const tail = next_value[next_value.len-3..];
-                        try self.writer.print("...{s} ", .{ hex(tail) });
-                    } else {
-                        try self.writer.print("{s} ", .{ hex(next_value) });
-                    }
-
-                    if (try self.printRange(depth + 1, level - 1)) {
-                        return true;
-                    }
+                    try self.printValue(next_value);
                 }
+            } else {
+                // try self.writer.print("\nAAAAAA {s}\n", .{ hex(next_key) });
+                try self.writer.print("missing key {s} at level {d}\n", .{ hex(next_key), level });
+                return error.KeyNotFound;
             }
         }
 
-        return error.InvalidDatabase;
+        return null;
+
+        // return error.InvalidDatabase;
+
+        // while (try self.printRange(depth + 1, level - 1, next_key))
+
+        // while (try self.cursor.get(level, first_key)) |value| {
+
+        // }
+
+        // if (try self.cursor.get(level, self.key.items)) |value| {
+        //     try self.printValue(value);
+
+        //     if (try self.printRange(depth + 1, level - 1)) {
+        //         return true;
+        //     }
+
+        //     while (try self.cursor.get(level, self.key.items)) |next_value| {
+        //         if (self.isSplit(next_value)) {
+        //             return false;
+        //         } else {
+        //             try self.printPrefix(depth);
+        //             try self.printValue(next_value);
+        //             if (try self.printRange(depth + 1, level - 1)) {
+        //                 return true;
+        //             }
+        //         }
+        //     }
+
+        //     return error.InvalidDatabase;
+        // } else {
+        //     return error.KeyNotFound;
+        // }
     }
-    
-    fn printPrefix(self: *Printer, depth: u16) !void {
+
+    fn printValue(self: *Printer, value: []const u8) !void {
+        if (self.options.compact) {
+            const tail = value[value.len - 3 ..];
+            try self.writer.print("...{s} ", .{hex(tail)});
+        } else {
+            try self.writer.print("{s} ", .{hex(value)});
+        }
+    }
+
+    fn printPrefix(self: *Printer, depth: u8) !void {
         assert(depth > 0);
-        var i: u16 = 0;
+        var i: u8 = 0;
         while (i < depth) : (i += 1) {
             if (self.options.compact) {
                 try self.writer.print("          ", .{});

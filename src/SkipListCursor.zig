@@ -1,9 +1,10 @@
 const std = @import("std");
+const hex = std.fmt.fmtSliceHexLower;
 const assert = std.debug.assert;
 
 const lmdb = @import("lmdb");
 
-const utils = @import("./utils.zig");
+const utils = @import("utils.zig");
 
 pub const SkipListCursor = struct {
     key: std.ArrayList(u8),
@@ -18,7 +19,7 @@ pub const SkipListCursor = struct {
         errdefer txn.abort();
 
         const cursor = try lmdb.Cursor.open(txn);
-        return SkipListCursor { .key = key, .txn = txn, .cursor = cursor };
+        return SkipListCursor{ .key = key, .txn = txn, .cursor = cursor };
     }
 
     pub fn commit(self: *SkipListCursor) !void {
@@ -72,7 +73,7 @@ pub const SkipListCursor = struct {
     }
 
     pub fn goToLast(self: *SkipListCursor, level: u8) ![]const u8 {
-        try self.goToNode(level + 1, &[_]u8 {});
+        try self.goToNode(level + 1, &[_]u8{});
 
         if (try self.cursor.goToPrevious()) |previous_key| {
             if (previous_key[0] == level) {
@@ -89,17 +90,31 @@ pub const SkipListCursor = struct {
     }
 
     pub fn set(self: *SkipListCursor, level: u8, key: []const u8, value: []const u8) !void {
+        // if (level == 1 and std.mem.eql(u8, key, &[_]u8{ 0x01, 0x07 })) {
+        //     std.log.err("AAAAAAAA HOLY SHITTTTT {s}", .{hex(value)});
+        // }
+
         try self.setKey(level, key);
         try self.txn.set(self.key.items, value);
     }
 
     pub fn delete(self: *SkipListCursor, level: u8, key: []const u8) !void {
+        // std.log.err("DELETING THE KEY {d} {s}", .{ level, hex(key) });
+        // if (level == 1 and std.mem.eql(u8, key, &[_]u8{ 0x01, 0x07 })) {
+        //     return error.WHAT_THE_FUCK;
+        // }
+
         try self.setKey(level, key);
         try self.txn.delete(self.key.items);
     }
 
     pub fn deleteCurrentKey(self: *SkipListCursor) !void {
+        // const key = try self.cursor.getCurrentKey();
+        // std.log.err("DELETING KEY {d} {s}", .{ key[0], hex(key[1..]) });
+        // if (std.mem.eql(u8, key, &[_]u8{ 0x01, 0x01, 0x07 })) {
+        //     return error.WHAT_THE_FUCK;
+        // }
+
         try self.cursor.deleteCurrentKey();
     }
 };
-

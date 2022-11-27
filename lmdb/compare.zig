@@ -4,9 +4,9 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 
-const Environment = @import("./environment.zig").Environment;
-const Transaction = @import("./transaction.zig").Transaction;
-const Cursor = @import("./cursor.zig").Cursor;
+const Environment = @import("environment.zig").Environment;
+const Transaction = @import("transaction.zig").Transaction;
+const Cursor = @import("cursor.zig").Cursor;
 
 const Options = struct {
     log: ?std.fs.File.Writer = null,

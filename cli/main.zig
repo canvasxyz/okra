@@ -41,11 +41,11 @@ var iotaOption = cli.Option{
 // };
 
 var degreeOption = cli.Option{
-  .long_name = "degree",
-  .short_alias = 'd',
-  .help = "target fanout degree",
-  .value = cli.OptionValue{ .int = 32 },
-  .required = false,
+    .long_name = "degree",
+    .short_alias = 'd',
+    .help = "target fanout degree",
+    .value = cli.OptionValue{ .int = 32 },
+    .required = false,
 };
 
 var app = &cli.Command{
@@ -55,19 +55,19 @@ var app = &cli.Command{
         &cli.Command{
             .name = "cat",
             .help = "print the key/value entries to stdout",
-            .options = &.{ },
+            .options = &.{},
             .action = cat,
         },
         &cli.Command{
             .name = "stat",
             .help = "print metadata",
-            .options = &.{ },
+            .options = &.{},
             .action = stat,
         },
         &cli.Command{
             .name = "ls",
             .help = "print the tree structure",
-            .options = &.{ &degreeOption },
+            .options = &.{&degreeOption},
             .action = ls,
         },
         &cli.Command{
@@ -89,45 +89,45 @@ var app = &cli.Command{
         //   .action = rebuild,
         // },
         &cli.Command{
-          .name = "internal",
-          .help = "interact with the underlying LMDB database",
-          .subcommands = &.{
-            &cli.Command{
-              .name = "cat",
-              .help = "print the entries of the database to stdout",
-              .options = &.{ },
-              .action = internalCat,
+            .name = "internal",
+            .help = "interact with the underlying LMDB database",
+            .subcommands = &.{
+                &cli.Command{
+                    .name = "cat",
+                    .help = "print the entries of the database to stdout",
+                    .options = &.{},
+                    .action = internalCat,
+                },
+                // &cli.Command{
+                //   .name = "get",
+                //   .help = "get the value for a key",
+                //   .description = "okra internal get [KEY]\n[KEY] - hex-encoded key",
+                //   .options = &.{ &pathOption },
+                //   .action = internalGet,
+                // },
+                // &cli.Command{
+                //   .name = "set",
+                //   .help = "set a key/value entry",
+                //   .description = "okra internal set [KEY] [VALUE]\n[KEY] - hex-encoded key\n[VALUE] - hex-encoded value",
+                //   .options = &.{ &pathOption },
+                //   .action = internalSet,
+                // },
+                // &cli.Command{
+                //   .name = "delete",
+                //   .help = "delete a key",
+                //   .description = "okra internal delete [KEY]\n[KEY] - hex-encoded key",
+                //   .options = &.{ &pathOption },
+                //   .action = internalDelete,
+                // },
+                // &cli.Command{
+                //   .name = "diff",
+                //   .help = "print the diff between two databases",
+                //   .description = "okra internal diff [A] [B]\n[A] - path to database file\n[B] - path to database file",
+                //   .options = &.{ &aOption, &bOption },
+                //   .action = internalDiff,
+                // },
             },
-            // &cli.Command{
-            //   .name = "get",
-            //   .help = "get the value for a key",
-            //   .description = "okra internal get [KEY]\n[KEY] - hex-encoded key",
-            //   .options = &.{ &pathOption },
-            //   .action = internalGet,
-            // },
-            // &cli.Command{
-            //   .name = "set",
-            //   .help = "set a key/value entry",
-            //   .description = "okra internal set [KEY] [VALUE]\n[KEY] - hex-encoded key\n[VALUE] - hex-encoded value",
-            //   .options = &.{ &pathOption },
-            //   .action = internalSet,
-            // },
-            // &cli.Command{
-            //   .name = "delete",
-            //   .help = "delete a key",
-            //   .description = "okra internal delete [KEY]\n[KEY] - hex-encoded key",
-            //   .options = &.{ &pathOption },
-            //   .action = internalDelete,
-            // },
-            // &cli.Command{
-            //   .name = "diff",
-            //   .help = "print the diff between two databases",
-            //   .description = "okra internal diff [A] [B]\n[A] - path to database file\n[B] - path to database file",
-            //   .options = &.{ &aOption, &bOption },
-            //   .action = internalDiff,
-            // },
-          }
-        }
+        },
     },
 };
 
@@ -151,7 +151,7 @@ fn cat(args: []const []const u8) !void {
     var skip_list_cursor = try okra.SkipListCursor.open(allocator, env, true);
     defer skip_list_cursor.abort();
 
-    try skip_list_cursor.goToNode(0, &[_]u8 {});
+    try skip_list_cursor.goToNode(0, &[_]u8{});
     while (try skip_list_cursor.goToNext()) |key| {
         const value = try skip_list_cursor.getCurrentValue();
         try stdout.print("{s} <- {s}\n", .{ hex(value), hex(key) });
@@ -176,9 +176,9 @@ fn stat(args: []const []const u8) !void {
     const txn = try lmdb.Transaction.open(env, true);
     defer txn.abort();
     if (try okra.getMetadata(txn)) |metadata| {
-        try stdout.print("degree: {d}\n", .{ metadata.degree });
-        try stdout.print("variant: {any}\n", .{ metadata.variant });
-        try stdout.print("height: {d}\n", .{ metadata.height });
+        try stdout.print("degree: {d}\n", .{metadata.degree});
+        try stdout.print("variant: {any}\n", .{metadata.variant});
+        try stdout.print("height: {d}\n", .{metadata.height});
     } else {
         return error.InvalidDatabase;
     }
@@ -426,7 +426,7 @@ fn internalCat(args: []const []const u8) !void {
 //     var txn = try Txn.open(env, false);
 //     errdefer txn.abort();
 //     const dbi = try txn.openDBI();
-    
+
 //     var key = [_]u8{ 0 } ** K;
 //     _ = try std.fmt.hexToBytes(&key, keyArg);
 //     try txn.delete(dbi, &key);

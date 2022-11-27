@@ -1,7 +1,7 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
 
-const lmdb = @import("./lmdb.zig");
+const lmdb = @import("lmdb.zig");
 
 pub const Environment = struct {
     pub const Options = struct {
