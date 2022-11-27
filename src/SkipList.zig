@@ -15,6 +15,7 @@ pub const SkipList = struct {
     allocator: std.mem.Allocator,
     limit: u8,
     env: lmdb.Environment,
+
     log_writer: ?std.fs.File.Writer,
     log_prefix: std.ArrayList(u8),
     target_keys: std.ArrayList(std.ArrayList(u8)),
@@ -50,7 +51,7 @@ pub const SkipList = struct {
         };
 
         // Initialize the metadata and root entries if necessary
-        const txn = try lmdb.Transaction.open(env, false);
+        const txn = try lmdb.Transaction.open(env, .{ .read_only = false });
         if (try utils.getMetadata(txn)) |metadata| {
             defer txn.abort();
             if (metadata.degree != options.degree) {
@@ -92,7 +93,6 @@ pub const SkipList = struct {
     }
 
     const InsertResult = enum { update, delete };
-
     const OperationTag = enum { set, delete };
     const Operation = union(OperationTag) {
         set: struct { key: []const u8, value: []const u8 },
@@ -101,22 +101,23 @@ pub const SkipList = struct {
 
     pub fn set(self: *SkipList, cursor: *SkipListCursor, key: []const u8, value: []const u8) !void {
         try self.log("set({s}, {s})", .{ hex(key), hex(value) });
-        if (key.len == 0) return error.InvalidKey;
-        try self.apply(cursor, Operation{ .set = .{ .key = key, .value = value } });
+        if (key.len == 0) {
+            return error.InvalidKey;
+        } else {
+            try self.apply(cursor, Operation{ .set = .{ .key = key, .value = value } });
+        }
     }
 
     pub fn delete(self: *SkipList, cursor: *SkipListCursor, key: []const u8) !void {
         try self.log("delete({s})", .{hex(key)});
-        if (key.len == 0) return error.InvalidKey;
-        try self.apply(cursor, Operation{ .delete = key });
+        if (key.len == 0) {
+            return error.InvalidKey;
+        } else {
+            try self.apply(cursor, Operation{ .delete = key });
+        }
     }
 
     fn apply(self: *SkipList, cursor: *SkipListCursor, operation: Operation) !void {
-        switch (operation) {
-            Operation.set => |entry| try self.log("apply(set {s} -> {s})", .{ hex(entry.key), hex(entry.value) }),
-            Operation.delete => |key| try self.log("apply(delete {s})", .{hex(key)}),
-        }
-
         var metadata = try utils.getMetadata(cursor.txn) orelse return error.InvalidDatabase;
         try self.log("height: {d}", .{metadata.height});
         try self.allocate(metadata.height);

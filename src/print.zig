@@ -7,7 +7,7 @@ const utils = @import("utils.zig");
 const SkipListCursor = @import("SkipListCursor.zig").SkipListCursor;
 
 pub fn printEntries(env: lmdb.Environment, writer: std.fs.File.Writer) !void {
-    const txn = try lmdb.Transaction.open(env, true);
+    const txn = try lmdb.Transaction.open(env, .{ .read_only = true });
     defer txn.abort();
 
     const cursor = try lmdb.Cursor.open(txn);

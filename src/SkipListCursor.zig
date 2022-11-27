@@ -15,7 +15,7 @@ pub const SkipListCursor = struct {
         const key = std.ArrayList(u8).init(allocator);
         errdefer key.deinit();
 
-        const txn = try lmdb.Transaction.open(env, read_only);
+        const txn = try lmdb.Transaction.open(env, .{ .read_only = read_only });
         errdefer txn.abort();
 
         const cursor = try lmdb.Cursor.open(txn);

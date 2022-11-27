@@ -17,10 +17,14 @@ pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) 
 
     var differences: usize = 0;
 
-    const txn_a = try Transaction.open(env_a, true);
-    const txn_b = try Transaction.open(env_b, true);
+    const txn_a = try Transaction.open(env_a, .{ .read_only = true });
+    defer txn_a.abort();
+    const txn_b = try Transaction.open(env_b, .{ .read_only = true });
+    defer txn_b.abort();
     const cursor_a = try Cursor.open(txn_a);
+    defer cursor_a.close();
     const cursor_b = try Cursor.open(txn_b);
+    defer cursor_b.close();
 
     var key_a = try cursor_a.goToFirst();
     var key_b = try cursor_b.goToFirst();
@@ -84,16 +88,11 @@ pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) 
 
     if (options.log) |log| try log.print("{s:-<80}\n", .{"END DIFF "});
 
-    cursor_a.close();
-    cursor_b.close();
-    txn_a.abort();
-    txn_b.abort();
-
     return differences;
 }
 
 pub fn expectEqualEntries(env: Environment, entries: []const [2][]const u8) !void {
-    const txn = try Transaction.open(env, true);
+    const txn = try Transaction.open(env, .{ .read_only = true });
     defer txn.abort();
 
     const cursor = try Cursor.open(txn);
@@ -127,7 +126,7 @@ test "expectEqualEntries" {
     defer env.close();
 
     {
-        const txn = try Transaction.open(env, false);
+        const txn = try Transaction.open(env, .{ .read_only = false });
         errdefer txn.abort();
 
         try txn.set("a", "foo");

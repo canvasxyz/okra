@@ -5,6 +5,10 @@ const Environment = @import("environment.zig").Environment;
 const lmdb = @import("lmdb.zig");
 
 pub const Transaction = struct {
+    pub const Options = struct {
+        read_only: bool = true,
+    };
+
     pub const Error = error{
         LmdbTransactionError,
         KeyNotFound,
@@ -15,11 +19,11 @@ pub const Transaction = struct {
     ptr: ?*lmdb.MDB_txn,
     dbi: lmdb.MDB_dbi,
 
-    pub fn open(env: Environment, read_only: bool) !Transaction {
+    pub fn open(env: Environment, options: Options) !Transaction {
         var txn = Transaction{ .ptr = null, .dbi = 0 };
 
         {
-            const flags: c_uint = if (read_only) lmdb.MDB_RDONLY else 0;
+            const flags: c_uint = if (options.read_only) lmdb.MDB_RDONLY else 0;
             try switch (lmdb.mdb_txn_begin(env.ptr, null, flags, &txn.ptr)) {
                 0 => {},
                 else => Error.LmdbTransactionError,
@@ -27,7 +31,7 @@ pub const Transaction = struct {
         }
 
         {
-            const flags: c_uint = if (read_only) 0 else lmdb.MDB_CREATE;
+            const flags: c_uint = if (options.read_only) 0 else lmdb.MDB_CREATE;
             try switch (lmdb.mdb_dbi_open(txn.ptr, null, flags, &txn.dbi)) {
                 0 => {},
                 else => Error.LmdbTransactionError,

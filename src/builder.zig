@@ -31,7 +31,7 @@ pub const Builder = struct {
     options: Options,
 
     pub fn init(env: lmdb.Environment, options: Options) !Builder {
-        const txn = try lmdb.Transaction.open(env, false);
+        const txn = try lmdb.Transaction.open(env, .{ .read_only = false });
         errdefer txn.abort();
 
         const key = std.ArrayList(u8).init(allocator);
