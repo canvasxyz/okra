@@ -41,7 +41,7 @@ fn testPermutations(
         defer reference_env.close();
 
         {
-            var builder = try Builder.init(reference_env, .{ .degree = options.degree });
+            var builder = try Builder.open(reference_env, .{ .degree = options.degree });
             errdefer builder.abort();
 
             for (permutation) |i| {

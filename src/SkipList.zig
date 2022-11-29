@@ -21,6 +21,7 @@ pub const SkipList = struct {
     target_keys: std.ArrayList(std.ArrayList(u8)),
     new_siblings: std.ArrayList([]const u8),
     value_buffer: [32]u8 = undefined,
+    variant: utils.Variant,
 
     pub const Error = error{
         UnsupportedVersion,
@@ -33,7 +34,7 @@ pub const SkipList = struct {
     pub const Options = struct {
         degree: u8 = 32,
         map_size: usize = 10485760,
-        variant: utils.Variant = utils.Variant.UnorderedSet,
+        variant: utils.Variant = utils.Variant.MapIndex,
         log: ?std.fs.File.Writer = null,
     };
 
@@ -48,6 +49,7 @@ pub const SkipList = struct {
             .log_prefix = std.ArrayList(u8).init(allocator),
             .target_keys = std.ArrayList(std.ArrayList(u8)).init(allocator),
             .new_siblings = std.ArrayList([]const u8).init(allocator),
+            .variant = options.variant,
         };
 
         // Initialize the metadata and root entries if necessary
@@ -92,7 +94,7 @@ pub const SkipList = struct {
         }
     }
 
-    const InsertResult = enum { update, delete };
+    const Result = enum { update, delete };
     const OperationTag = enum { set, delete };
     const Operation = union(OperationTag) {
         set: struct { key: []const u8, value: []const u8 },
@@ -131,8 +133,8 @@ pub const SkipList = struct {
         };
 
         try switch (result) {
-            InsertResult.update => {},
-            InsertResult.delete => error.InsertError,
+            Result.update => {},
+            Result.delete => error.InsertError,
         };
 
         var root_value = try self.hashRange(cursor, root_level, &nil);
@@ -172,7 +174,7 @@ pub const SkipList = struct {
         try utils.setMetadata(cursor.txn, metadata);
     }
 
-    fn applyNode(self: *SkipList, cursor: *SkipListCursor, level: u8, first_child: []const u8, operation: Operation) !InsertResult {
+    fn applyNode(self: *SkipList, cursor: *SkipListCursor, level: u8, first_child: []const u8, operation: Operation) !Result {
         if (first_child.len == 0) {
             try self.log("insertNode({d}, null)", .{level});
         } else {
@@ -206,8 +208,8 @@ pub const SkipList = struct {
 
         const result = try self.applyNode(cursor, level - 1, target, operation);
         switch (result) {
-            InsertResult.delete => try self.log("result: delete", .{}),
-            InsertResult.update => try self.log("result: update", .{}),
+            Result.delete => try self.log("result: delete", .{}),
+            Result.update => try self.log("result: update", .{}),
         }
 
         try self.log("new siblings: {d}", .{self.new_siblings.items.len});
@@ -215,7 +217,7 @@ pub const SkipList = struct {
             try self.log("- {s}", .{hex(child)});
 
         switch (result) {
-            InsertResult.delete => {
+            Result.delete => {
                 assert(!is_left_edge or !is_first_child);
 
                 // delete the entry and move to the previous child
@@ -237,22 +239,22 @@ pub const SkipList = struct {
                         try self.new_siblings.append(previous_child);
                     }
 
-                    return InsertResult.delete;
+                    return Result.delete;
                 } else if (std.mem.eql(u8, previous_child, first_child)) {
                     if (is_left_edge or self.isSplit(previous_child_value)) {
-                        return InsertResult.update;
+                        return Result.update;
                     } else {
-                        return InsertResult.delete;
+                        return Result.delete;
                     }
                 } else {
                     if (self.isSplit(previous_child_value)) {
                         try self.new_siblings.append(target);
                     }
 
-                    return InsertResult.update;
+                    return Result.update;
                 }
             },
-            InsertResult.update => {
+            Result.update => {
                 const target_value = try self.hashRange(cursor, level, target);
                 try cursor.set(level, target, target_value);
 
@@ -265,39 +267,40 @@ pub const SkipList = struct {
                 // or is_left_edge is true.
                 if (is_first_child) {
                     if (is_target_split or is_left_edge) {
-                        return InsertResult.update;
+                        return Result.update;
                     } else {
-                        return InsertResult.delete;
+                        return Result.delete;
                     }
                 } else {
                     if (is_target_split) {
                         try self.new_siblings.append(target);
                     }
 
-                    return InsertResult.update;
+                    return Result.update;
                 }
             },
         }
     }
 
-    fn applyLeaf(self: *SkipList, cursor: *SkipListCursor, first_child: []const u8, operation: Operation) !InsertResult {
+    fn applyLeaf(self: *SkipList, cursor: *SkipListCursor, first_child: []const u8, operation: Operation) !Result {
         switch (operation) {
             .set => |entry| {
                 if (std.mem.lessThan(u8, first_child, entry.key)) {
-                    if (self.isSplit(entry.value)) {
+                    const hash = try utils.getHash(self.variant, entry.key, entry.value);
+                    if (self.isSplit(hash)) {
                         try self.new_siblings.append(entry.key);
                     }
                 }
 
                 try cursor.set(0, entry.key, entry.value);
-                return InsertResult.update;
+                return Result.update;
             },
             .delete => |key| {
                 try cursor.delete(0, key);
                 if (std.mem.eql(u8, key, first_child)) {
-                    return InsertResult.delete;
+                    return Result.delete;
                 } else {
-                    return InsertResult.update;
+                    return Result.update;
                 }
             },
         }
@@ -392,6 +395,18 @@ pub const SkipList = struct {
         return value[value.len - 1] < self.limit;
     }
 
+    // fn getCurrentHash(self: *SkipList, cursor: lmdb.Cursor) !*const [32]u8 {
+    //     const key = try cursor.getCurrentKey();
+    //     const value = try cursor.getCurrentValue();
+    //     if (key[0] == 0) {
+    //         return utils.getHash(self.options.variant, key[1..], value);
+    //     } else if (value.len == 32) {
+    //         return value[0..32];
+    //     } else {
+    //         return error.InvalidDatabase;
+    //     }
+    // }
+
     fn log(self: *const SkipList, comptime format: []const u8, args: anytype) !void {
         if (self.log_writer) |writer| {
             try writer.print("{s}", .{self.log_prefix.items});
@@ -420,7 +435,7 @@ test "SkipList()" {
             0x00,
         }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
 
-        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x20, 0x00, 0x00 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x20, 0x03, 0x00 } },
     });
 }
 
@@ -458,7 +473,7 @@ test "SkipList(a, b, c)" {
             0x01,
         }, &utils.parseHash("1ca9140a5b30b5576694b7d45ce1af298d858a58dfa2376302f540ee75a89348") },
 
-        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x00, 0x01 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x03, 0x01 } },
     });
 }
 
@@ -533,7 +548,7 @@ test "SkipList(10)" {
             0x04,
         }, &utils.parseHash("8993e2613264a79ff4b128414b0afe77afc26ae4574cee9269fe73ba85119c45") },
 
-        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x00, 0x04 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x03, 0x04 } },
     };
 
     try lmdb.expectEqualEntries(skip_list.env, &entries);

@@ -21,7 +21,7 @@ const allocator = std.heap.c_allocator;
 pub const Builder = struct {
     const Options = struct {
         degree: u8 = 32,
-        variant: utils.Variant = utils.Variant.UnorderedSet,
+        variant: utils.Variant = utils.Variant.MapIndex,
     };
 
     txn: lmdb.Transaction,
@@ -30,17 +30,22 @@ pub const Builder = struct {
     limit: u8,
     options: Options,
 
-    pub fn init(env: lmdb.Environment, options: Options) !Builder {
-        const txn = try lmdb.Transaction.open(env, .{ .read_only = false });
-        errdefer txn.abort();
-
-        const key = std.ArrayList(u8).init(allocator);
-        const limit = try utils.getLimit(options.degree);
-        var builder = Builder{ .txn = txn, .key = key, .limit = limit, .options = options };
-
-        Sha256.hash(&[0]u8{}, &builder.value_buffer, .{});
-        try txn.set(&[_]u8{0x00}, &builder.value_buffer);
+    pub fn open(env: lmdb.Environment, options: Options) !Builder {
+        var builder: Builder = undefined;
+        try builder.init(env, options);
         return builder;
+    }
+
+    pub fn init(self: *Builder, env: lmdb.Environment, options: Options) !void {
+        self.txn = try lmdb.Transaction.open(env, .{ .read_only = false });
+        errdefer self.txn.abort();
+
+        self.key = std.ArrayList(u8).init(allocator);
+        self.limit = try utils.getLimit(options.degree);
+        self.options = options;
+
+        Sha256.hash(&[0]u8{}, &self.value_buffer, .{});
+        try self.txn.set(&[_]u8{0x00}, &self.value_buffer);
     }
 
     pub fn set(self: *Builder, key: []const u8, value: []const u8) !void {
@@ -57,7 +62,7 @@ pub const Builder = struct {
         defer self.key.deinit();
         errdefer self.txn.abort();
 
-        var cursor = try lmdb.Cursor.open(self.txn);
+        const cursor = try lmdb.Cursor.open(self.txn);
         try cursor.goToKey(&[_]u8{0});
 
         var level: u8 = 0;
@@ -69,8 +74,6 @@ pub const Builder = struct {
                 break level + 1;
             }
         };
-
-        cursor.close();
 
         try utils.setMetadata(self.txn, .{
             .degree = self.options.degree,
@@ -102,7 +105,7 @@ pub const Builder = struct {
         while (try cursor.goToNext()) |next_key| {
             if (next_key[0] != level) break;
 
-            const value = try cursor.getCurrentValue();
+            const value = try self.getCurrentHash(cursor);
             if (self.isSplit(value)) {
                 hash.final(&self.value_buffer);
                 parent_count += 1;
@@ -112,7 +115,7 @@ pub const Builder = struct {
                 try self.setKey(level + 1, key[1..]);
 
                 hash = Sha256.init(.{});
-                hash.update(try cursor.getCurrentValue());
+                hash.update(try self.getCurrentHash(cursor));
                 child_count += 1;
             } else {
                 hash.update(value);
@@ -135,8 +138,20 @@ pub const Builder = struct {
         std.mem.copy(u8, self.key.items[1..], key);
     }
 
-    fn isSplit(self: *const Builder, value: []const u8) bool {
-        return value[value.len - 1] < self.limit;
+    fn isSplit(self: *const Builder, value: *const [32]u8) bool {
+        return value[31] < self.limit;
+    }
+
+    fn getCurrentHash(self: *Builder, cursor: lmdb.Cursor) !*const [32]u8 {
+        const key = try cursor.getCurrentKey();
+        const value = try cursor.getCurrentValue();
+        if (key[0] == 0) {
+            return utils.getHash(self.options.variant, key[1..], value);
+        } else if (value.len == 32) {
+            return value[0..32];
+        } else {
+            return error.InvalidDatabase;
+        }
     }
 };
 
@@ -159,7 +174,7 @@ fn testEntryList(leaves: []const Entry, entries: []const Entry, options: Builder
     const env = try lmdb.Environment.open(path, .{});
     defer env.close();
 
-    var builder = try Builder.init(env, options);
+    var builder = try Builder.open(env, options);
 
     for (leaves) |leaf| try builder.set(leaf[0], leaf[1]);
 
@@ -179,7 +194,7 @@ test "Builder()" {
 
     const entries = [_]Entry{
         .{ &[_]u8{0x00}, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
-        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x20, 0x00, 0x00 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x20, 0x03, 0x00 } },
     };
 
     try testEntryList(&leaves, &entries, .{});
@@ -201,7 +216,7 @@ test "Builder(a, b, c)" {
         .{ &[_]u8{0x01}, &utils.parseHash("1ca9140a5b30b5576694b7d45ce1af298d858a58dfa2376302f540ee75a89348") },
         .{ &[_]u8{
             0xFF,
-        }, &[_]u8{ 0x01, 0x04, 0x00, 0x01 } },
+        }, &[_]u8{ 0x01, 0x04, 0x03, 0x01 } },
     };
 
     try testEntryList(&leaves, &entries, .{ .degree = 4 });
@@ -230,7 +245,7 @@ test "Builder(a, b, c, d)" {
         }, &utils.parseHash("d31d890779b01bfa5d949717d89dedc097902ef468ca04b8290d0a032e562f0a") },
         .{ &[_]u8{
             0xFF,
-        }, &[_]u8{ 0x01, 0x04, 0x00, 0x02 } },
+        }, &[_]u8{ 0x01, 0x04, 0x03, 0x02 } },
     };
 
     try testEntryList(&leaves, &entries, .{ .degree = 4 });
@@ -267,7 +282,7 @@ test "Builder(a, b, c, d, e)" {
         .{ &[_]u8{ 0x04, 'd' }, &utils.parseHash("3e8a33e514301e57922b4a4c5737e28dd65db1d2b4f49da619e772ab8e4a714d") },
 
         .{ &[_]u8{0x05}, &utils.parseHash("ac62313cd354bb52f897110b9ca4c840532e09eced40f59879c06689c5588f30") },
-        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x00, 0x05 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x03, 0x05 } },
     };
 
     try testEntryList(&leaves, &entries, .{ .degree = 4 });
@@ -289,7 +304,7 @@ test "Builder(a, c, d, e)" {
     defer env.close();
 
     {
-        var builder = try Builder.init(env, .{ .degree = 4 });
+        var builder = try Builder.open(env, .{ .degree = 4 });
         errdefer builder.abort();
 
         try builder.set("a", &utils.hash("foo"));
@@ -323,7 +338,7 @@ test "Builder(a, c, d, e)" {
         .{ &[_]u8{ 0x04, 'd' }, &utils.parseHash("3e8a33e514301e57922b4a4c5737e28dd65db1d2b4f49da619e772ab8e4a714d") },
 
         .{ &[_]u8{0x05}, &utils.parseHash("5ff31d4d9e10fa1a0d55dfa3ec832f86205edeced693247a1eca13e02d4a2cc0") },
-        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x00, 0x05 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x03, 0x05 } },
     };
 
     try lmdb.expectEqualEntries(env, &entries);
@@ -345,7 +360,7 @@ test "Builder(a, c, e)" {
     defer env.close();
 
     {
-        var builder = try Builder.init(env, .{ .degree = 4 });
+        var builder = try Builder.open(env, .{ .degree = 4 });
         errdefer builder.abort();
 
         try builder.set("a", &utils.hash("foo"));
@@ -367,7 +382,7 @@ test "Builder(a, c, e)" {
         .{ &[_]u8{ 0x00, 'e' }, &utils.parseHash("1ad25d0002690dc02e2708a297d8c9df1f160d376f663309cc261c7c921367e7") },
 
         .{ &[_]u8{0x01}, &utils.parseHash("819c55873405d04184234055232f0744c289d202638d716524afa9c74c46a5e4") },
-        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x00, 0x01 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x03, 0x01 } },
     };
 
     try lmdb.expectEqualEntries(env, &entries);
@@ -408,7 +423,7 @@ test "Builder(10)" {
         .{ &[_]u8{ 0x03, 0 }, &utils.parseHash("061fb8732969d3389707024854489c09f63e607be4a0e0bbd2efe0453a314c8c") },
 
         .{ &[_]u8{0x04}, &utils.parseHash("8993e2613264a79ff4b128414b0afe77afc26ae4574cee9269fe73ba85119c45") },
-        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x00, 0x04 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x03, 0x04 } },
     };
 
     try testEntryList(&leaves, &entries, .{ .degree = 4 });

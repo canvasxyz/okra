@@ -6,12 +6,7 @@ const lmdb = @import("lmdb");
 
 const constants = @import("constants.zig");
 
-pub const Variant = enum(u8) {
-    UnorderedSet,
-    UnorderedMap,
-    OrderedSet,
-    OrderedMap,
-};
+pub const Variant = enum(u8) { Set, SetIndex, Map, MapIndex };
 
 pub const Metadata = struct {
     degree: u8,
@@ -74,4 +69,13 @@ pub fn getLimit(degree: u8) !u8 {
     }
 
     return @intCast(u8, 256 / @intCast(u16, degree));
+}
+
+pub fn getHash(variant: Variant, key: []const u8, value: []const u8) !*const [32]u8 {
+    return switch (variant) {
+        Variant.Set => if (key.len == 32) key[0..32] else error.InvalidDatabase,
+        Variant.SetIndex => if (key.len == 32 and value.len == 0) key[0..32] else error.InvalidDatabase,
+        Variant.Map => if (value.len >= 32) value[0..32] else error.InvalidDatabase,
+        Variant.MapIndex => if (value.len == 32) value[0..32] else error.InvalidDatabase,
+    };
 }
