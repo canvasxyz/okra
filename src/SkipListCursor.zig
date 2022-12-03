@@ -6,6 +6,18 @@ const lmdb = @import("lmdb");
 
 const utils = @import("utils.zig");
 
+// pub const SkipListTransaction = struct {
+//     key: std.ArrayList(u8),
+//     txn: lmdb.Transaction,
+
+//     pub fn init(self: *SkipListTransaction, allocator: std.mem.Allocator, env: lmdb.Environment, read_only: bool) !void {
+//         self.key = std.ArrayList(u8).init(allocator);
+//         self.txn = try lmdb.Transaction.open(env, .{ .read_only = read_only });
+//     }
+// };
+
+// pub const SkipListCursor = struct {};
+
 pub const SkipListCursor = struct {
     key: std.ArrayList(u8),
     txn: lmdb.Transaction,
@@ -90,31 +102,16 @@ pub const SkipListCursor = struct {
     }
 
     pub fn set(self: *SkipListCursor, level: u8, key: []const u8, value: []const u8) !void {
-        // if (level == 1 and std.mem.eql(u8, key, &[_]u8{ 0x01, 0x07 })) {
-        //     std.log.err("AAAAAAAA HOLY SHITTTTT {s}", .{hex(value)});
-        // }
-
         try self.setKey(level, key);
         try self.txn.set(self.key.items, value);
     }
 
     pub fn delete(self: *SkipListCursor, level: u8, key: []const u8) !void {
-        // std.log.err("DELETING THE KEY {d} {s}", .{ level, hex(key) });
-        // if (level == 1 and std.mem.eql(u8, key, &[_]u8{ 0x01, 0x07 })) {
-        //     return error.WHAT_THE_FUCK;
-        // }
-
         try self.setKey(level, key);
         try self.txn.delete(self.key.items);
     }
 
     pub fn deleteCurrentKey(self: *SkipListCursor) !void {
-        // const key = try self.cursor.getCurrentKey();
-        // std.log.err("DELETING KEY {d} {s}", .{ key[0], hex(key[1..]) });
-        // if (std.mem.eql(u8, key, &[_]u8{ 0x01, 0x01, 0x07 })) {
-        //     return error.WHAT_THE_FUCK;
-        // }
-
         try self.cursor.deleteCurrentKey();
     }
 };

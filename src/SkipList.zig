@@ -7,21 +7,20 @@ const lmdb = @import("lmdb");
 
 const SkipListCursor = @import("SkipListCursor.zig").SkipListCursor;
 
+const Logger = @import("logger.zig").Logger;
 const utils = @import("utils.zig");
 const constants = @import("constants.zig");
 const printTree = @import("print.zig").printTree;
 
 pub const SkipList = struct {
     allocator: std.mem.Allocator,
+    variant: utils.Variant,
     limit: u8,
-    env: lmdb.Environment,
 
-    log_writer: ?std.fs.File.Writer,
-    log_prefix: std.ArrayList(u8),
+    env: lmdb.Environment,
     target_keys: std.ArrayList(std.ArrayList(u8)),
     new_siblings: std.ArrayList([]const u8),
-    value_buffer: [32]u8 = undefined,
-    variant: utils.Variant,
+    logger: Logger,
 
     pub const Error = error{
         UnsupportedVersion,
@@ -39,17 +38,16 @@ pub const SkipList = struct {
     };
 
     pub fn open(allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !SkipList {
-        const env = try lmdb.Environment.open(path, .{ .map_size = options.map_size });
         const limit = try utils.getLimit(options.degree);
+        const env = try lmdb.Environment.open(path, .{ .map_size = options.map_size });
         var skip_list = SkipList{
             .allocator = allocator,
+            .variant = options.variant,
             .limit = limit,
             .env = env,
-            .log_writer = options.log,
-            .log_prefix = std.ArrayList(u8).init(allocator),
             .target_keys = std.ArrayList(std.ArrayList(u8)).init(allocator),
             .new_siblings = std.ArrayList([]const u8).init(allocator),
-            .variant = options.variant,
+            .logger = Logger.init(options.log, allocator),
         };
 
         // Initialize the metadata and root entries if necessary
@@ -63,8 +61,9 @@ pub const SkipList = struct {
             }
         } else {
             errdefer txn.abort();
-            Sha256.hash(&[0]u8{}, &skip_list.value_buffer, .{});
-            try txn.set(&[_]u8{0x00}, &skip_list.value_buffer);
+            var value: [32]u8 = undefined;
+            Sha256.hash(&[0]u8{}, &value, .{});
+            try txn.set(&[_]u8{0x00}, &value);
             try utils.setMetadata(txn, .{ .degree = options.degree, .variant = options.variant, .height = 0 });
             try txn.commit();
         }
@@ -74,7 +73,7 @@ pub const SkipList = struct {
 
     pub fn close(self: *SkipList) void {
         self.env.close();
-        self.log_prefix.deinit();
+        self.logger.deinit();
 
         for (self.target_keys.items) |key| key.deinit();
         self.target_keys.deinit();
@@ -82,7 +81,7 @@ pub const SkipList = struct {
     }
 
     fn allocate(self: *SkipList, height: u8) !void {
-        self.log_prefix.shrinkAndFree(0);
+        self.logger.reset();
         self.new_siblings.shrinkAndFree(0);
 
         const target_keys_len = self.target_keys.items.len;
@@ -137,10 +136,7 @@ pub const SkipList = struct {
             Result.delete => error.InsertError,
         };
 
-        var root_value = try self.hashRange(cursor, root_level, &nil);
-
-        try self.log("new root: {d} @ {s}", .{ root_level, hex(root_value) });
-        try cursor.set(root_level, &nil, root_value);
+        _ = try self.hashRange(cursor, root_level, &nil);
 
         try self.log("new_children: {d}", .{self.new_siblings.items.len});
         for (self.new_siblings.items) |child| try self.log("- {s}", .{hex(child)});
@@ -148,12 +144,8 @@ pub const SkipList = struct {
         while (self.new_siblings.items.len > 0) {
             try self.promote(cursor, root_level);
 
-            // actually the same root_value pointer over and over, but whatever
             root_level += 1;
-            root_value = try self.hashRange(cursor, root_level, &nil);
-            try self.log("new root: {d} @ {s}", .{ root_level, hex(root_value) });
-            try cursor.set(root_level, &nil, root_value);
-
+            _ = try self.hashRange(cursor, root_level, &nil);
             try self.log("new_children: {d}", .{self.new_siblings.items.len});
             for (self.new_siblings.items) |child| try self.log("- {s}", .{hex(child)});
         }
@@ -181,9 +173,8 @@ pub const SkipList = struct {
             try self.log("insertNode({d}, {s})", .{ level, hex(first_child) });
         }
 
-        const log_prefix_size = self.log_prefix.items.len;
-        try self.log_prefix.appendSlice("| ");
-        defer self.log_prefix.shrinkAndFree(log_prefix_size);
+        try self.logger.indent();
+        defer self.logger.deindent();
 
         if (level == 0) {
             return self.applyLeaf(cursor, first_child, operation);
@@ -231,23 +222,21 @@ pub const SkipList = struct {
 
                 try self.promote(cursor, level);
 
-                const previous_child_value = try self.hashRange(cursor, level, previous_child);
-                try cursor.set(level, previous_child, previous_child_value);
-
+                const is_previous_child_split = try self.hashRange(cursor, level, previous_child);
                 if (is_first_child or std.mem.lessThan(u8, previous_child, first_child)) {
-                    if (self.isSplit(previous_child_value)) {
+                    if (is_previous_child_split) {
                         try self.new_siblings.append(previous_child);
                     }
 
                     return Result.delete;
                 } else if (std.mem.eql(u8, previous_child, first_child)) {
-                    if (is_left_edge or self.isSplit(previous_child_value)) {
+                    if (is_left_edge or is_previous_child_split) {
                         return Result.update;
                     } else {
                         return Result.delete;
                     }
                 } else {
-                    if (self.isSplit(previous_child_value)) {
+                    if (is_previous_child_split) {
                         try self.new_siblings.append(target);
                     }
 
@@ -255,10 +244,7 @@ pub const SkipList = struct {
                 }
             },
             Result.update => {
-                const target_value = try self.hashRange(cursor, level, target);
-                try cursor.set(level, target, target_value);
-
-                const is_target_split = self.isSplit(target_value);
+                const is_target_split = try self.hashRange(cursor, level, target);
                 try self.log("is_target_split: {any}", .{is_target_split});
 
                 try self.promote(cursor, level);
@@ -335,8 +321,15 @@ pub const SkipList = struct {
                 target.shrinkAndFree(0);
                 return target.items;
             } else if (try cursor.get(level - 1, previous_child)) |previous_grand_child_value| {
-                if (self.isSplit(previous_grand_child_value)) {
-                    try utils.copy(target, try cursor.getCurrentKey());
+                // const previous_grand_child_key = try cursor.getCurrentKey(); // probably not necessary
+                const previous_grand_child_hash = try utils.getHash(
+                    self.variant,
+                    previous_child,
+                    previous_grand_child_value,
+                );
+
+                if (self.isSplit(previous_grand_child_hash)) {
+                    try utils.copy(target, previous_child);
                     return target.items;
                 }
             }
@@ -347,8 +340,7 @@ pub const SkipList = struct {
         return Error.InsertError;
     }
 
-    // hashRange returns a pointer to self.value_buffer
-    fn hashRange(self: *SkipList, cursor: *SkipListCursor, level: u8, key: []const u8) ![]const u8 {
+    fn hashRange(self: *SkipList, cursor: *SkipListCursor, level: u8, key: []const u8) !bool {
         if (key.len == 0) {
             try self.log("hashRange({d}, null)", .{level});
         } else {
@@ -358,20 +350,26 @@ pub const SkipList = struct {
         try cursor.goToNode(level - 1, key);
         var digest = Sha256.init(.{});
 
-        const value = try cursor.getCurrentValue();
-        try self.log("- hashing {s} <- {s}", .{ hex(value), hex(key) });
-        digest.update(value);
+        {
+            const value = try cursor.getCurrentValue();
+            try self.log("- hashing {s} <- {s}", .{ hex(value), hex(key) });
+            digest.update(value);
+        }
 
         while (try cursor.goToNext(level - 1)) |next_key| {
             const next_value = try cursor.getCurrentValue();
-            if (self.isSplit(next_value)) break;
-            try self.log("- hashing {s} <- {s}", .{ hex(next_value), hex(next_key) });
-            digest.update(next_value);
+            const next_hash = try utils.getHash(self.variant, next_key, next_value);
+            if (self.isSplit(next_hash)) break;
+            try self.log("- hashing {s} <- {s}", .{ hex(next_hash), hex(next_key) });
+            digest.update(next_hash);
         }
 
-        digest.final(&self.value_buffer);
-        try self.log("--------- {s}", .{hex(&self.value_buffer)});
-        return &self.value_buffer;
+        var value: [32]u8 = undefined;
+        digest.final(&value);
+        try self.log("--------- {s}", .{hex(&value)});
+        try self.log("setting {s} <- ({d}) {s}", .{ hex(&value), level, hex(key) });
+        try cursor.set(level, key, &value);
+        return self.isSplit(&value);
     }
 
     fn promote(self: *SkipList, cursor: *SkipListCursor, level: u8) !void {
@@ -380,9 +378,8 @@ pub const SkipList = struct {
         const new_sibling_count = self.new_siblings.items.len;
         while (old_index < new_sibling_count) : (old_index += 1) {
             const key = self.new_siblings.items[old_index];
-            const value = try self.hashRange(cursor, level, key);
-            try cursor.set(level, key, value);
-            if (self.isSplit(value)) {
+            const is_split = try self.hashRange(cursor, level, key);
+            if (is_split) {
                 self.new_siblings.items[new_index] = key;
                 new_index += 1;
             }
@@ -391,27 +388,12 @@ pub const SkipList = struct {
         self.new_siblings.shrinkAndFree(new_index);
     }
 
-    fn isSplit(self: *const SkipList, value: []const u8) bool {
-        return value[value.len - 1] < self.limit;
+    fn isSplit(self: *const SkipList, value: *const [32]u8) bool {
+        return value[31] < self.limit;
     }
 
-    // fn getCurrentHash(self: *SkipList, cursor: lmdb.Cursor) !*const [32]u8 {
-    //     const key = try cursor.getCurrentKey();
-    //     const value = try cursor.getCurrentValue();
-    //     if (key[0] == 0) {
-    //         return utils.getHash(self.options.variant, key[1..], value);
-    //     } else if (value.len == 32) {
-    //         return value[0..32];
-    //     } else {
-    //         return error.InvalidDatabase;
-    //     }
-    // }
-
-    fn log(self: *const SkipList, comptime format: []const u8, args: anytype) !void {
-        if (self.log_writer) |writer| {
-            try writer.print("{s}", .{self.log_prefix.items});
-            try writer.print(format ++ "\n", args);
-        }
+    fn log(self: *SkipList, comptime format: []const u8, args: anytype) !void {
+        try self.logger.print(format, args);
     }
 };
 
