@@ -5,7 +5,10 @@ const hex = std.fmt.fmtSliceHexLower;
 
 const lmdb = @import("lmdb");
 
-const SkipListCursor = @import("SkipListCursor.zig").SkipListCursor;
+// const SkipListCursor = @import("SkipListCursor.zig").SkipListCursor;
+// const SkipListUtils = @import("SkipListCursor.zig");
+// const Cursor = SkipListUtils.Cursor;
+// const Transaction = SkipListUtils.Transaction;
 
 const Logger = @import("logger.zig").Logger;
 const utils = @import("utils.zig");
@@ -13,42 +16,46 @@ const constants = @import("constants.zig");
 const printTree = @import("print.zig").printTree;
 
 pub const SkipList = struct {
+    pub const Options = struct {
+        degree: u8 = 32,
+        variant: utils.Variant = utils.Variant.MapIndex,
+        log: ?std.fs.File.Writer = null,
+    };
+
+    const Result = enum { update, delete };
+    const OperationTag = enum { set, delete };
+    const Operation = union(OperationTag) {
+        set: struct { key: []const u8, value: []const u8 },
+        delete: []const u8,
+    };
+
     allocator: std.mem.Allocator,
     variant: utils.Variant,
     limit: u8,
 
     env: lmdb.Environment,
+    key: std.ArrayList(u8),
     target_keys: std.ArrayList(std.ArrayList(u8)),
     new_siblings: std.ArrayList([]const u8),
     logger: Logger,
 
-    pub const Error = error{
-        UnsupportedVersion,
-        InvalidDatabase,
-        InvalidFanoutDegree,
-        Duplicate,
-        InsertError,
-    };
+    pub fn open(allocator: std.mem.Allocator, env: lmdb.Environment, options: Options) !SkipList {
+        var skip_list: SkipList = undefined;
+        try skip_list.init(allocator, env, options);
+        return skip_list;
+    }
 
-    pub const Options = struct {
-        degree: u8 = 32,
-        map_size: usize = 10485760,
-        variant: utils.Variant = utils.Variant.MapIndex,
-        log: ?std.fs.File.Writer = null,
-    };
+    pub fn init(self: *SkipList, allocator: std.mem.Allocator, env: lmdb.Environment, options: Options) !void {
+        self.allocator = allocator;
+        self.variant = options.variant;
+        self.limit = try utils.getLimit(options.degree);
+        self.env = env;
+        self.key = std.ArrayList(u8).init(allocator);
+        self.target_keys = std.ArrayList(std.ArrayList(u8)).init(allocator);
+        self.new_siblings = std.ArrayList([]const u8).init(allocator);
+        self.logger = Logger.init(allocator, options.log);
 
-    pub fn open(allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !SkipList {
-        const limit = try utils.getLimit(options.degree);
-        const env = try lmdb.Environment.open(path, .{ .map_size = options.map_size });
-        var skip_list = SkipList{
-            .allocator = allocator,
-            .variant = options.variant,
-            .limit = limit,
-            .env = env,
-            .target_keys = std.ArrayList(std.ArrayList(u8)).init(allocator),
-            .new_siblings = std.ArrayList([]const u8).init(allocator),
-            .logger = Logger.init(options.log, allocator),
-        };
+        errdefer self.deinit();
 
         // Initialize the metadata and root entries if necessary
         const txn = try lmdb.Transaction.open(env, .{ .read_only = false });
@@ -67,68 +74,55 @@ pub const SkipList = struct {
             try utils.setMetadata(txn, .{ .degree = options.degree, .variant = options.variant, .height = 0 });
             try txn.commit();
         }
-
-        return skip_list;
     }
 
-    pub fn close(self: *SkipList) void {
-        self.env.close();
-        self.logger.deinit();
-
+    pub fn deinit(self: *SkipList) void {
+        self.key.deinit();
         for (self.target_keys.items) |key| key.deinit();
         self.target_keys.deinit();
         self.new_siblings.deinit();
+        self.logger.deinit();
     }
 
-    fn allocate(self: *SkipList, height: u8) !void {
-        self.logger.reset();
-        self.new_siblings.shrinkAndFree(0);
-
-        const target_keys_len = self.target_keys.items.len;
-        if (target_keys_len < height) {
-            try self.target_keys.resize(height);
-            for (self.target_keys.items[target_keys_len..]) |*key| {
-                key.* = std.ArrayList(u8).init(self.allocator);
-            }
-        }
-    }
-
-    const Result = enum { update, delete };
-    const OperationTag = enum { set, delete };
-    const Operation = union(OperationTag) {
-        set: struct { key: []const u8, value: []const u8 },
-        delete: []const u8,
-    };
-
-    pub fn set(self: *SkipList, cursor: *SkipListCursor, key: []const u8, value: []const u8) !void {
+    pub fn set(self: *SkipList, txn: lmdb.Transaction, cursor: lmdb.Cursor, key: []const u8, value: []const u8) !void {
         try self.log("set({s}, {s})", .{ hex(key), hex(value) });
         if (key.len == 0) {
             return error.InvalidKey;
         } else {
-            try self.apply(cursor, Operation{ .set = .{ .key = key, .value = value } });
+            try self.apply(txn, cursor, Operation{ .set = .{ .key = key, .value = value } });
         }
     }
 
-    pub fn delete(self: *SkipList, cursor: *SkipListCursor, key: []const u8) !void {
+    pub fn delete(self: *SkipList, txn: lmdb.Transaction, cursor: lmdb.Cursor, key: []const u8) !void {
         try self.log("delete({s})", .{hex(key)});
         if (key.len == 0) {
             return error.InvalidKey;
         } else {
-            try self.apply(cursor, Operation{ .delete = key });
+            try self.apply(txn, cursor, Operation{ .delete = key });
         }
     }
 
-    fn apply(self: *SkipList, cursor: *SkipListCursor, operation: Operation) !void {
-        var metadata = try utils.getMetadata(cursor.txn) orelse return error.InvalidDatabase;
+    fn apply(self: *SkipList, txn: lmdb.Transaction, cursor: lmdb.Cursor, operation: Operation) !void {
+        var metadata = try utils.getMetadata(txn) orelse return error.InvalidDatabase;
         try self.log("height: {d}", .{metadata.height});
-        try self.allocate(metadata.height);
+
+        self.logger.reset();
+        self.new_siblings.shrinkAndFree(0);
+
+        const target_keys_len = self.target_keys.items.len;
+        if (target_keys_len < metadata.height) {
+            try self.target_keys.resize(metadata.height);
+            for (self.target_keys.items[target_keys_len..]) |*key| {
+                key.* = std.ArrayList(u8).init(self.allocator);
+            }
+        }
 
         var root_level = if (metadata.height == 0) 1 else metadata.height;
 
         const nil = [_]u8{};
         const result = try switch (metadata.height) {
-            0 => self.applyLeaf(cursor, &nil, operation),
-            else => self.applyNode(cursor, root_level - 1, &nil, operation),
+            0 => self.applyLeaf(txn, cursor, &nil, operation),
+            else => self.applyNode(txn, cursor, root_level - 1, &nil, operation),
         };
 
         try switch (result) {
@@ -136,37 +130,37 @@ pub const SkipList = struct {
             Result.delete => error.InsertError,
         };
 
-        _ = try self.hashRange(cursor, root_level, &nil);
+        _ = try self.hashNode(txn, cursor, root_level, &nil);
 
         try self.log("new_children: {d}", .{self.new_siblings.items.len});
         for (self.new_siblings.items) |child| try self.log("- {s}", .{hex(child)});
 
         while (self.new_siblings.items.len > 0) {
-            try self.promote(cursor, root_level);
+            try self.promote(txn, cursor, root_level);
 
             root_level += 1;
-            _ = try self.hashRange(cursor, root_level, &nil);
+            _ = try self.hashNode(txn, cursor, root_level, &nil);
             try self.log("new_children: {d}", .{self.new_siblings.items.len});
             for (self.new_siblings.items) |child| try self.log("- {s}", .{hex(child)});
         }
 
-        try cursor.goToNode(root_level, &nil);
+        try self.goToNode(cursor, root_level, &nil);
         while (root_level > 0) : (root_level -= 1) {
-            const last_key = try cursor.goToLast(root_level - 1);
+            const last_key = try self.goToLast(cursor, root_level - 1);
             if (last_key.len > 0) {
                 break;
             } else {
                 try self.log("trim root from {d} to {d}", .{ root_level, root_level - 1 });
-                try cursor.delete(root_level, &nil);
+                try self.deleteNode(txn, root_level, &nil);
             }
         }
 
         try self.log("writing metadata entry with height {d}", .{root_level});
         metadata.height = root_level;
-        try utils.setMetadata(cursor.txn, metadata);
+        try utils.setMetadata(txn, metadata);
     }
 
-    fn applyNode(self: *SkipList, cursor: *SkipListCursor, level: u8, first_child: []const u8, operation: Operation) !Result {
+    fn applyNode(self: *SkipList, txn: lmdb.Transaction, cursor: lmdb.Cursor, level: u8, first_child: []const u8, operation: Operation) !Result {
         if (first_child.len == 0) {
             try self.log("insertNode({d}, null)", .{level});
         } else {
@@ -177,12 +171,12 @@ pub const SkipList = struct {
         defer self.logger.deindent();
 
         if (level == 0) {
-            return self.applyLeaf(cursor, first_child, operation);
+            return self.applyLeaf(txn, cursor, first_child, operation);
         }
 
         const target = try switch (operation) {
-            Operation.set => |entry| self.findTargetKey(cursor, level, first_child, entry.key),
-            Operation.delete => |key| self.findTargetKey(cursor, level, first_child, key),
+            Operation.set => |entry| self.findTargetKey(txn, cursor, level, first_child, entry.key),
+            Operation.delete => |key| self.findTargetKey(txn, cursor, level, first_child, key),
         };
 
         if (target.len == 0) {
@@ -197,7 +191,7 @@ pub const SkipList = struct {
         const is_first_child = std.mem.eql(u8, target, first_child);
         try self.log("is_first_child: {any}", .{is_first_child});
 
-        const result = try self.applyNode(cursor, level - 1, target, operation);
+        const result = try self.applyNode(txn, cursor, level - 1, target, operation);
         switch (result) {
             Result.delete => try self.log("result: delete", .{}),
             Result.update => try self.log("result: update", .{}),
@@ -213,16 +207,16 @@ pub const SkipList = struct {
 
                 // delete the entry and move to the previous child
                 // previous_child is the slice at target_keys[level - 1].items
-                const previous_child = try self.moveToPreviousChild(cursor, level);
+                const previous_child = try self.moveToPreviousChild(txn, cursor, level);
                 if (previous_child.len == 0) {
                     try self.log("previous_child: null", .{});
                 } else {
                     try self.log("previous_child: {s}", .{hex(previous_child)});
                 }
 
-                try self.promote(cursor, level);
+                try self.promote(txn, cursor, level);
 
-                const is_previous_child_split = try self.hashRange(cursor, level, previous_child);
+                const is_previous_child_split = try self.hashNode(txn, cursor, level, previous_child);
                 if (is_first_child or std.mem.lessThan(u8, previous_child, first_child)) {
                     if (is_previous_child_split) {
                         try self.new_siblings.append(previous_child);
@@ -244,10 +238,10 @@ pub const SkipList = struct {
                 }
             },
             Result.update => {
-                const is_target_split = try self.hashRange(cursor, level, target);
+                const is_target_split = try self.hashNode(txn, cursor, level, target);
                 try self.log("is_target_split: {any}", .{is_target_split});
 
-                try self.promote(cursor, level);
+                try self.promote(txn, cursor, level);
 
                 // is_first_child means either target's original value was a split,
                 // or is_left_edge is true.
@@ -268,7 +262,7 @@ pub const SkipList = struct {
         }
     }
 
-    fn applyLeaf(self: *SkipList, cursor: *SkipListCursor, first_child: []const u8, operation: Operation) !Result {
+    fn applyLeaf(self: *SkipList, txn: lmdb.Transaction, _: lmdb.Cursor, first_child: []const u8, operation: Operation) !Result {
         switch (operation) {
             .set => |entry| {
                 if (std.mem.lessThan(u8, first_child, entry.key)) {
@@ -278,11 +272,11 @@ pub const SkipList = struct {
                     }
                 }
 
-                try cursor.set(0, entry.key, entry.value);
+                try self.setNode(txn, 0, entry.key, entry.value);
                 return Result.update;
             },
             .delete => |key| {
-                try cursor.delete(0, key);
+                try self.deleteNode(txn, 0, key);
                 if (std.mem.eql(u8, key, first_child)) {
                     return Result.delete;
                 } else {
@@ -292,13 +286,13 @@ pub const SkipList = struct {
         }
     }
 
-    fn findTargetKey(self: *SkipList, cursor: *SkipListCursor, level: u8, first_child: []const u8, key: []const u8) ![]const u8 {
+    fn findTargetKey(self: *SkipList, _: lmdb.Transaction, cursor: lmdb.Cursor, level: u8, first_child: []const u8, key: []const u8) ![]const u8 {
         assert(level > 0);
         const target = &self.target_keys.items[level - 1];
         try utils.copy(target, first_child);
 
-        try cursor.goToNode(level, first_child);
-        while (try cursor.goToNext(level)) |next_child| {
+        try self.goToNode(cursor, level, first_child);
+        while (try self.goToNext(cursor, level)) |next_child| {
             if (std.mem.lessThan(u8, key, next_child)) {
                 return target.items;
             } else {
@@ -309,19 +303,18 @@ pub const SkipList = struct {
         return target.items;
     }
 
-    fn moveToPreviousChild(self: *SkipList, cursor: *SkipListCursor, level: u8) ![]const u8 {
+    fn moveToPreviousChild(self: *SkipList, txn: lmdb.Transaction, cursor: lmdb.Cursor, level: u8) ![]const u8 {
         const target = &self.target_keys.items[level - 1];
 
         // delete the entry and move to the previous child
-        try cursor.goToNode(level, target.items);
+        try self.goToNode(cursor, level, target.items);
 
         try cursor.deleteCurrentKey();
-        while (try cursor.goToPrevious(level)) |previous_child| {
+        while (try self.goToPrevious(cursor, level)) |previous_child| {
             if (previous_child.len == 0) {
                 target.shrinkAndFree(0);
                 return target.items;
-            } else if (try cursor.get(level - 1, previous_child)) |previous_grand_child_value| {
-                // const previous_grand_child_key = try cursor.getCurrentKey(); // probably not necessary
+            } else if (try self.getNode(txn, level - 1, previous_child)) |previous_grand_child_value| {
                 const previous_grand_child_hash = try utils.getHash(
                     self.variant,
                     previous_child,
@@ -337,26 +330,32 @@ pub const SkipList = struct {
             try cursor.deleteCurrentKey();
         }
 
-        return Error.InsertError;
+        return error.InsertError;
     }
 
-    fn hashRange(self: *SkipList, cursor: *SkipListCursor, level: u8, key: []const u8) !bool {
+    fn hashNode(self: *SkipList, txn: lmdb.Transaction, cursor: lmdb.Cursor, level: u8, key: []const u8) !bool {
         if (key.len == 0) {
-            try self.log("hashRange({d}, null)", .{level});
+            try self.log("hashNode({d}, null)", .{level});
         } else {
-            try self.log("hashRange({d}, {s})", .{ level, hex(key) });
+            try self.log("hashNode({d}, {s})", .{ level, hex(key) });
         }
 
-        try cursor.goToNode(level - 1, key);
+        try self.goToNode(cursor, level - 1, key);
         var digest = Sha256.init(.{});
 
         {
             const value = try cursor.getCurrentValue();
-            try self.log("- hashing {s} <- {s}", .{ hex(value), hex(key) });
+
+            if (key.len == 0) {
+                try self.log("- hashing {s} <- null", .{hex(value)});
+            } else {
+                try self.log("- hashing {s} <- {s}", .{ hex(value), hex(key) });
+            }
+
             digest.update(value);
         }
 
-        while (try cursor.goToNext(level - 1)) |next_key| {
+        while (try self.goToNext(cursor, level - 1)) |next_key| {
             const next_value = try cursor.getCurrentValue();
             const next_hash = try utils.getHash(self.variant, next_key, next_value);
             if (self.isSplit(next_hash)) break;
@@ -367,18 +366,24 @@ pub const SkipList = struct {
         var value: [32]u8 = undefined;
         digest.final(&value);
         try self.log("--------- {s}", .{hex(&value)});
-        try self.log("setting {s} <- ({d}) {s}", .{ hex(&value), level, hex(key) });
-        try cursor.set(level, key, &value);
+
+        if (key.len == 0) {
+            try self.log("setting {s} <- ({d}) null", .{ hex(&value), level });
+        } else {
+            try self.log("setting {s} <- ({d}) {s}", .{ hex(&value), level, hex(key) });
+        }
+
+        try self.setNode(txn, level, key, &value);
         return self.isSplit(&value);
     }
 
-    fn promote(self: *SkipList, cursor: *SkipListCursor, level: u8) !void {
+    fn promote(self: *SkipList, txn: lmdb.Transaction, cursor: lmdb.Cursor, level: u8) !void {
         var old_index: usize = 0;
         var new_index: usize = 0;
         const new_sibling_count = self.new_siblings.items.len;
         while (old_index < new_sibling_count) : (old_index += 1) {
             const key = self.new_siblings.items[old_index];
-            const is_split = try self.hashRange(cursor, level, key);
+            const is_split = try self.hashNode(txn, cursor, level, key);
             if (is_split) {
                 self.new_siblings.items[new_index] = key;
                 new_index += 1;
@@ -386,6 +391,64 @@ pub const SkipList = struct {
         }
 
         self.new_siblings.shrinkAndFree(new_index);
+    }
+
+    fn setKey(self: *SkipList, level: u8, key: []const u8) !void {
+        try self.key.resize(1 + key.len);
+        self.key.items[0] = level;
+        std.mem.copy(u8, self.key.items[1..], key);
+    }
+
+    fn getNode(self: *SkipList, txn: lmdb.Transaction, level: u8, key: []const u8) !?[]const u8 {
+        try self.setKey(level, key);
+        return try txn.get(self.key.items);
+    }
+
+    fn setNode(self: *SkipList, txn: lmdb.Transaction, level: u8, key: []const u8, value: []const u8) !void {
+        try self.setKey(level, key);
+        try txn.set(self.key.items, value);
+    }
+
+    fn deleteNode(self: *SkipList, txn: lmdb.Transaction, level: u8, key: []const u8) !void {
+        try self.setKey(level, key);
+        try txn.delete(self.key.items);
+    }
+
+    fn goToNode(self: *SkipList, cursor: lmdb.Cursor, level: u8, key: []const u8) !void {
+        try self.setKey(level, key);
+        try cursor.goToKey(self.key.items);
+    }
+
+    fn goToNext(_: *SkipList, cursor: lmdb.Cursor, level: u8) !?[]const u8 {
+        if (try cursor.goToNext()) |key| {
+            if (key[0] == level) {
+                return key[1..];
+            }
+        }
+
+        return null;
+    }
+
+    fn goToPrevious(_: *SkipList, cursor: lmdb.Cursor, level: u8) !?[]const u8 {
+        if (try cursor.goToPrevious()) |key| {
+            if (key[0] == level) {
+                return key[1..];
+            }
+        }
+
+        return null;
+    }
+
+    fn goToLast(self: *SkipList, cursor: lmdb.Cursor, level: u8) ![]const u8 {
+        try self.goToNode(cursor, level + 1, &[_]u8{});
+
+        if (try cursor.goToPrevious()) |previous_key| {
+            if (previous_key[0] == level) {
+                return previous_key[1..];
+            }
+        }
+
+        return error.KeyNotFound;
     }
 
     fn isSplit(self: *const SkipList, value: *const [32]u8) bool {
@@ -409,15 +472,18 @@ test "SkipList()" {
     const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
     defer allocator.free(path);
 
-    var skip_list = try SkipList.open(allocator, path, .{});
-    defer skip_list.close();
+    const env = try lmdb.Environment.open(path, .{});
+    defer env.close();
 
-    try lmdb.expectEqualEntries(skip_list.env, &[_]Entry{
+    var skip_list = try SkipList.open(allocator, env, .{});
+    defer skip_list.deinit();
+
+    try lmdb.expectEqualEntries(env, &[_]Entry{
         .{ &[_]u8{
             0x00,
         }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
 
-        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x20, 0x03, 0x00 } },
+        .{ &constants.METADATA_KEY, &[_]u8{ constants.DATABASE_VERSION, 0x20, 0x03, 0x00 } },
     });
 }
 
@@ -430,20 +496,33 @@ test "SkipList(a, b, c)" {
     const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
     defer allocator.free(path);
 
-    var skip_list = try SkipList.open(allocator, path, .{ .degree = 4 });
-    defer skip_list.close();
+    const env = try lmdb.Environment.open(path, .{});
+    defer env.close();
 
-    var cursor = try SkipListCursor.open(allocator, skip_list.env, false);
+    var skip_list = try SkipList.open(allocator, env, .{ .degree = 4 });
+    defer skip_list.deinit();
+
     {
-        errdefer cursor.abort();
-        try skip_list.set(&cursor, "a", &utils.hash("foo"));
-        try skip_list.set(&cursor, "b", &utils.hash("bar"));
-        try skip_list.set(&cursor, "c", &utils.hash("baz"));
+        var txn = try lmdb.Transaction.open(env, .{ .read_only = false });
+        errdefer txn.abort();
+
+        var cursor = try lmdb.Cursor.open(txn);
+        try skip_list.set(txn, cursor, "a", &utils.hash("foo"));
+        try skip_list.set(txn, cursor, "b", &utils.hash("bar"));
+        try skip_list.set(txn, cursor, "c", &utils.hash("baz"));
+        try txn.commit();
     }
 
-    try cursor.commit();
+    // var cursor = try SkipListCursor.open(allocator, skip_list.env, false);
+    // {
+    //     errdefer cursor.abort();
+    //     try skip_list.set(&cursor, "a", &utils.hash("foo"));
+    //     try skip_list.set(&cursor, "b", &utils.hash("bar"));
+    //     try skip_list.set(&cursor, "c", &utils.hash("baz"));
+    //     try cursor.commit();
+    // }
 
-    try lmdb.expectEqualEntries(skip_list.env, &[_]Entry{
+    try lmdb.expectEqualEntries(env, &[_]Entry{
         .{ &[_]u8{
             0x00,
         }, &utils.parseHash("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
@@ -455,7 +534,7 @@ test "SkipList(a, b, c)" {
             0x01,
         }, &utils.parseHash("1ca9140a5b30b5576694b7d45ce1af298d858a58dfa2376302f540ee75a89348") },
 
-        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x03, 0x01 } },
+        .{ &constants.METADATA_KEY, &[_]u8{ constants.DATABASE_VERSION, 0x04, 0x03, 0x01 } },
     });
 }
 
@@ -468,21 +547,27 @@ test "SkipList(10)" {
     const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
     defer allocator.free(path);
 
-    var skip_list = try SkipList.open(allocator, path, .{ .degree = 4 });
-    defer skip_list.close();
+    const env = try lmdb.Environment.open(path, .{});
+    defer env.close();
+
+    var skip_list = try SkipList.open(allocator, env, .{ .degree = 4 });
+    defer skip_list.deinit();
 
     // try log.print("----------------------------------------------------------------\n", .{});
 
     {
+        var txn = try lmdb.Transaction.open(env, .{ .read_only = false });
+        errdefer txn.abort();
+
+        var cursor = try lmdb.Cursor.open(txn);
+
         var i: u8 = 0;
         while (i < 10) : (i += 1) {
             const key = [_]u8{i};
-            var cursor = try SkipListCursor.open(allocator, skip_list.env, false);
-            errdefer cursor.abort();
-            try skip_list.set(&cursor, &key, &utils.hash(&key));
-            try cursor.commit();
-            // try printTree(allocator, skip_list.env, log, .{ .compact = true });
+            try skip_list.set(txn, cursor, &key, &utils.hash(&key));
         }
+
+        try txn.commit();
     }
 
     var keys: [10][1]u8 = undefined;
@@ -530,8 +615,8 @@ test "SkipList(10)" {
             0x04,
         }, &utils.parseHash("8993e2613264a79ff4b128414b0afe77afc26ae4574cee9269fe73ba85119c45") },
 
-        .{ &[_]u8{0xFF}, &[_]u8{ 0x01, 0x04, 0x03, 0x04 } },
+        .{ &constants.METADATA_KEY, &[_]u8{ constants.DATABASE_VERSION, 0x04, 0x03, 0x04 } },
     };
 
-    try lmdb.expectEqualEntries(skip_list.env, &entries);
+    try lmdb.expectEqualEntries(env, &entries);
 }

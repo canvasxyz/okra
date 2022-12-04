@@ -6,7 +6,7 @@ pub const Logger = struct {
     writer: ?std.fs.File.Writer,
     prefix: std.ArrayList(u8),
 
-    pub fn init(writer: ?std.fs.File.Writer, allocator: std.mem.Allocator) Logger {
+    pub fn init(allocator: std.mem.Allocator, writer: ?std.fs.File.Writer) Logger {
         return Logger{ .writer = writer, .prefix = std.ArrayList(u8).init(allocator) };
     }
 
