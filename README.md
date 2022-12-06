@@ -1,13 +1,11 @@
 ```
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃          oooo                                                                ┃
-┃          `888                                                                ┃
-┃ .ooooo.   888  oooo  oooo d8b  .oooo.                                        ┃
-┃d88' `88b  888 .8P'   `888""8P `P  )88b                                       ┃
-┃888   888  888888.     888      .oP"888                                       ┃
-┃888   888  888 `88b.   888     d8(  888                                       ┃
-┃`Y8bod8P' o888o o888o d888b    `Y888""8o                                      ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+          oooo                            
+          `888                            
+ .ooooo.   888  oooo  oooo d8b  .oooo.    
+d88' `88b  888 .8P'   `888""8P `P  )88b   
+888   888  888888.     888      .oP"888   
+888   888  888 `88b.   888     d8(  888   
+`Y8bod8P' o888o o888o d888b    `Y888""8o  
 ```
 
 okra is a merkle search tree written in Zig and built on LMDB.
@@ -65,6 +63,16 @@ This approach is different than e.g. Dolt's Prolly Tree implementation, which is
 Another point worth mentioning is that embracing a two-level approach (building the MST on top of a key/value store) changes the incentives around picking a fanout degree probability distribution function. Our naive `node.hash[31] < 256 / Q` condition produces a geometric distribution of degrees (asymmetrically more smaller values than larger values), which is bad for Dolt's implementation because they pack their own pages and thus want as consistenly-sized chunks as possible. But here, the boundaries between the children of different nodes are just conceptual, and the underlying pages in the LMDB database can end up spanning several conceptual nodes, or vice versa. To be clear, this doesn't mean okra is more performant in any specific way, just that it enjoys a clean separation of concerns by building on LMDB.
 
 okra has no external concept of versioning or time-travel. LMDB is copy-on-write, and open transactions retain a consistent view of a snapshot of the database, but the old blocks are garbage-collected once the last reference is closed. When we talk later about "comparing two merkle roots", we mean two separate database instances (e.g. on different machines), not two local revisions of the same database.
+
+## External interface
+
+okra comes in four flavors.
+
+## Use cases
+
+okra is good for things like storing CRDT operations or serving as a general persistence layer for decentralized pubsub messages.
+
+## Choosing a branching factor
 
 ## References 
 
