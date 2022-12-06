@@ -10,9 +10,9 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 ```
 
-okra is a _merkle search tree_ written in Zig and built on LMDB.
+okra is a merkle search tree written in Zig and built on LMDB.
 
-You can use okra as a persistent key/value store with efficient p2p syncing built-in: two okra instances (e.g. peers on a mesh network) can quickly identify missing or conflicting entries. It's like O(log(N)) rsync for LMDB.
+You can use okra as a persistent key/value store with efficient p2p syncing built-in: two okra instances (e.g. peers on a mesh network) can **quickly identify missing or conflicting entries**. It's like O(log(N)) rsync for LMDB.
 
 ## Internal design
 
