@@ -97,7 +97,7 @@ fn testPermutations(
             try print.printEntries(reference_env, log);
             try print.printTree(allocator, reference_env, log, .{});
             try log.print("SKIP LIST ENV --------------------------------------\n", .{});
-            try print.printTree(allocator, skip_list.env, log, .{});
+            try print.printTree(allocator, env, log, .{});
             try print.printEntries(env, log);
         }
 

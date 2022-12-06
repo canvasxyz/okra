@@ -5,11 +5,6 @@ const hex = std.fmt.fmtSliceHexLower;
 
 const lmdb = @import("lmdb");
 
-// const SkipListCursor = @import("SkipListCursor.zig").SkipListCursor;
-// const SkipListUtils = @import("SkipListCursor.zig");
-// const Cursor = SkipListUtils.Cursor;
-// const Transaction = SkipListUtils.Transaction;
-
 const Logger = @import("logger.zig").Logger;
 const utils = @import("utils.zig");
 const constants = @import("constants.zig");
@@ -33,7 +28,6 @@ pub const SkipList = struct {
     variant: utils.Variant,
     limit: u8,
 
-    env: lmdb.Environment,
     key: std.ArrayList(u8),
     target_keys: std.ArrayList(std.ArrayList(u8)),
     new_siblings: std.ArrayList([]const u8),
@@ -49,7 +43,6 @@ pub const SkipList = struct {
         self.allocator = allocator;
         self.variant = options.variant;
         self.limit = try utils.getLimit(options.degree);
-        self.env = env;
         self.key = std.ArrayList(u8).init(allocator);
         self.target_keys = std.ArrayList(std.ArrayList(u8)).init(allocator);
         self.new_siblings = std.ArrayList([]const u8).init(allocator);
@@ -82,6 +75,14 @@ pub const SkipList = struct {
         self.target_keys.deinit();
         self.new_siblings.deinit();
         self.logger.deinit();
+    }
+
+    pub fn get(self: *SkipList, txn: lmdb.Transaction, key: []const u8) !?[]const u8 {
+        if (key.len == 0) {
+            return error.InvalidKey;
+        } else {
+            return try self.getNode(txn, 0, key);
+        }
     }
 
     pub fn set(self: *SkipList, txn: lmdb.Transaction, cursor: lmdb.Cursor, key: []const u8, value: []const u8) !void {
@@ -512,15 +513,6 @@ test "SkipList(a, b, c)" {
         try skip_list.set(txn, cursor, "c", &utils.hash("baz"));
         try txn.commit();
     }
-
-    // var cursor = try SkipListCursor.open(allocator, skip_list.env, false);
-    // {
-    //     errdefer cursor.abort();
-    //     try skip_list.set(&cursor, "a", &utils.hash("foo"));
-    //     try skip_list.set(&cursor, "b", &utils.hash("bar"));
-    //     try skip_list.set(&cursor, "c", &utils.hash("baz"));
-    //     try cursor.commit();
-    // }
 
     try lmdb.expectEqualEntries(env, &[_]Entry{
         .{ &[_]u8{
