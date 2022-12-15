@@ -115,6 +115,32 @@ test "delete while iterating" {
     try expectEqualSlices(u8, try cursor.getCurrentValue(), "bar");
 }
 
+test "seek" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var buffer: [4096]u8 = undefined;
+    var tmp_path = try tmp.dir.realpath(".", &buffer);
+
+    var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
+    defer allocator.free(path);
+
+    const env = try Environment.open(path, .{});
+    defer env.close();
+
+    const txn = try Transaction.open(env, .{ .read_only = false });
+    defer txn.abort();
+
+    try txn.set("a", "foo");
+    try txn.set("aa", "bar");
+    try txn.set("ab", "baz");
+    try txn.set("abb", "qux");
+
+    const cursor = try Cursor.open(txn);
+    try expectEqualSlices(u8, (try cursor.seek("aba")).?, "abb");
+    try expect(try cursor.seek("b") == null);
+}
+
 // test "parent transactions" {
 //     var tmp = std.testing.tmpDir(.{});
 //     defer tmp.cleanup();

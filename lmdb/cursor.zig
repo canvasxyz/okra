@@ -114,4 +114,18 @@ pub const Cursor = struct {
             return Error.LmdbCursorError;
         }
     }
+
+    pub fn seek(self: Cursor, key: []const u8) !?[]const u8 {
+        var slice: lmdb.MDB_val = undefined;
+        slice.mv_size = key.len;
+        slice.mv_data = @intToPtr([*]u8, @ptrToInt(key.ptr));
+        const err = lmdb.mdb_cursor_get(self.ptr, &slice, null, lmdb.MDB_SET_RANGE);
+        if (err == 0) {
+            return @ptrCast([*]u8, slice.mv_data)[0..slice.mv_size];
+        } else if (err == lmdb.MDB_NOTFOUND) {
+            return null;
+        } else {
+            return Error.LmdbCursorError;
+        }
+    }
 };
