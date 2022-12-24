@@ -1,5 +1,4 @@
 pub const Builder = @import("Builder.zig").Builder;
-pub const SkipList = @import("SkipList.zig").SkipList;
 
 const print = @import("print.zig");
 pub const printEntries = print.printEntries;

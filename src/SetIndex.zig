@@ -4,9 +4,10 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 
 const lmdb = @import("lmdb");
 
-const SkipList = @import("SkipList.zig").SkipList;
+const skip_list = @import("skip_list.zig");
 const EntryIterator = @import("EntryIterator.zig").EntryIterator;
 const utils = @import("utils.zig");
+const cursor = @import("cursor.zig");
 
 pub const SetIndex = struct {
     const Error = error{
@@ -20,7 +21,7 @@ pub const SetIndex = struct {
     };
 
     pub const Transaction = struct {
-        skip_list: ?*SkipList,
+        skip_list: ?*skip_list.SkipList,
         txn: lmdb.Transaction,
         cursor: lmdb.Cursor,
 
@@ -73,31 +74,34 @@ pub const SetIndex = struct {
         }
     }
 
-    pub const Iterator = EntryIterator(Entry, Error, getEntry);
-
-    // pub const Cursor = SkipListCursor(Transaction, getSetHash);
-
-    env: lmdb.Environment,
-    skip_list: SkipList,
-
-    pub fn open(allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !SetIndex {
-        var set_index: SetIndex = undefined;
-        try set_index.init(allocator, path, options);
-        return set_index;
+    fn getTransaction(self: *const Transaction) lmdb.Transaction {
+        return self.txn;
     }
 
-    pub fn init(self: *SetIndex, allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !void {
-        self.env = try lmdb.Environment.open(path, .{ .map_size = options.map_size });
-        try self.skip_list.init(allocator, self.env, .{
+    pub const Iterator = EntryIterator(Transaction, getTransaction, Entry, Error, getEntry);
+    pub const Cursor = cursor.Cursor(Transaction, getTransaction, utils.Variant.SetIndex);
+
+    allocator: std.mem.Allocator,
+    env: lmdb.Environment,
+    skip_list: skip_list.SkipList,
+
+    pub fn open(allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !*SetIndex {
+        const set_index = try allocator.create(SetIndex);
+        set_index.allocator = allocator;
+        set_index.env = try lmdb.Environment.open(path, .{ .map_size = options.map_size });
+        try set_index.skip_list.init(allocator, set_index.env, .{
             .degree = options.degree,
             .variant = utils.Variant.SetIndex,
             .log = options.log,
         });
+
+        return set_index;
     }
 
     pub fn close(self: *SetIndex) void {
         self.env.close();
         self.skip_list.deinit();
+        self.allocator.destroy(self);
     }
 };
 
@@ -120,18 +124,18 @@ test "SetIndex.Iterator" {
     const path = try utils.resolvePath(allocator, tmp.dir, "set.okra");
     defer allocator.free(path);
 
-    var map = try SetIndex.open(allocator, path, .{});
-    defer map.close();
+    const set_index = try SetIndex.open(allocator, path, .{});
+    defer set_index.close();
 
     {
-        var txn = try SetIndex.Transaction.open(&map, false);
+        var txn = try SetIndex.Transaction.open(set_index, false);
         errdefer txn.abort();
 
         try txn.add(&utils.parseHash("2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"));
         try txn.add(&utils.parseHash("fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9"));
         try txn.add(&utils.parseHash("baa5a0964d3320fbc0c6a922140453c8513ea24ab8fd0577034804a967248096"));
 
-        var iterator = try SetIndex.Iterator.open(allocator, txn.txn);
+        var iterator = try SetIndex.Iterator.open(allocator, &txn);
         defer iterator.close();
 
         // ordered by hash!

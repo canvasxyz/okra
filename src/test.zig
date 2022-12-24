@@ -10,7 +10,7 @@ const allocator = std.heap.c_allocator;
 const lmdb = @import("lmdb");
 
 const Builder = @import("Builder.zig").Builder;
-const SkipList = @import("SkipList.zig").SkipList;
+const skip_list = @import("skip_list.zig");
 
 const utils = @import("utils.zig");
 const print = @import("print.zig");
@@ -21,7 +21,7 @@ fn testPermutations(
     comptime Q: usize,
     permutations: *const [N][P]u16,
     environment_options: lmdb.Environment.Options,
-    skip_list_options: SkipList.Options,
+    skip_list_options: skip_list.Options,
 ) !void {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -65,8 +65,8 @@ fn testPermutations(
         const env = try lmdb.Environment.open(path, environment_options);
         defer env.close();
 
-        var skip_list = try SkipList.open(allocator, env, skip_list_options);
-        defer skip_list.deinit();
+        var sl = try skip_list.SkipList.open(allocator, env, skip_list_options);
+        defer sl.deinit();
 
         {
             var txn = try lmdb.Transaction.open(env, .{ .read_only = false });
@@ -80,12 +80,12 @@ fn testPermutations(
 
                 std.mem.writeIntBig(u16, &key, i);
                 Sha256.hash(&key, &value, .{});
-                try skip_list.set(txn, cursor, &key, &value);
+                try sl.set(txn, cursor, &key, &value);
             }
 
             for (permutations[(p + 1) % N][0..Q]) |i| {
                 std.mem.writeIntBig(u16, &key, i);
-                try skip_list.delete(txn, cursor, &key);
+                try sl.delete(txn, cursor, &key);
             }
 
             try txn.commit();
@@ -111,7 +111,7 @@ fn testPseudoRandomPermutations(
     comptime P: u16,
     comptime Q: u16,
     environment_options: lmdb.Environment.Options,
-    skip_list_options: SkipList.Options,
+    skip_list_options: skip_list.Options,
 ) !void {
     var permutations: [N][P]u16 = undefined;
 

@@ -25,18 +25,22 @@ pub fn setMetadata(txn: lmdb.Transaction, metadata: Metadata) !void {
 
 pub fn getMetadata(txn: lmdb.Transaction) !?Metadata {
     if (try txn.get(&constants.METADATA_KEY)) |value| {
-        if (value.len < 3) {
-            return error.InvalidDatabase;
-        } else if (value[0] != constants.DATABASE_VERSION) {
-            return error.UnsupportedVersion;
-        } else {
-            const degree = value[1];
-            const variant = @intToEnum(Variant, value[2]);
-            const height = value[3];
-            return Metadata{ .degree = degree, .variant = variant, .height = height };
-        }
+        return try parseMetadata(value);
     } else {
         return null;
+    }
+}
+
+pub fn parseMetadata(value: []const u8) !Metadata {
+    if (value.len < 3) {
+        return error.InvalidDatabase;
+    } else if (value[0] != constants.DATABASE_VERSION) {
+        return error.UnsupportedVersion;
+    } else {
+        const degree = value[1];
+        const variant = @intToEnum(Variant, value[2]);
+        const height = value[3];
+        return Metadata{ .degree = degree, .variant = variant, .height = height };
     }
 }
 
@@ -71,11 +75,17 @@ pub fn getLimit(degree: u8) !u8 {
     return @intCast(u8, 256 / @intCast(u16, degree));
 }
 
-pub fn getHash(variant: Variant, key: []const u8, value: []const u8) !*const [32]u8 {
-    return switch (variant) {
-        Variant.Set => if (key.len == 32) key[0..32] else error.InvalidDatabase,
-        Variant.SetIndex => if (key.len == 32 and value.len == 0) key[0..32] else error.InvalidDatabase,
-        Variant.Map => if (value.len >= 32) value[0..32] else error.InvalidDatabase,
-        Variant.MapIndex => if (value.len == 32) value[0..32] else error.InvalidDatabase,
-    };
+pub fn getNodeHash(variant: Variant, level: u8, key: []const u8, value: []const u8) !*const [32]u8 {
+    if (level == 0) {
+        switch (variant) {
+            Variant.Set => if (key.len == 32) return key[0..32],
+            Variant.SetIndex => if (key.len == 32 and value.len == 0) return key[0..32],
+            Variant.Map => if (value.len >= 32) return value[0..32],
+            Variant.MapIndex => if (value.len == 32) return value[0..32],
+        }
+    } else if (value.len == 32) {
+        return value[0..32];
+    }
+
+    return error.InvalidDatabase;
 }

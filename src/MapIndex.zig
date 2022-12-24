@@ -4,9 +4,10 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 
 const lmdb = @import("lmdb");
 
-const SkipList = @import("SkipList.zig").SkipList;
+const skip_list = @import("skip_list.zig");
 const EntryIterator = @import("EntryIterator.zig").EntryIterator;
 const utils = @import("utils.zig");
+const cursor = @import("cursor.zig");
 
 pub const MapIndex = struct {
     const Error = error{
@@ -20,7 +21,7 @@ pub const MapIndex = struct {
     };
 
     pub const Transaction = struct {
-        skip_list: ?*SkipList,
+        skip_list: ?*skip_list.SkipList,
         txn: lmdb.Transaction,
         cursor: lmdb.Cursor,
 
@@ -86,29 +87,34 @@ pub const MapIndex = struct {
         }
     }
 
-    pub const Iterator = EntryIterator(Entry, Error, getEntry);
-
-    env: lmdb.Environment,
-    skip_list: SkipList,
-
-    pub fn open(allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !MapIndex {
-        var map_index: MapIndex = undefined;
-        try map_index.init(allocator, path, options);
-        return map_index;
+    fn getTransaction(self: *const Transaction) lmdb.Transaction {
+        return self.txn;
     }
 
-    pub fn init(self: *MapIndex, allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !void {
-        self.env = try lmdb.Environment.open(path, .{ .map_size = options.map_size });
-        try self.skip_list.init(allocator, self.env, .{
+    pub const Iterator = EntryIterator(Transaction, getTransaction, Entry, Error, getEntry);
+    pub const Cursor = cursor.Cursor(Transaction, getTransaction, utils.Variant.MapIndex);
+
+    allocator: std.mem.Allocator,
+    env: lmdb.Environment,
+    skip_list: skip_list.SkipList,
+
+    pub fn open(allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !*MapIndex {
+        const map_index = try allocator.create(MapIndex);
+        map_index.allocator = allocator;
+        map_index.env = try lmdb.Environment.open(path, .{ .map_size = options.map_size });
+        try map_index.skip_list.init(allocator, map_index.env, .{
             .degree = options.degree,
             .variant = utils.Variant.MapIndex,
             .log = options.log,
         });
+
+        return map_index;
     }
 
     pub fn close(self: *MapIndex) void {
         self.env.close();
         self.skip_list.deinit();
+        self.allocator.destroy(self);
     }
 };
 
@@ -132,18 +138,18 @@ test "MapIndex.Iterator" {
     const path = try utils.resolvePath(allocator, tmp.dir, "map.okra");
     defer allocator.free(path);
 
-    var map = try MapIndex.open(allocator, path, .{});
+    const map = try MapIndex.open(allocator, path, .{});
     defer map.close();
 
     {
-        var txn = try MapIndex.Transaction.open(&map, false);
+        var txn = try MapIndex.Transaction.open(map, false);
         errdefer txn.abort();
 
         try txn.set("a", &utils.hash("foo"));
         try txn.set("b", &utils.hash("bar"));
         try txn.set("c", &utils.hash("baz"));
 
-        var iterator = try MapIndex.Iterator.open(allocator, txn.txn);
+        var iterator = try MapIndex.Iterator.open(allocator, &txn);
         defer iterator.close();
 
         const entries = [_]MapIndex.Entry{

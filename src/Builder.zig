@@ -144,13 +144,13 @@ pub const Builder = struct {
     fn getCurrentHash(self: *Builder, cursor: lmdb.Cursor) !*const [32]u8 {
         const key = try cursor.getCurrentKey();
         const value = try cursor.getCurrentValue();
-        if (key[0] == 0) {
-            return utils.getHash(self.options.variant, key[1..], value);
-        } else if (value.len == 32) {
-            return value[0..32];
-        } else {
-            return error.InvalidDatabase;
-        }
+        return utils.getNodeHash(self.options.variant, key[0], key[1..], value);
+        // if (key[0] == 0) {
+        // } else if (value.len == 32) {
+        //     return value[0..32];
+        // } else {
+        //     return error.InvalidDatabase;
+        // }
     }
 };
 

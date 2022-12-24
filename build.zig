@@ -55,7 +55,7 @@ pub fn build(b: *std.build.Builder) void {
     var builder_test_step = b.step("test-builder", "Run Builder tests");
     builder_test_step.dependOn(&builder_tests.step);
 
-    const skip_list_tests = b.addTest("src/SkipList.zig");
+    const skip_list_tests = b.addTest("src/skip_list.zig");
     skip_list_tests.addPackage(lmdb);
     skip_list_tests.addIncludePath("libs/openldap/libraries/liblmdb");
     skip_list_tests.addCSourceFiles(lmdbSources, &.{});
@@ -95,6 +95,13 @@ pub fn build(b: *std.build.Builder) void {
     set_index_tests.addCSourceFiles(lmdbSources, &.{});
     var set_index_test_step = b.step("test-set-index", "Run SetIndex tests");
     set_index_test_step.dependOn(&set_index_tests.step);
+
+    const cursor_tests = b.addTest("src/cursor.zig");
+    cursor_tests.addPackage(lmdb);
+    cursor_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    cursor_tests.addCSourceFiles(lmdbSources, &.{});
+    var cursor_test_step = b.step("test-cursor", "Run cursor tests");
+    cursor_test_step.dependOn(&cursor_tests.step);
 
     // const variant_tests = b.addTest("src/variants.zig");
     // variant_tests.addPackage(lmdb);

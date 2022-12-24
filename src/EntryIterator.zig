@@ -2,21 +2,27 @@ const std = @import("std");
 
 const lmdb = @import("lmdb");
 
-pub fn EntryIterator(comptime Entry: type, comptime Error: type, comptime getEntry: fn (key: []const u8, value: []const u8) Error!Entry) type {
+pub fn EntryIterator(
+    comptime Transaction: type,
+    comptime getTransaction: fn (txn: *const Transaction) lmdb.Transaction,
+    comptime Entry: type,
+    comptime Error: type,
+    comptime getEntry: fn (key: []const u8, value: []const u8) Error!Entry,
+) type {
     return struct {
         const Self = @This();
 
         cursor: lmdb.Cursor,
         key: std.ArrayList(u8),
 
-        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction) !Self {
+        pub fn open(allocator: std.mem.Allocator, txn: *const Transaction) !Self {
             var iterator: Self = undefined;
             try iterator.init(allocator, txn);
             return iterator;
         }
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction) !void {
-            self.cursor = try lmdb.Cursor.open(txn);
+        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: *const Transaction) !void {
+            self.cursor = try lmdb.Cursor.open(getTransaction(txn));
             self.key = std.ArrayList(u8).init(allocator);
             try self.setKey(0, &[_]u8{});
             try self.cursor.goToKey(self.key.items);

@@ -5,25 +5,26 @@ const hex = std.fmt.fmtSliceHexLower;
 
 const lmdb = @import("lmdb");
 
-const Logger = @import("logger.zig").Logger;
 const utils = @import("utils.zig");
+const logging = @import("logging.zig");
 const constants = @import("constants.zig");
+
 const printTree = @import("print.zig").printTree;
 
+pub const Options = struct {
+    degree: u8 = 32,
+    variant: utils.Variant = utils.Variant.MapIndex,
+    log: ?std.fs.File.Writer = null,
+};
+
+const Result = enum { update, delete };
+const OperationTag = enum { set, delete };
+const Operation = union(OperationTag) {
+    set: struct { key: []const u8, value: []const u8 },
+    delete: []const u8,
+};
+
 pub const SkipList = struct {
-    pub const Options = struct {
-        degree: u8 = 32,
-        variant: utils.Variant = utils.Variant.MapIndex,
-        log: ?std.fs.File.Writer = null,
-    };
-
-    const Result = enum { update, delete };
-    const OperationTag = enum { set, delete };
-    const Operation = union(OperationTag) {
-        set: struct { key: []const u8, value: []const u8 },
-        delete: []const u8,
-    };
-
     allocator: std.mem.Allocator,
     variant: utils.Variant,
     limit: u8,
@@ -31,7 +32,7 @@ pub const SkipList = struct {
     key: std.ArrayList(u8),
     target_keys: std.ArrayList(std.ArrayList(u8)),
     new_siblings: std.ArrayList([]const u8),
-    logger: Logger,
+    logger: logging.Logger,
 
     pub fn open(allocator: std.mem.Allocator, env: lmdb.Environment, options: Options) !SkipList {
         var skip_list: SkipList = undefined;
@@ -46,7 +47,7 @@ pub const SkipList = struct {
         self.key = std.ArrayList(u8).init(allocator);
         self.target_keys = std.ArrayList(std.ArrayList(u8)).init(allocator);
         self.new_siblings = std.ArrayList([]const u8).init(allocator);
-        self.logger = Logger.init(allocator, options.log);
+        self.logger = logging.Logger.init(allocator, options.log);
 
         errdefer self.deinit();
 
@@ -244,8 +245,7 @@ pub const SkipList = struct {
 
                 try self.promote(txn, cursor, level);
 
-                // is_first_child means either target's original value was a split,
-                // or is_left_edge is true.
+                // is_first_child means either target's original value was a split, or is_left_edge is true.
                 if (is_first_child) {
                     if (is_target_split or is_left_edge) {
                         return Result.update;
@@ -267,7 +267,7 @@ pub const SkipList = struct {
         switch (operation) {
             .set => |entry| {
                 if (std.mem.lessThan(u8, first_child, entry.key)) {
-                    const hash = try utils.getHash(self.variant, entry.key, entry.value);
+                    const hash = try utils.getNodeHash(self.variant, 0, entry.key, entry.value);
                     if (self.isSplit(hash)) {
                         try self.new_siblings.append(entry.key);
                     }
@@ -316,8 +316,9 @@ pub const SkipList = struct {
                 target.shrinkAndFree(0);
                 return target.items;
             } else if (try self.getNode(txn, level - 1, previous_child)) |previous_grand_child_value| {
-                const previous_grand_child_hash = try utils.getHash(
+                const previous_grand_child_hash = try utils.getNodeHash(
                     self.variant,
+                    level - 1,
                     previous_child,
                     previous_grand_child_value,
                 );
@@ -358,7 +359,7 @@ pub const SkipList = struct {
 
         while (try self.goToNext(cursor, level - 1)) |next_key| {
             const next_value = try cursor.getCurrentValue();
-            const next_hash = try utils.getHash(self.variant, next_key, next_value);
+            const next_hash = try utils.getNodeHash(self.variant, level - 1, next_key, next_value);
             if (self.isSplit(next_hash)) break;
             try self.log("- hashing {s} <- {s}", .{ hex(next_hash), hex(next_key) });
             digest.update(next_hash);
@@ -532,8 +533,8 @@ test "SkipList(a, b, c)" {
 
 test "SkipList(10)" {
     const allocator = std.heap.c_allocator;
-    // const log = std.io.getStdErr().writer();
-    // try log.print("\n", .{});
+    const log = std.io.getStdErr().writer();
+    try log.print("\n", .{});
 
     var tmp = std.testing.tmpDir(.{});
     const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
@@ -609,6 +610,8 @@ test "SkipList(10)" {
 
         .{ &constants.METADATA_KEY, &[_]u8{ constants.DATABASE_VERSION, 0x04, 0x03, 0x04 } },
     };
+
+    // try printTree(allocator, env, log, .{ .compact = true });
 
     try lmdb.expectEqualEntries(env, &entries);
 }
