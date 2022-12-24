@@ -6,8 +6,8 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const lmdb = @import("lmdb");
 
 const skip_list = @import("skip_list.zig");
-const EntryIterator = @import("EntryIterator.zig").EntryIterator;
-const cursor = @import("cursor.zig");
+const iterators = @import("iterators.zig");
+const cursors = @import("cursors.zig");
 const utils = @import("utils.zig");
 
 pub const Map = struct {
@@ -55,11 +55,11 @@ pub const Map = struct {
         }
 
         pub fn set(self: *Transaction, key: []const u8, value: []const u8, hash: ?*[32]u8) !void {
-            if (self.skip_list) |skip_list| {
-                const buffer = try skip_list.allocator.alloc(u8, 32 + value.len);
+            if (self.skip_list) |sl| {
+                const buffer = try sl.allocator.alloc(u8, 32 + value.len);
                 Sha256.hash(value, buffer[0..32], .{});
                 std.mem.copy(u8, buffer[32..], value);
-                try skip_list.set(self.txn, self.cursor, key, buffer);
+                try sl.set(self.txn, self.cursor, key, buffer);
                 if (hash) |ptr| {
                     std.mem.copy(u8, ptr, buffer[0..32]);
                 }
@@ -103,8 +103,8 @@ pub const Map = struct {
         return self.txn;
     }
 
-    pub const Iterator = EntryIterator(Transaction, getTransaction, Entry, Error, getEntry);
-    pub const Cursor = cursor.Cursor(Transaction, getTransaction, utils.Variant.Map);
+    pub const Iterator = iterators.Iterator(Transaction, getTransaction, Entry, Error, getEntry);
+    pub const Cursor = cursors.Cursor(Transaction, getTransaction, utils.Variant.Map);
 
     allocator: std.mem.Allocator,
     env: lmdb.Environment,
@@ -162,7 +162,7 @@ test "Map.Iterator" {
         try txn.set("b", "bar", null);
         try txn.set("c", "baz", null);
 
-        var iterator = try Map.Iterator.open(allocator, &txn);
+        const iterator = try Map.Iterator.open(allocator, &txn);
         defer iterator.close();
 
         const entries = [_]Map.Entry{
@@ -171,7 +171,7 @@ test "Map.Iterator" {
             .{ .key = "c", .value = "baz", .hash = &utils.hash("baz") },
         };
 
-        try expectIterator(&entries, &iterator);
+        try expectIterator(&entries, iterator);
 
         try txn.commit();
     }

@@ -5,9 +5,9 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const lmdb = @import("lmdb");
 
 const skip_list = @import("skip_list.zig");
-const EntryIterator = @import("EntryIterator.zig").EntryIterator;
+const iterators = @import("iterators.zig");
+const cursors = @import("cursors.zig");
 const utils = @import("utils.zig");
-const cursor = @import("cursor.zig");
 
 pub const SetIndex = struct {
     const Error = error{
@@ -54,8 +54,8 @@ pub const SetIndex = struct {
         }
 
         pub fn add(self: *Transaction, hash: *const [32]u8) !void {
-            if (self.skip_list) |skip_list| {
-                try skip_list.set(self.txn, self.cursor, hash, &[_]u8{});
+            if (self.skip_list) |sl| {
+                try sl.set(self.txn, self.cursor, hash, &[_]u8{});
             } else {
                 return error.ReadOnly;
             }
@@ -78,8 +78,8 @@ pub const SetIndex = struct {
         return self.txn;
     }
 
-    pub const Iterator = EntryIterator(Transaction, getTransaction, Entry, Error, getEntry);
-    pub const Cursor = cursor.Cursor(Transaction, getTransaction, utils.Variant.SetIndex);
+    pub const Iterator = iterators.Iterator(Transaction, getTransaction, Entry, Error, getEntry);
+    pub const Cursor = cursors.Cursor(Transaction, getTransaction, utils.Variant.SetIndex);
 
     allocator: std.mem.Allocator,
     env: lmdb.Environment,
@@ -145,7 +145,7 @@ test "SetIndex.Iterator" {
             .{ .hash = &utils.parseHash("fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9") },
         };
 
-        try expectIterator(&entries, &iterator);
+        try expectIterator(&entries, iterator);
 
         try txn.commit();
     }

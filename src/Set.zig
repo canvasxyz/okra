@@ -6,9 +6,9 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const lmdb = @import("lmdb");
 
 const skip_list = @import("skip_list.zig");
-const EntryIterator = @import("EntryIterator.zig").EntryIterator;
+const iterators = @import("iterators.zig");
+const cursors = @import("cursors.zig");
 const utils = @import("utils.zig");
-const cursor = @import("cursor.zig");
 
 pub const Set = struct {
     const Error = error{
@@ -55,10 +55,10 @@ pub const Set = struct {
         }
 
         pub fn add(self: *Transaction, value: []const u8, hash: ?*[32]u8) !void {
-            if (self.skip_list) |skip_list| {
+            if (self.skip_list) |sl| {
                 var buffer: [32]u8 = undefined;
                 Sha256.hash(value, &buffer, .{});
-                try skip_list.set(self.txn, self.cursor, &buffer, value);
+                try sl.set(self.txn, self.cursor, &buffer, value);
                 if (hash) |ptr| {
                     std.mem.copy(u8, ptr, &buffer);
                 }
@@ -89,8 +89,8 @@ pub const Set = struct {
         return self.txn;
     }
 
-    pub const Iterator = EntryIterator(Transaction, getTransaction, Entry, Error, getEntry);
-    pub const Cursor = cursor.Cursor(Transaction, getTransaction, utils.Variant.Set);
+    pub const Iterator = iterators.Iterator(Transaction, getTransaction, Entry, Error, getEntry);
+    pub const Cursor = cursors.Cursor(Transaction, getTransaction, utils.Variant.Set);
 
     allocator: std.mem.Allocator,
     env: lmdb.Environment,
@@ -156,7 +156,7 @@ test "Set.Iterator" {
             .{ .value = "bar", .hash = &utils.parseHash("fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9") },
         };
 
-        try expectIterator(&entries, &iterator);
+        try expectIterator(&entries, iterator);
 
         try txn.commit();
     }
