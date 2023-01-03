@@ -37,14 +37,14 @@ pub fn Iterator(comptime Q: u8, comptime K: u8) type {
             self.allocator.destroy(self);
         }
 
-        pub fn first(self: *Self) !?Entry {
+        pub fn goToFirst(self: *Self) !?Entry {
             try self.cursor.goToKey(&[_]u8{0});
-            return try self.next();
+            return try self.goToNext();
         }
 
-        pub fn last(self: *Self) !?Entry {
+        pub fn goToLast(self: *Self) !?Entry {
             if (try self.cursor.seek(&[_]u8{1})) |_| {
-                return try self.previous();
+                return try self.goToPrevious();
             }
 
             return null;
@@ -56,7 +56,7 @@ pub fn Iterator(comptime Q: u8, comptime K: u8) type {
             // so the expected behavior is to seek to the very first entry.
             if (key.len == 0) {
                 try self.cursor.goToKey(&[_]u8{0});
-                return try self.next();
+                return try self.goToNext();
             }
 
             try self.setKey(0, key);
@@ -69,7 +69,7 @@ pub fn Iterator(comptime Q: u8, comptime K: u8) type {
             return null;
         }
 
-        pub fn next(self: *Self) !?Entry {
+        pub fn goToNext(self: *Self) !?Entry {
             if (try self.cursor.goToNext()) |key| {
                 if (key.len > 1 and key[0] == 0) {
                     return try self.getEntry();
@@ -79,7 +79,7 @@ pub fn Iterator(comptime Q: u8, comptime K: u8) type {
             return null;
         }
 
-        pub fn previous(self: *Self) !?Entry {
+        pub fn goToPrevious(self: *Self) !?Entry {
             if (try self.cursor.goToPrevious()) |key| {
                 if (key.len > 1 and key[0] == 0) {
                     return try self.getEntry();
@@ -129,8 +129,8 @@ test "Iterator.open()" {
     const iter = try Iterator(4, 32).open(allocator, txn);
     defer iter.close();
 
-    try expectEqual(try iter.first(), null);
-    try expectEqual(try iter.last(), null);
+    try expectEqual(try iter.goToFirst(), null);
+    try expectEqual(try iter.goToLast(), null);
 }
 
 test "Iterator(a, b, c)" {
@@ -155,17 +155,17 @@ test "Iterator(a, b, c)" {
     const iter = try Iterator(4, 32).open(allocator, txn);
     defer iter.close();
 
-    try if (try iter.first()) |entry| {
+    try if (try iter.goToFirst()) |entry| {
         try expectEqualSlices(u8, entry.key, "a");
         try expectEqualSlices(u8, entry.value, "foo");
     } else error.NotFound;
 
-    try if (try iter.last()) |entry| {
+    try if (try iter.goToLast()) |entry| {
         try expectEqualSlices(u8, entry.key, "c");
         try expectEqualSlices(u8, entry.value, "baz");
     } else error.NotFound;
 
-    try if (try iter.previous()) |entry| {
+    try if (try iter.goToPrevious()) |entry| {
         try expectEqualSlices(u8, entry.key, "b");
         try expectEqualSlices(u8, entry.value, "bar");
     } else error.NotFound;
@@ -206,7 +206,7 @@ test "Iterator: iota(10)" {
         try expectEqualSlices(u8, entry.key, &[_]u8{0});
     } else error.NotFound;
 
-    try if (try iter.next()) |entry| {
+    try if (try iter.goToNext()) |entry| {
         try expectEqualSlices(u8, entry.key, &[_]u8{1});
     } else error.NotFound;
 
@@ -214,5 +214,5 @@ test "Iterator: iota(10)" {
         try expectEqualSlices(u8, entry.key, &[_]u8{9});
     } else error.NotFound;
 
-    try expectEqual(try iter.next(), null);
+    try expectEqual(try iter.goToNext(), null);
 }
