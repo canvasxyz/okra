@@ -32,9 +32,9 @@ Trees and transactions form a classical key/value store interface. You can open 
 
 Iterators are cursor are similar but operate on different abstractions: an iterator iterates of the entries of the abstract key/value store (which are, in reality, just the leaves of the tree), while a cursor is used to move around the nodes of the tree itself (which includes the leaves, the intermediate-level nodes, and the root node).
 
-### Tree
+okra inherits its transactional semantics from LMDB. Transactions are multi-reader and single-writer - only one write transaction can be open at a time.
 
-A `Tree` is the basic database connection handle and wraps an LMDB environment.
+### Tree
 
 ```zig
 /// Tree(comptime Q: u8, comptime K: u8)
@@ -48,11 +48,18 @@ struct {
 }
 ```
 
+A `Tree` is the basic database connection handle and wraps an LMDB environment.
+
+```zig
+const tree = try Tree(Q, K).open("/path/to/data.okra", .{});
+defer tree.close();
+
+// ...
+```
+
 `Tree(Q, K).open(allocator, path)` returns a pointer `*Tree(Q, K)` to a new tree allocated using the provided allocator; `tree.close()` frees the tree and all its associated resources.
 
 ### Transaction
-
-Given a tree `tree: Tree(Q, K)`, you can open a transaction with `Transaction(Q, K).open(allocator, tree, .{ .read_only = read_only })`. This allocators and returns a `*Transaction(Q, K)` which must be freed by calling either `.abort` (read-only or read-write transactions) or `.commit` (read-write transactions only).
 
 ```zig
 /// Transaction(comptime Q: u8, comptime K: u8)
@@ -71,11 +78,28 @@ struct {
 }
 ```
 
+Given an open tree `tree: Tree(Q, K)`, you can open a read-only transaction with
+
+```zig
+const txn = try Transaction(Q, K).open(allocator, tree, .{ .read_only = true });
+defer txn.abort();
+
+// ...
+```
+
+or a read-write transaction with
+
+```zig
+const txn = try Transaction(Q, K).open(allocator, tree, .{ .read_only = false });
+errdefer txn.abort();
+
+// ...
+try txn.commit();
+```
+
+Both of these allocate and return a `*Transaction(Q, K)` which must be freed by calling either `.abort` (read-only or read-write transactions) or `.commit` (read-write transactions only).
+
 ### Iterator
-
-You can open an iterator to iterate over the entries in lexicographic key order and to seek by key prefix ranges. okra inherits its transactional semantics from LMDB; transactions are multi-reader and single-writer (ie only one write transaction open at a time).
-
-Iterators must be freed by calling `iterator.close()`.
 
 ```zig
 /// Iterator(comptime Q: u8, comptime K: u8)
@@ -94,6 +118,17 @@ struct {
     pub fn seek(self: *Self, key: []const u8) !?Entry
 }
 ```
+
+Given a transaction `txn: Transaction(Q, K)`, you can open an iterator with:
+
+```zig
+const iter = Iterator(Q, K).open(allocator, txn);
+defer iter.close();
+
+// ...
+```
+
+Iterators must be freed by calling `iterator.close()`. 
 
 ### Cursor
 
@@ -114,6 +149,17 @@ struct {
     pub fn seek(self: *Self, level: u8, key: ?[]const u8) !?Node
 }
 ```
+
+Given a transaction `txn: Transaction(Q, K)`, you can open a cursor with:
+
+```zig
+const cursor = Cursor(Q, K).open(allocator, txn);
+defer cursor.close();
+
+// ...
+```
+
+Cursors must be freed by calling `cursor.close()`. 
 
 ## Internal design
 
