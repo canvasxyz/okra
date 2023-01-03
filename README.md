@@ -30,7 +30,7 @@ The four basic classes are `Tree`, `Transaction`, `Iterator`, and `Cursor`. All 
 
 Trees and transactions form a classical key/value store interface. You can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries.
 
-Iterators are cursor are similar but operate on different abstractions: an iterator iterates of the entries of the abstract key/value store (which are, in reality, just the leaves of the tree), while a cursor is used to move around the nodes of the tree itself (which includes the leaves, the intermediate-level nodes, and the root node).
+Iterators are cursor are similar but operate on different abstractions: an iterator iterates over the entries of the abstract key/value store as a flat list (which are, in reality, just the leaves of the tree), while a cursor is used to move around the nodes of the tree itself (which includes the leaves, the intermediate-level nodes, and the root node).
 
 okra inherits its transactional semantics from LMDB. Transactions are multi-reader and single-writer - only one write transaction can be open at a time.
 
@@ -48,7 +48,7 @@ struct {
 }
 ```
 
-A `Tree` is the basic database connection handle and wraps an LMDB environment.
+A `Tree` is the basic database connection handle and wraps an LMDB environment. Close it by calling `tree.close()`.
 
 ```zig
 const tree = try Tree(Q, K).open("/path/to/data.okra", .{});
