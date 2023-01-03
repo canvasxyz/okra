@@ -1,5 +1,6 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
+const expectEqualSlices = std.testing.expectEqualSlices;
 const assert = std.debug.assert;
 const Blake3 = std.crypto.hash.Blake3;
 
@@ -75,6 +76,14 @@ pub fn Transaction(comptime Q: u8, comptime K: u8) type {
             self.new_siblings.deinit();
             self.logger.deinit();
             self.allocator.destroy(self);
+        }
+
+        pub fn get(self: *Self, key: []const u8) !?[]const u8 {
+            if (try self.getNode(0, key)) |value| {
+                return try getNodeValue(value);
+            } else {
+                return null;
+            }
         }
 
         pub fn set(self: *Self, key: []const u8, value: []const u8) !void {
@@ -450,6 +459,14 @@ pub fn Transaction(comptime Q: u8, comptime K: u8) type {
             }
         }
 
+        fn getNodeValue(value: []const u8) ![]const u8 {
+            if (value.len < K) {
+                return error.InvalidDatabase;
+            } else {
+                return value[K..];
+            }
+        }
+
         fn log(self: *Self, comptime format: []const u8, args: anytype) !void {
             try self.logger.print(format, args);
         }
@@ -492,6 +509,30 @@ fn h(comptime value: *const [64]u8) [32]u8 {
     var buffer: [32]u8 = undefined;
     _ = std.fmt.hexToBytes(&buffer, value) catch unreachable;
     return buffer;
+}
+
+test "Transaction.get" {
+    const allocator = std.heap.c_allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
+    defer allocator.free(path);
+
+    const tree = try Tree(4, 32).open(allocator, path, .{});
+    defer tree.close();
+
+    const txn = try Transaction(4, 32).open(allocator, tree, .{ .read_only = false });
+    defer txn.abort();
+
+    try txn.set("a", "foo");
+    try txn.set("b", "bar");
+    try txn.set("c", "baz");
+
+    try if (try txn.get("b")) |value| try expectEqualSlices(u8, value, "bar") else error.NotFound;
+    try if (try txn.get("a")) |value| try expectEqualSlices(u8, value, "foo") else error.NotFound;
+    try if (try txn.get("c")) |value| try expectEqualSlices(u8, value, "baz") else error.NotFound;
 }
 
 test "Transaction.set(a, b, c)" {
