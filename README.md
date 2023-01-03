@@ -59,7 +59,7 @@ Here's a diagram of an example tree. Arrows are drawn vertically for the first c
 
 The entries of the conceptual key/value store are the leaves of the tree, at level 0, sorted lexicographically by key. Each level begins with an initial "null" node (not part of the public key/value interface), and the rest are named with the key of their first child.
 
-Every node, including the leaves and the null nodes of each level, stores a Sha2-256 hash. The leaves hash their entry's value, and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the null leaf stores the Sha256 of the empty string `Sha256() = e3b0c44...`. For example, the hash value for the node at `(1, null)` would be `Sha256(Sha256(), Sha256("foo"))` since `(0, null)` and `(0, "a")` are its only children.
+Every node, including the leaves and the null nodes of each level, stores a Blake3 hash. The leaves hash their entry's value, and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the null leaf stores the hash of the empty string `Blake3() = af1349b9...`. For example, the hash value for the node at `(1, null)` would be `Blake3(Blake3(), Blake3("foo"))` since `(0, null)` and `(0, "a")` are its only children.
 
 Since the structure of the tree must be a pure function of the entries, it's easiest to imagine building the tree up layer by layer from the leaves. For a tree with a target fanout degree of `Q`, the rule for building layer `N+1` is to promote nodes from layer `N` whose **last hash byte** (`hash[K]`) is less than `256 / Q` (integer division rounding towards 0). The initial null nodes of each layer are always promoted. In the diagram, nodes with `node.hash[K] < 256 / Q` are indicated with double borders.
 
