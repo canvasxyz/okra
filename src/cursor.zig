@@ -186,21 +186,26 @@ test "Cursor(a, b, c)" {
 
     try expectEqual(@as(?Node, null), try cursor.goToNext());
 
-    // try expectEqualSlices(u8, root.level, "a");
-    // try expectEqualSlices(u8, entry.value, "foo");
+    try txn.set("x", "hello world"); // d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24
+    try txn.set("z", "lorem ipsum"); // 25352ae068b54a93ef60942c085da23a321a7f7985193910221cd4fffff5ffb6
 
-    // try if (try iter.first()) |entry| {
-    //     try expectEqualSlices(u8, entry.key, "a");
-    //     try expectEqualSlices(u8, entry.value, "foo");
-    // } else error.NotFound;
+    try if (try cursor.seek(0, "y")) |node| {
+        try expectEqual(@as(u8, 0), node.level);
+        try expectEqualKeys("z", node.key);
+        try expectEqualSlices(u8, &h("25352ae068b54a93ef60942c085da23a321a7f7985193910221cd4fffff5ffb6"), node.hash);
+    } else error.NotFound;
 
-    // try if (try iter.last()) |entry| {
-    //     try expectEqualSlices(u8, entry.key, "c");
-    //     try expectEqualSlices(u8, entry.value, "baz");
-    // } else error.NotFound;
+    try if (try cursor.goToPrevious()) |node| {
+        try expectEqual(@as(u8, 0), node.level);
+        try expectEqualKeys("x", node.key);
+        try expectEqualSlices(u8, &h("d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24"), node.hash);
+    } else error.NotFound;
 
-    // try if (try iter.previous()) |entry| {
-    //     try expectEqualSlices(u8, entry.key, "b");
-    //     try expectEqualSlices(u8, entry.value, "bar");
-    // } else error.NotFound;
+    try if (try cursor.seek(0, null)) |node| {
+        try expectEqual(@as(u8, 0), node.level);
+        try expectEqualKeys(null, node.key);
+        try expectEqualSlices(u8, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"), node.hash);
+    } else error.NotFound;
+
+    try expectEqual(@as(?Node, null), try cursor.goToPrevious());
 }

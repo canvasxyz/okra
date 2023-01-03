@@ -5,6 +5,7 @@ const lmdb = @import("lmdb");
 const header = @import("header.zig");
 const transaction = @import("transaction.zig");
 const iterator = @import("iterator.zig");
+const cursor = @import("cursor.zig");
 const utils = @import("utils.zig");
 
 pub fn Tree(comptime Q: u8, comptime K: u8) type {
@@ -13,6 +14,7 @@ pub fn Tree(comptime Q: u8, comptime K: u8) type {
         pub const Header = header.Header(Q, K);
         pub const Transaction = transaction.Transaction(Q, K);
         pub const Iterator = iterator.Iterator(Q, K);
+        pub const Cursor = cursor.Cursor(Q, K);
 
         const Self = @This();
 
