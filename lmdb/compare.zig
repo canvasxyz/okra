@@ -102,12 +102,12 @@ pub fn expectEqualEntries(env: Environment, entries: []const [2][]const u8) !voi
     var key = try cursor.goToFirst();
     while (key != null) : (key = try cursor.goToNext()) {
         try expect(i < entries.len);
-        try expectEqualSlices(u8, try cursor.getCurrentKey(), entries[i][0]);
-        try expectEqualSlices(u8, try cursor.getCurrentValue(), entries[i][1]);
+        try expectEqualSlices(u8, entries[i][0], try cursor.getCurrentKey());
+        try expectEqualSlices(u8, entries[i][1], try cursor.getCurrentValue());
         i += 1;
     }
 
-    try expectEqual(i, entries.len);
+    try expectEqual(entries.len, i);
 }
 
 const allocator = std.heap.c_allocator;
