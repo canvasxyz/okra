@@ -47,54 +47,24 @@ pub fn build(b: *std.build.Builder) void {
     var lmdb_test_step = b.step("test-lmdb", "Run LMDB tests");
     lmdb_test_step.dependOn(&lmdb_tests.step);
 
-    const builder_tests = b.addTest("src/Builder.zig");
+    const builder_tests = b.addTest("src/builder.zig");
     builder_tests.addPackage(lmdb);
     builder_tests.addIncludePath("libs/openldap/libraries/liblmdb");
     builder_tests.addCSourceFiles(lmdbSources, &.{});
-
     var builder_test_step = b.step("test-builder", "Run Builder tests");
     builder_test_step.dependOn(&builder_tests.step);
 
-    const skip_list_tests = b.addTest("src/skip_list.zig");
-    skip_list_tests.addPackage(lmdb);
-    skip_list_tests.addIncludePath("libs/openldap/libraries/liblmdb");
-    skip_list_tests.addCSourceFiles(lmdbSources, &.{});
-
-    var skip_list_test_step = b.step("test-skip-list", "Run SkipList tests");
-    skip_list_test_step.dependOn(&skip_list_tests.step);
+    const transaction_tests = b.addTest("src/transaction.zig");
+    transaction_tests.addPackage(lmdb);
+    transaction_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    transaction_tests.addCSourceFiles(lmdbSources, &.{});
+    var transaction_test_step = b.step("test-transaction", "Run Transaction tests");
+    transaction_test_step.dependOn(&transaction_tests.step);
 
     const okra_tests = b.addTest("src/test.zig");
     okra_tests.addPackage(lmdb);
     okra_tests.addIncludePath("libs/openldap/libraries/liblmdb");
     okra_tests.addCSourceFiles(lmdbSources, &.{});
-
-    const map_tests = b.addTest("src/Map.zig");
-    map_tests.addPackage(lmdb);
-    map_tests.addIncludePath("libs/openldap/libraries/liblmdb");
-    map_tests.addCSourceFiles(lmdbSources, &.{});
-    var map_test_step = b.step("test-map", "Run Map tests");
-    map_test_step.dependOn(&map_tests.step);
-
-    const map_index_tests = b.addTest("src/MapIndex.zig");
-    map_index_tests.addPackage(lmdb);
-    map_index_tests.addIncludePath("libs/openldap/libraries/liblmdb");
-    map_index_tests.addCSourceFiles(lmdbSources, &.{});
-    var map_index_test_step = b.step("test-map-index", "Run MapIndex tests");
-    map_index_test_step.dependOn(&map_index_tests.step);
-
-    const set_tests = b.addTest("src/Set.zig");
-    set_tests.addPackage(lmdb);
-    set_tests.addIncludePath("libs/openldap/libraries/liblmdb");
-    set_tests.addCSourceFiles(lmdbSources, &.{});
-    var set_test_step = b.step("test-set", "Run Set tests");
-    set_test_step.dependOn(&set_tests.step);
-
-    const set_index_tests = b.addTest("src/SetIndex.zig");
-    set_index_tests.addPackage(lmdb);
-    set_index_tests.addIncludePath("libs/openldap/libraries/liblmdb");
-    set_index_tests.addCSourceFiles(lmdbSources, &.{});
-    var set_index_test_step = b.step("test-set-index", "Run SetIndex tests");
-    set_index_test_step.dependOn(&set_index_tests.step);
 
     const cursor_tests = b.addTest("src/cursor.zig");
     cursor_tests.addPackage(lmdb);
@@ -102,6 +72,27 @@ pub fn build(b: *std.build.Builder) void {
     cursor_tests.addCSourceFiles(lmdbSources, &.{});
     var cursor_test_step = b.step("test-cursor", "Run cursor tests");
     cursor_test_step.dependOn(&cursor_tests.step);
+
+    const header_tests = b.addTest("src/header.zig");
+    header_tests.addPackage(lmdb);
+    header_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    header_tests.addCSourceFiles(lmdbSources, &.{});
+    var header_test_step = b.step("test-header", "Run Header tests");
+    header_test_step.dependOn(&header_tests.step);
+
+    const tree_tests = b.addTest("src/tree.zig");
+    tree_tests.addPackage(lmdb);
+    tree_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    tree_tests.addCSourceFiles(lmdbSources, &.{});
+    var tree_test_step = b.step("test-tree", "Run Tree tests");
+    tree_test_step.dependOn(&tree_tests.step);
+
+    const iterator_tests = b.addTest("src/iterator.zig");
+    iterator_tests.addPackage(lmdb);
+    iterator_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    iterator_tests.addCSourceFiles(lmdbSources, &.{});
+    var iterator_test_step = b.step("test-iterator", "Run Iterator tests");
+    iterator_test_step.dependOn(&iterator_tests.step);
 
     // const variant_tests = b.addTest("src/variants.zig");
     // variant_tests.addPackage(lmdb);

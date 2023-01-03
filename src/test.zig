@@ -5,28 +5,32 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 
-const allocator = std.heap.c_allocator;
-
 const lmdb = @import("lmdb");
 
-const Builder = @import("Builder.zig").Builder;
-const skip_list = @import("skip_list.zig");
+const Tree = @import("tree.zig").Tree;
+const Header = @import("header.zig").Header;
+const Builder = @import("builder.zig").Builder;
+const Transaction = @import("transaction.zig").Transaction;
 
 const utils = @import("utils.zig");
 const print = @import("print.zig");
 
 fn testPermutations(
+    comptime Q: u8,
+    comptime K: u8,
     comptime N: usize,
     comptime P: usize,
-    comptime Q: usize,
+    comptime R: usize,
     permutations: *const [N][P]u16,
+    log: ?std.fs.File.Writer,
     environment_options: lmdb.Environment.Options,
-    skip_list_options: skip_list.Options,
 ) !void {
+    const allocator = std.heap.c_allocator;
+
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try expect(Q < P);
+    try expect(R < P);
 
     var key: [2]u8 = undefined;
     var value: [32]u8 = undefined;
@@ -41,7 +45,7 @@ fn testPermutations(
         defer reference_env.close();
 
         {
-            var builder = try Builder.open(allocator, reference_env, .{ .degree = skip_list_options.degree });
+            var builder = try Builder(Q, K).open(allocator, reference_env, .{});
             errdefer builder.abort();
 
             for (permutation) |i| {
@@ -50,7 +54,7 @@ fn testPermutations(
                 try builder.set(&key, &value);
             }
 
-            for (permutations[(p + 1) % N][0..Q]) |i| {
+            for (permutations[(p + 1) % N][0..R]) |i| {
                 std.mem.writeIntBig(u16, &key, i);
                 try builder.delete(&key);
             }
@@ -62,56 +66,53 @@ fn testPermutations(
         const path = try utils.resolvePath(allocator, tmp.dir, name);
         defer allocator.free(path);
 
-        const env = try lmdb.Environment.open(path, environment_options);
-        defer env.close();
-
-        var sl = try skip_list.SkipList.open(allocator, env, skip_list_options);
-        defer sl.deinit();
+        const tree = try Tree(4, 32).open(allocator, path, .{});
+        defer tree.close();
 
         {
-            var txn = try lmdb.Transaction.open(env, .{ .read_only = false });
+            const txn = try Transaction(Q, K).open(allocator, tree, .{ .read_only = false, .log = log });
             errdefer txn.abort();
 
-            var cursor = try lmdb.Cursor.open(txn);
-
             for (permutation) |i, j| {
-                if (skip_list_options.log) |log|
-                    try log.print("---------- {d} ({d} / {d}) ---------\n", .{ i, j, permutation.len });
+                if (log) |writer|
+                    try writer.print("---------- {d} ({d} / {d}) ---------\n", .{ i, j, permutation.len });
 
                 std.mem.writeIntBig(u16, &key, i);
                 Sha256.hash(&key, &value, .{});
-                try sl.set(txn, cursor, &key, &value);
+                try txn.set(&key, &value);
             }
 
-            for (permutations[(p + 1) % N][0..Q]) |i| {
+            for (permutations[(p + 1) % N][0..R]) |i| {
                 std.mem.writeIntBig(u16, &key, i);
-                try sl.delete(txn, cursor, &key);
+                try txn.delete(&key);
             }
 
             try txn.commit();
         }
 
-        if (skip_list_options.log) |log| {
-            try log.print("PERMUTATION -----\n{any}\n", .{permutation});
-            try log.print("REFERENCE ENV --------------------------------------\n", .{});
-            try print.printEntries(reference_env, log);
-            try print.printTree(allocator, reference_env, log, .{});
-            try log.print("SKIP LIST ENV --------------------------------------\n", .{});
-            try print.printTree(allocator, env, log, .{});
-            try print.printEntries(env, log);
+        if (log) |writer| {
+            try writer.print("PERMUTATION -----\n{any}\n", .{permutation});
+            try writer.print("EXPECTED -----------------------------------------\n", .{});
+            try print.printEntries(reference_env, writer);
+            // try print.printTree(allocator, reference_env, writer, .{});
+            try writer.print("ACTUAL -------------------------------------------\n", .{});
+            // try print.printTree(allocator, env, writer, .{});
+            try print.printEntries(tree.env, writer);
         }
 
-        const delta = try lmdb.compareEntries(reference_env, env, .{ .log = skip_list_options.log });
+        const delta = try lmdb.compareEntries(reference_env, tree.env, .{ .log = log });
         try expect(delta == 0);
     }
 }
 
 fn testPseudoRandomPermutations(
+    comptime Q: u8,
+    comptime K: u8,
     comptime N: u16,
     comptime P: u16,
-    comptime Q: u16,
+    comptime R: u16,
+    log: ?std.fs.File.Writer,
     environment_options: lmdb.Environment.Options,
-    skip_list_options: skip_list.Options,
 ) !void {
     var permutations: [N][P]u16 = undefined;
 
@@ -125,32 +126,31 @@ fn testPseudoRandomPermutations(
         std.rand.Random.shuffle(random, u16, &permutations[n]);
     }
 
-    try testPermutations(N, P, Q, &permutations, environment_options, skip_list_options);
+    try testPermutations(Q, K, N, P, R, &permutations, log, environment_options);
 }
 
-test "SkipList: 1 pseudo-random permutations of 10, deleting 0" {
+test "1 pseudo-random permutations of 10, deleting 0" {
     // const log = std.io.getStdErr().writer();
     // try log.print("\n", .{});
-    const log = null;
-    try testPseudoRandomPermutations(1, 10, 0, .{}, .{ .degree = 4, .log = log });
+    try testPseudoRandomPermutations(4, 32, 1, 10, 0, null, .{});
 }
 
-test "SkipList: 100 pseudo-random permutations of 50, deleting 0" {
-    try testPseudoRandomPermutations(100, 50, 0, .{}, .{ .degree = 4 });
+test "100 pseudo-random permutations of 50, deleting 0" {
+    try testPseudoRandomPermutations(4, 32, 100, 50, 0, null, .{});
 }
 
-test "SkipList: 100 pseudo-random permutations of 500, deleting 50" {
-    try testPseudoRandomPermutations(100, 500, 50, .{}, .{ .degree = 4 });
+test "100 pseudo-random permutations of 500, deleting 50" {
+    try testPseudoRandomPermutations(4, 32, 100, 500, 50, null, .{});
 }
 
-test "SkipList: 100 pseudo-random permutations of 1000, deleting 200" {
-    try testPseudoRandomPermutations(100, 1000, 200, .{}, .{ .degree = 4 });
+test "100 pseudo-random permutations of 1000, deleting 200" {
+    try testPseudoRandomPermutations(4, 32, 100, 1000, 200, null, .{});
 }
 
-test "SkipList: 10 pseudo-random permutations of 10000, deleting 500" {
-    try testPseudoRandomPermutations(10, 10000, 500, .{ .map_size = 2 * 1024 * 1024 * 1024 }, .{ .degree = 4 });
+test "10 pseudo-random permutations of 10000, deleting 500" {
+    try testPseudoRandomPermutations(4, 32, 10, 10000, 500, null, .{ .map_size = 2 * 1024 * 1024 * 1024 });
 }
 
-test "SkipList: 10 pseudo-random permutations of 50000, deleting 1000" {
-    try testPseudoRandomPermutations(10, 10000, 1000, .{ .map_size = 2 * 1024 * 1024 * 1024 }, .{ .degree = 4 });
+test "10 pseudo-random permutations of 50000, deleting 1000" {
+    try testPseudoRandomPermutations(4, 32, 10, 10000, 1000, null, .{ .map_size = 2 * 1024 * 1024 * 1024 });
 }
