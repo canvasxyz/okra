@@ -14,12 +14,64 @@ You can use okra as a persistent key/value store with efficient p2p syncing buil
 
 ## Table of Contents
 
-- [API](#API)
 - [Internal design](#internal-design)
+- [API](#API)
 - [Use cases](#use-cases)
 - [References](#references)
 - [Contributing](#contributing)
 - [License](#license)
+
+## Internal design
+
+okra is a [merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) with three crucial properties:
+
+1. deterministic: two trees have the same root hash if and only if they comprise the same set of entries, independent of insertion order
+2. pseudorandom: the number of children per node varies, but the expected degree is a constant and can be configured by the user
+3. robust: adding/removing/changing an entry only changes log(N) other nodes
+
+Here's a diagram of an example tree. Arrows are drawn vertically for the first child and horizontally between siblings, instead of diagonally for every child.
+
+```
+            ╔════╗                                                                                                                                            
+ level 4    ║root║                                                                                                                                            
+            ╚════╝                                                                                                                                            
+              │                                                                                                                                               
+              ▼                                                                                                                                               
+            ╔════╗                                                               ┌─────┐                                                                      
+ level 3    ║null║ ─────────────────────────────────────────────────────────────▶│  g  │                                                                      
+            ╚════╝                                                               └─────┘                                                                      
+              │                                                                     │                                                                         
+              ▼                                                                     ▼                                                                         
+            ╔════╗                                                               ╔═════╗                                                     ┌─────┐          
+ level 2    ║null║ ─────────────────────────────────────────────────────────────▶║  g  ║   ─────────────────────────────────────────────────▶│  m  │          
+            ╚════╝                                                               ╚═════╝                                                     └─────┘          
+              │                                                                     │                                                           │             
+              ▼                                                                     ▼                                                           ▼             
+            ╔════╗             ┌─────┐   ┌─────┐                                 ╔═════╗             ┌─────┐                                 ╔═════╗          
+ level 1    ║null║────────────▶│  b  │──▶│  c  │────────────────────────────────▶║  g  ║────────────▶│  i  │────────────────────────────────▶║  m  ║          
+            ╚════╝             └─────┘   └─────┘                                 ╚═════╝             └─────┘                                 ╚═════╝          
+              │                   │         │                                       │                   │                                       │             
+              ▼                   ▼         ▼                                       ▼                   ▼                                       ▼             
+            ╔════╗   ┌─────┐   ╔═════╗   ╔═════╗   ┌─────┐   ┌─────┐   ┌─────┐   ╔═════╗   ┌─────┐   ╔═════╗   ┌─────┐   ┌─────┐   ┌─────┐   ╔═════╗   ┌─────┐
+ level 0    ║null║──▶│a:foo│──▶║b:bar║──▶║c:baz║──▶│d:...│──▶│e:...│──▶│f:...│──▶║g:...║──▶│h:...│──▶║i:...║──▶│j:...│──▶│k:...│──▶│l:...│──▶║m:...║──▶│n:...│
+            ╚════╝   └─────┘   ╚═════╝   ╚═════╝   └─────┘   └─────┘   └─────┘   ╚═════╝   └─────┘   ╚═════╝   └─────┘   └─────┘   └─────┘   ╚═════╝   └─────┘
+```
+
+The entries of the conceptual key/value store are the leaves of the tree, at level 0, sorted lexicographically by key. Each level begins with an initial "null" node (not part of the public key/value interface), and the rest are named with the key of their first child.
+
+Every node, including the leaves and the null nodes of each level, stores a Sha2-256 hash. The leaves hash their entry's value, and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the null leaf stores the Sha256 of the empty string `Sha256() = e3b0c44...`. For example, the hash value for the node at `(1, null)` would be `Sha256(Sha256(), Sha256("foo"))` since `(0, null)` and `(0, "a")` are its only children.
+
+Since the structure of the tree must be a pure function of the entries, it's easiest to imagine building the tree up layer by layer from the leaves. For a tree with a target fanout degree of `Q`, the rule for building layer `N+1` is to promote nodes from layer `N` whose **last hash byte** (`hash[K]`) is less than `256 / Q` (integer division rounding towards 0). The initial null nodes of each layer are always promoted. In the diagram, nodes with `node.hash[K] < 256 / Q` are indicated with double borders.
+
+In practice, the tree is incrementally maintained and is not re-built from the ground up on every change. Updates are O(log(N)).
+
+The tree is stored in an LMDB database where nodes are _LMDB_ key/value entries with keys prefixed by a `level: u8` byte and values prefixed by the `hash: [K]u8`. For null node entries, the level byte is the entire key, and for non-leaf `level > 0` node entries, the hash is the entire value. The key `[1]u8{ 0xFF }` is reserved as a metadata entry for storing the database version, database variant, and height of the tree. This gives the tree a maximum height of 254. In practice, with the default fanout degree of 32, the tree will rarely be taller than 5 (millions of entries) or 6 (billions of entries) levels.
+
+This approach is different than e.g. Dolt's Prolly Tree implementation, which is a from-scratch b-tree that reads and writes its own pages and is used as the foundation of a full-blown relational database. okra is designed to be used as a simple efficiently-diffable key/value store, and leverages LMDB to reduce the implementation to just the logical rebalancing operations and inhert all its ACID transaction properties.
+
+Another point worth mentioning is that embracing a two-level approach (building the MST on top of a key/value store) changes the incentives around picking a fanout degree probability distribution function (PDF). Our naive `node.hash[K] < 256 / Q` condition produces a geometric distribution of degrees (asymmetrically more smaller values than larger values). This is bad for a low-level b-tree where you want as consistenly-sized chunks as possible, so Dolt weights their rolling hash function to produce a PDF symmetric around the expected value. But in okra, the boundaries between the children of different nodes are just conceptual, and the underlying pages in the LMDB database can end up spanning several conceptual nodes, or vice versa. To be clear, this doesn't mean that the geometric distribution is preferable or that okra is more performant, just that it enjoys a clean separation of concerns by building on a key/value abstraction.
+
+okra has no external concept of versioning or time-travel. LMDB is copy-on-write, and open transactions retain a consistent view of a snapshot of the database, but the old pages are garbage-collected once the last transaction referencing them is closed. When we talk about "comparing two merkle roots", we mean two separate database instances (e.g. on different machines), not two local revisions of the same database.
 
 ## API
 
@@ -160,58 +212,6 @@ defer cursor.close();
 ```
 
 Cursors must be freed by calling `cursor.close()`. 
-
-## Internal design
-
-okra is a [merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) with three crucial properties:
-
-1. deterministic: two trees have the same root hash if and only if they comprise the same set of entries, independent of insertion order
-2. pseudorandom: the number of children per node varies, but the expected degree is a constant and can be configured by the user
-3. robust: adding/removing/changing an entry only changes log(N) other nodes
-
-Here's a diagram of an example tree. Arrows are drawn vertically for the first child and horizontally between siblings, instead of diagonally for every child.
-
-```
-            ╔════╗                                                                                                                                            
- level 4    ║root║                                                                                                                                            
-            ╚════╝                                                                                                                                            
-              │                                                                                                                                               
-              ▼                                                                                                                                               
-            ╔════╗                                                               ┌─────┐                                                                      
- level 3    ║null║ ─────────────────────────────────────────────────────────────▶│  g  │                                                                      
-            ╚════╝                                                               └─────┘                                                                      
-              │                                                                     │                                                                         
-              ▼                                                                     ▼                                                                         
-            ╔════╗                                                               ╔═════╗                                                     ┌─────┐          
- level 2    ║null║ ─────────────────────────────────────────────────────────────▶║  g  ║   ─────────────────────────────────────────────────▶│  m  │          
-            ╚════╝                                                               ╚═════╝                                                     └─────┘          
-              │                                                                     │                                                           │             
-              ▼                                                                     ▼                                                           ▼             
-            ╔════╗             ┌─────┐   ┌─────┐                                 ╔═════╗             ┌─────┐                                 ╔═════╗          
- level 1    ║null║────────────▶│  b  │──▶│  c  │────────────────────────────────▶║  g  ║────────────▶│  i  │────────────────────────────────▶║  m  ║          
-            ╚════╝             └─────┘   └─────┘                                 ╚═════╝             └─────┘                                 ╚═════╝          
-              │                   │         │                                       │                   │                                       │             
-              ▼                   ▼         ▼                                       ▼                   ▼                                       ▼             
-            ╔════╗   ┌─────┐   ╔═════╗   ╔═════╗   ┌─────┐   ┌─────┐   ┌─────┐   ╔═════╗   ┌─────┐   ╔═════╗   ┌─────┐   ┌─────┐   ┌─────┐   ╔═════╗   ┌─────┐
- level 0    ║null║──▶│a:foo│──▶║b:bar║──▶║c:baz║──▶│d:...│──▶│e:...│──▶│f:...│──▶║g:...║──▶│h:...│──▶║i:...║──▶│j:...│──▶│k:...│──▶│l:...│──▶║m:...║──▶│n:...│
-            ╚════╝   └─────┘   ╚═════╝   ╚═════╝   └─────┘   └─────┘   └─────┘   ╚═════╝   └─────┘   ╚═════╝   └─────┘   └─────┘   └─────┘   ╚═════╝   └─────┘
-```
-
-The entries of the conceptual key/value store are the leaves of the tree, at level 0, sorted lexicographically by key. Each level begins with an initial "null" node (not part of the public key/value interface), and the rest are named with the key of their first child.
-
-Every node, including the leaves and the null nodes of each level, stores a Sha2-256 hash. The leaves hash their entry's value, and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the null leaf stores the Sha256 of the empty string `Sha256() = e3b0c44...`. For example, the hash value for the node at `(1, null)` would be `Sha256(Sha256(), Sha256("foo"))` since `(0, null)` and `(0, "a")` are its only children.
-
-Since the structure of the tree must be a pure function of the entries, it's easiest to imagine building the tree up layer by layer from the leaves. For a tree with a target fanout degree of `Q`, the rule for building layer `N+1` is to promote nodes from layer `N` whose **last hash byte** (`hash[K]`) is less than `256 / Q` (integer division rounding towards 0). The initial null nodes of each layer are always promoted. In the diagram, nodes with `node.hash[K] < 256 / Q` are indicated with double borders.
-
-In practice, the tree is incrementally maintained and is not re-built from the ground up on every change. Updates are O(log(N)).
-
-The tree is stored in an LMDB database where nodes are _LMDB_ key/value entries with keys prefixed by a `level: u8` byte and values prefixed by the `hash: [K]u8`. For null node entries, the level byte is the entire key, and for non-leaf `level > 0` node entries, the hash is the entire value. The key `[1]u8{ 0xFF }` is reserved as a metadata entry for storing the database version, database variant, and height of the tree. This gives the tree a maximum height of 254. In practice, with the default fanout degree of 32, the tree will rarely be taller than 5 (millions of entries) or 6 (billions of entries) levels.
-
-This approach is different than e.g. Dolt's Prolly Tree implementation, which is a from-scratch b-tree that reads and writes its own pages and is used as the foundation of a full-blown relational database. okra is designed to be used as a simple efficiently-diffable key/value store, and leverages LMDB to reduce the implementation to just the logical rebalancing operations and inhert all its ACID transaction properties.
-
-Another point worth mentioning is that embracing a two-level approach (building the MST on top of a key/value store) changes the incentives around picking a fanout degree probability distribution function (PDF). Our naive `node.hash[K] < 256 / Q` condition produces a geometric distribution of degrees (asymmetrically more smaller values than larger values). This is bad for a low-level b-tree where you want as consistenly-sized chunks as possible, so Dolt weights their rolling hash function to produce a PDF symmetric around the expected value. But in okra, the boundaries between the children of different nodes are just conceptual, and the underlying pages in the LMDB database can end up spanning several conceptual nodes, or vice versa. To be clear, this doesn't mean that the geometric distribution is preferable or that okra is more performant, just that it enjoys a clean separation of concerns by building on a key/value abstraction.
-
-okra has no external concept of versioning or time-travel. LMDB is copy-on-write, and open transactions retain a consistent view of a snapshot of the database, but the old pages are garbage-collected once the last transaction referencing them is closed. When we talk about "comparing two merkle roots", we mean two separate database instances (e.g. on different machines), not two local revisions of the same database.
 
 ## Use cases
 
