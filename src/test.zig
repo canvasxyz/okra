@@ -15,13 +15,12 @@ const Transaction = @import("transaction.zig").Transaction;
 const utils = @import("utils.zig");
 const print = @import("print.zig");
 
-fn testPermutations(
+fn testPseudoRandomPermutations(
     comptime K: u8,
     comptime Q: u32,
-    comptime N: usize,
-    comptime P: usize,
-    comptime R: usize,
-    permutations: *const [N][P]u16,
+    comptime N: u16,
+    comptime P: u16,
+    comptime R: u16,
     log: ?std.fs.File.Writer,
     environment_options: lmdb.Environment.Options,
 ) !void {
@@ -32,11 +31,23 @@ fn testPermutations(
 
     try expect(R < P);
 
+    var permutations: [N][P]u16 = undefined;
+
+    var prng = std.rand.DefaultPrng.init(0x0000000000000000);
+    var random = prng.random();
+
+    var n: u16 = 0;
+    while (n < N) : (n += 1) {
+        var p: u16 = 0;
+        while (p < P) : (p += 1) permutations[n][p] = p;
+        std.rand.Random.shuffle(random, u16, &permutations[n]);
+    }
+
     var key: [2]u8 = undefined;
     var value: [32]u8 = undefined;
 
     var name_buffer: [24]u8 = undefined;
-    for (permutations) |permutation, p| {
+    for (&permutations) |permutation, p| {
         const reference_name = try std.fmt.bufPrint(&name_buffer, "r{d}.{x}.mdb", .{ N, p });
         const reference_path = try utils.resolvePath(allocator, tmp.dir, reference_name);
         defer allocator.free(reference_path);
@@ -103,30 +114,6 @@ fn testPermutations(
         const delta = try lmdb.compareEntries(reference_env, tree.env, .{ .log = log });
         try expect(delta == 0);
     }
-}
-
-fn testPseudoRandomPermutations(
-    comptime K: u8,
-    comptime Q: u32,
-    comptime N: u16,
-    comptime P: u16,
-    comptime R: u16,
-    log: ?std.fs.File.Writer,
-    environment_options: lmdb.Environment.Options,
-) !void {
-    var permutations: [N][P]u16 = undefined;
-
-    var prng = std.rand.DefaultPrng.init(0x0000000000000000);
-    var random = prng.random();
-
-    var n: u16 = 0;
-    while (n < N) : (n += 1) {
-        var p: u16 = 0;
-        while (p < P) : (p += 1) permutations[n][p] = p;
-        std.rand.Random.shuffle(random, u16, &permutations[n]);
-    }
-
-    try testPermutations(K, Q, N, P, R, &permutations, log, environment_options);
 }
 
 test "1 pseudo-random permutations of 10, deleting 0" {
