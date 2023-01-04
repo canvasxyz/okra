@@ -24,29 +24,47 @@ var iotaOption = cli.Option{
     .value = cli.OptionValue{ .int = 0 },
 };
 
-// var levelOption = cli.Option{
-//   .long_name = "level",
-//   .short_alias = 'l',
-//   .help = "level within the tree (use -1 for the root)",
-//   .value = cli.OptionValue{ .int = -1 },
-//   .required = false,
-// };
-
-// var depthOption = cli.Option{
-//   .long_name = "depth",
-//   .short_alias = 'd',
-//   .help = "number of levels to print",
-//   .value = cli.OptionValue{ .int = 1 },
-//   .required = false,
-// };
-
-var degreeOption = cli.Option{
-    .long_name = "degree",
-    .short_alias = 'd',
-    .help = "target fanout degree",
-    .value = cli.OptionValue{ .int = 32 },
+var levelOption = cli.Option{
+    .long_name = "level",
+    .short_alias = 'l',
+    .help = "node level (-1 for root)",
+    .value = cli.OptionValue{ .int = -1 },
     .required = false,
 };
+
+var keyOption = cli.Option{
+    .long_name = "key",
+    .short_alias = 'k',
+    .help = "node key",
+    .value = cli.OptionValue{ .string = "" },
+    .required = false,
+};
+
+var encodingOption = cli.Option{
+    .long_name = "encoding",
+    .short_alias = 'e',
+    .help = "encoding (\"utf-8\" or \"hex\")",
+    .value = cli.OptionValue{ .string = "utf-8" },
+    .required = false,
+};
+
+const Encoding = enum { utf8, hex };
+
+fn parseEncoding() Encoding {
+    const encoding = encodingOption.value.string orelse unreachable;
+    if (std.mem.eql(u8, encoding, "utf-8")) {
+        return Encoding.utf8;
+    } else if (std.mem.eql(u8, encoding, "hex")) {
+        return Encoding.hex;
+    } else {
+        fail("invalid encoding", .{});
+    }
+}
+
+fn parseKey() ?[]const u8 {
+    const key = keyOption.value.string orelse unreachable;
+    return if (key.len > 0) key else null;
+}
 
 var app = &cli.Command{
     .name = "okra",
@@ -55,25 +73,19 @@ var app = &cli.Command{
         &cli.Command{
             .name = "cat",
             .help = "print the key/value entries to stdout",
-            .options = &.{},
+            .options = &.{&encodingOption},
             .action = cat,
-        },
-        &cli.Command{
-            .name = "stat",
-            .help = "print metadata",
-            .options = &.{},
-            .action = stat,
         },
         &cli.Command{
             .name = "ls",
             .help = "print the tree structure",
-            .options = &.{&degreeOption},
+            .options = &.{ &encodingOption, &levelOption, &keyOption },
             .action = ls,
         },
         &cli.Command{
             .name = "init",
             .help = "initialize an empty database",
-            .options = &.{ &iotaOption, &degreeOption },
+            .options = &.{&iotaOption},
             .action = init,
         },
         // &cli.Command{
@@ -138,6 +150,8 @@ fn cat(args: []const []const u8) !void {
         fail("path required", .{});
     }
 
+    const encoding = parseEncoding();
+
     const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
     defer allocator.free(path);
 
@@ -145,44 +159,25 @@ fn cat(args: []const []const u8) !void {
 
     const stdout = std.io.getStdOut().writer();
 
-    const env = try lmdb.Environment.open(path, .{});
-    defer env.close();
+    const tree = try okra.Tree.open(allocator, path, .{});
+    defer tree.close();
 
-    var skip_list_cursor = try okra.SkipListCursor.open(allocator, env, true);
-    defer skip_list_cursor.abort();
-
-    try skip_list_cursor.goToNode(0, &[_]u8{});
-    while (try skip_list_cursor.goToNext()) |key| {
-        const value = try skip_list_cursor.getCurrentValue();
-        try stdout.print("{s} <- {s}\n", .{ hex(value), hex(key) });
-    }
-}
-
-fn stat(args: []const []const u8) !void {
-    if (args.len > 1) {
-        fail("too many arguments", .{});
-    } else if (args.len == 0) {
-        fail("path required", .{});
-    }
-
-    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
-    defer allocator.free(path);
-
-    const stdout = std.io.getStdOut().writer();
-
-    const env = try lmdb.Environment.open(path, .{});
-    defer env.close();
-
-    const txn = try lmdb.Transaction.open(env, true);
+    const txn = try okra.Transaction.open(allocator, tree, .{ .read_only = true });
     defer txn.abort();
-    if (try okra.getMetadata(txn)) |metadata| {
-        try stdout.print("degree: {d}\n", .{metadata.degree});
-        try stdout.print("variant: {any}\n", .{metadata.variant});
-        try stdout.print("height: {d}\n", .{metadata.height});
-    } else {
-        return error.InvalidDatabase;
+
+    const iter = try okra.Iterator.open(allocator, txn);
+    defer iter.close();
+
+    var entry = try iter.goToFirst();
+    while (entry) |e| : (entry = try iter.goToNext()) {
+        switch (encoding) {
+            .utf8 => try stdout.print("{s}\t{s}\n", .{ e.key, e.value }),
+            .hex => try stdout.print("{s}\t{s}\n", .{ hex(e.key), hex(e.value) }),
+        }
     }
 }
+
+const hashSeparator = "  " ** okra.K;
 
 fn ls(args: []const []const u8) !void {
     if (args.len > 1) {
@@ -191,14 +186,78 @@ fn ls(args: []const []const u8) !void {
         fail("path required", .{});
     }
 
+    const encoding = parseEncoding();
+    const key = parseKey();
+    const level = levelOption.value.int orelse unreachable;
+    if (level == -1) {
+        if (key != null) {
+            fail("the root node's key is the empty string", .{});
+        }
+    } else if (level < 0) {
+        fail("level must be -1 or a non-negative integer", .{});
+    } else if (level >= 0xFF) {
+        fail("level must be less than 254", .{});
+    }
+
     const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
     defer allocator.free(path);
 
+    try std.fs.accessAbsoluteZ(path, .{ .mode = .read_only });
+
     const stdout = std.io.getStdOut().writer();
 
-    const env = try lmdb.Environment.open(path, .{});
-    defer env.close();
-    try okra.printTree(allocator, env, stdout, .{ .compact = true });
+    const tree = try okra.Tree.open(allocator, path, .{});
+    defer tree.close();
+
+    const txn = try okra.Transaction.open(allocator, tree, .{ .read_only = true });
+    defer txn.abort();
+
+    const cursor = try okra.Cursor.open(allocator, txn);
+    defer cursor.close();
+
+    const root = if (level == -1) try cursor.goToRoot() else try cursor.goToNode(@intCast(u8, level), key);
+
+    if (root.level == 0) {
+        try stdout.print("{d: >32} | key\n", .{root.level});
+        try stdout.print("{s:->32} | {s:->3}\n", .{ "", "" });
+        if (root.key) |k|
+            switch (encoding) {
+                .hex => try stdout.print("{s} | {s}\n", .{ hex(root.hash), hex(k) }),
+                .utf8 => try stdout.print("{s} | {s}\n", .{ hex(root.hash), k }),
+            }
+        else {
+            try stdout.print("{s} |\n", .{hex(root.hash)});
+        }
+
+        return;
+    }
+
+    try stdout.print("{d: >32} {d: >32} | key\n", .{ root.level, root.level - 1 });
+    try stdout.print("{s:->32} {s:->32} | {s:->32}\n", .{ "", "", "" });
+    try stdout.print("{s} ", .{hex(root.hash)});
+
+    const first_child = try cursor.goToNode(root.level - 1, root.key);
+    if (first_child.key) |k|
+        switch (encoding) {
+            .hex => try stdout.print("{s} | {s}\n", .{ hex(first_child.hash), hex(k) }),
+            .utf8 => try stdout.print("{s} | {s}\n", .{ hex(first_child.hash), k }),
+        }
+    else {
+        try stdout.print("{s} |\n", .{hex(first_child.hash)});
+    }
+
+    while (try cursor.goToNext()) |next| {
+        if (next.key) |k| switch (encoding) {
+            .hex => try stdout.print("{s} {s} | {s}\n", .{ hashSeparator, hex(next.hash), hex(k) }),
+            .utf8 => try stdout.print("{s} {s} | {s}\n", .{ hashSeparator, hex(next.hash), k }),
+        } else {
+            try stdout.print("{s} {s} |\n", .{ hashSeparator, hex(next.hash) });
+        }
+    }
+
+    // const env = try lmdb.Environment.open(path, .{});
+    // defer env.close();
+    // try okra.printTree(allocator, env, stdout, .{ .compact = true });
 }
 
 fn init(args: []const []const u8) !void {
@@ -212,36 +271,31 @@ fn init(args: []const []const u8) !void {
     defer allocator.free(path);
 
     const iota = iotaOption.value.int orelse unreachable;
-    if (iota <= 0) {
-        fail("iota must be a positive integer", .{});
+    if (iota < 0) {
+        fail("iota must be a non-negative integer", .{});
     } else if (iota > 0xFFFF) {
         fail("iota must be less than 65536", .{});
     }
 
-    const degree = degreeOption.value.int orelse unreachable;
-    if (degree < 0) {
-        fail("degree must be a non-negative integer", .{});
-    } else if (degree >= 0xFF) {
-        fail("iota must be less than 255", .{});
-    }
+    var key: [2]u8 = undefined;
+    var value: [32]u8 = undefined;
 
     const env = try lmdb.Environment.open(path, .{});
     defer env.close();
 
-    var builder = try okra.Builder.init(env, .{ .degree = @intCast(u8, degree) });
-    errdefer builder.abort();
+    {
+        var builder = try okra.Builder.open(allocator, env, .{});
+        errdefer builder.abort();
 
-    var key: [2]u8 = undefined;
-    var value: [32]u8 = undefined;
+        var i: u16 = 0;
+        while (i < iota) : (i += 1) {
+            std.mem.writeIntBig(u16, &key, i);
+            Sha256.hash(&key, &value, .{});
+            try builder.set(&key, &value);
+        }
 
-    var i: i32 = 0;
-    while (i < iota) : (i += 1) {
-        std.mem.writeIntBig(u16, &key, @intCast(u16, i));
-        Sha256.hash(&key, &value, .{});
-        try builder.set(&key, &value);
+        try builder.commit();
     }
-
-    try builder.commit();
 }
 
 // fn insert(args: []const []const u8) !void {
@@ -323,12 +377,14 @@ fn internalCat(args: []const []const u8) !void {
     const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
     defer allocator.free(path);
 
+    try std.fs.accessAbsoluteZ(path, .{ .mode = std.fs.File.OpenMode.read_only });
+
     const stdout = std.io.getStdOut().writer();
 
     const env = try lmdb.Environment.open(path, .{});
     defer env.close();
 
-    const txn = try lmdb.Transaction.open(env, true);
+    const txn = try lmdb.Transaction.open(env, .{ .read_only = true });
     defer txn.abort();
 
     const cursor = try lmdb.Cursor.open(txn);
@@ -337,7 +393,7 @@ fn internalCat(args: []const []const u8) !void {
     var entry = try cursor.goToFirst();
     while (entry) |key| : (entry = try cursor.goToNext()) {
         const value = try cursor.getCurrentValue();
-        try stdout.print("{s} <- {s}\n", .{ hex(value), hex(key) });
+        try stdout.print("{s}\t{s}\n", .{ hex(key), hex(value) });
     }
 }
 
@@ -463,10 +519,3 @@ fn fail(comptime fmt: []const u8, args: anytype) noreturn {
     std.fmt.format(w, "\n", .{}) catch unreachable;
     std.os.exit(1);
 }
-
-// var path_buffer: [4096]u8 = undefined;
-// pub fn getCString(path: []const u8) [:0]u8 {
-//     std.mem.copy(u8, &path_buffer, path);
-//     path_buffer[path.len] = 0;
-//     return path_buffer[0..path.len :0];
-// }
