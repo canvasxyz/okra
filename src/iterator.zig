@@ -11,7 +11,7 @@ const Header = @import("header.zig").Header;
 const Transaction = @import("transaction.zig").Transaction;
 const utils = @import("utils.zig");
 
-pub fn Iterator(comptime Q: u8, comptime K: u8) type {
+pub fn Iterator(comptime K: u8, comptime Q: u32) type {
     return struct {
         allocator: std.mem.Allocator,
         cursor: lmdb.Cursor,
@@ -21,7 +21,7 @@ pub fn Iterator(comptime Q: u8, comptime K: u8) type {
 
         pub const Entry = struct { key: []const u8, value: []const u8 };
 
-        pub fn open(allocator: std.mem.Allocator, txn: *const Transaction(Q, K)) !*Self {
+        pub fn open(allocator: std.mem.Allocator, txn: *const Transaction(K, Q)) !*Self {
             const self = try allocator.create(Self);
             self.allocator = allocator;
             self.key_buffer = std.ArrayList(u8).init(allocator);
@@ -120,13 +120,13 @@ test "Iterator.open()" {
     const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
     defer allocator.free(path);
 
-    const tree = try Tree(4, 32).open(allocator, path, .{});
+    const tree = try Tree(32, 4).open(allocator, path, .{});
     defer tree.close();
 
-    const txn = try Transaction(4, 32).open(allocator, tree, .{ .read_only = true });
+    const txn = try Transaction(32, 4).open(allocator, tree, .{ .read_only = true });
     defer txn.abort();
 
-    const iter = try Iterator(4, 32).open(allocator, txn);
+    const iter = try Iterator(32, 4).open(allocator, txn);
     defer iter.close();
 
     try expectEqual(try iter.goToFirst(), null);
@@ -142,17 +142,17 @@ test "Iterator(a, b, c)" {
     const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
     defer allocator.free(path);
 
-    const tree = try Tree(4, 32).open(allocator, path, .{});
+    const tree = try Tree(32, 4).open(allocator, path, .{});
     defer tree.close();
 
-    const txn = try Transaction(4, 32).open(allocator, tree, .{ .read_only = false });
+    const txn = try Transaction(32, 42).open(allocator, tree, .{ .read_only = false });
     defer txn.abort();
 
     try txn.set("a", "foo");
     try txn.set("b", "bar");
     try txn.set("c", "baz");
 
-    const iter = try Iterator(4, 32).open(allocator, txn);
+    const iter = try Iterator(32, 4).open(allocator, txn);
     defer iter.close();
 
     try if (try iter.goToFirst()) |entry| {
@@ -180,10 +180,10 @@ test "Iterator: iota(10)" {
     const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
     defer allocator.free(path);
 
-    const tree = try Tree(4, 32).open(allocator, path, .{});
+    const tree = try Tree(32, 4).open(allocator, path, .{});
     defer tree.close();
 
-    const txn = try Transaction(4, 32).open(allocator, tree, .{ .read_only = false });
+    const txn = try Transaction(32, 4).open(allocator, tree, .{ .read_only = false });
     defer txn.abort();
 
     var value: [32]u8 = undefined;
@@ -195,7 +195,7 @@ test "Iterator: iota(10)" {
 
     try txn.delete(&[_]u8{3});
 
-    const iter = try Iterator(4, 32).open(allocator, txn);
+    const iter = try Iterator(32, 4).open(allocator, txn);
     defer iter.close();
 
     try if (try iter.seek(&[_]u8{3})) |entry| {

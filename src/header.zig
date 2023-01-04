@@ -5,13 +5,20 @@ const lmdb = @import("lmdb");
 
 const utils = @import("utils.zig");
 
-pub fn Header(comptime Q: u8, comptime K: u8) type {
+const DATABASE_VERSION = 0x01;
+
+fn getFanoutDegree(comptime Q: u32) [4]u8 {
+    var value: [4]u8 = .{ 0, 0, 0, 0 };
+    std.mem.writeIntBig(u32, &value, Q);
+    return value;
+}
+
+pub fn Header(comptime K: u8, comptime Q: u32) type {
     return struct {
-        pub const DATABASE_VERSION = 0x01;
         pub const HEADER_KEY = [1]u8{0xFF};
         pub const ANCHOR_KEY = [1]u8{0x00};
 
-        const header = [_]u8{ 'o', 'k', 'r', 'a', DATABASE_VERSION, Q, K };
+        const header = [_]u8{ 'o', 'k', 'r', 'a', DATABASE_VERSION, K } ++ getFanoutDegree(Q);
 
         pub fn initialize(env: lmdb.Environment) !void {
             const txn = try lmdb.Transaction.open(env, .{ .read_only = false });
@@ -60,10 +67,10 @@ test "Header.initialize()" {
     const env = try lmdb.Environment.open(path, .{});
     defer env.close();
 
-    try Header(4, 32).initialize(env);
+    try Header(32, 4).initialize(env);
 
     try lmdb.expectEqualEntries(env, &.{
         .{ &[_]u8{0x00}, &utils.parseHash("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 4, 32 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
     });
 }

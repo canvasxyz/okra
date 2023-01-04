@@ -10,7 +10,7 @@ const Header = @import("header.zig").Header;
 const Transaction = @import("transaction.zig").Transaction;
 const utils = @import("utils.zig");
 
-pub fn Cursor(comptime Q: u8, comptime K: u8) type {
+pub fn Cursor(comptime K: u8, comptime Q: u32) type {
     return struct {
         allocator: std.mem.Allocator,
         cursor: lmdb.Cursor,
@@ -20,7 +20,7 @@ pub fn Cursor(comptime Q: u8, comptime K: u8) type {
 
         pub const Node = struct { level: u8, key: ?[]const u8, hash: *const [K]u8 };
 
-        pub fn open(allocator: std.mem.Allocator, txn: *const Transaction(Q, K)) !*Self {
+        pub fn open(allocator: std.mem.Allocator, txn: *const Transaction(K, Q)) !*Self {
             const cursor = try lmdb.Cursor.open(txn.txn);
             const self = try allocator.create(Self);
             self.allocator = allocator;
@@ -141,7 +141,7 @@ fn expectEqualKeys(expected: ?[]const u8, actual: ?[]const u8) !void {
 }
 
 test "Cursor(a, b, c)" {
-    const Node = Cursor(4, 32).Node;
+    const Node = Cursor(32, 4).Node;
 
     const allocator = std.heap.c_allocator;
 
@@ -151,17 +151,17 @@ test "Cursor(a, b, c)" {
     const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
     defer allocator.free(path);
 
-    const tree = try Tree(4, 32).open(allocator, path, .{});
+    const tree = try Tree(32, 4).open(allocator, path, .{});
     defer tree.close();
 
-    const txn = try Transaction(4, 32).open(allocator, tree, .{ .read_only = false });
+    const txn = try Transaction(32, 4).open(allocator, tree, .{ .read_only = false });
     defer txn.abort();
 
     try txn.set("a", "foo");
     try txn.set("b", "bar");
     try txn.set("c", "baz");
 
-    const cursor = try Cursor(4, 32).open(allocator, txn);
+    const cursor = try Cursor(32, 4).open(allocator, txn);
     defer cursor.close();
 
     const root = try cursor.goToRoot();

@@ -16,8 +16,8 @@ const utils = @import("utils.zig");
 const print = @import("print.zig");
 
 fn testPermutations(
-    comptime Q: u8,
     comptime K: u8,
+    comptime Q: u32,
     comptime N: usize,
     comptime P: usize,
     comptime R: usize,
@@ -45,7 +45,7 @@ fn testPermutations(
         defer reference_env.close();
 
         {
-            var builder = try Builder(Q, K).open(allocator, reference_env, .{});
+            var builder = try Builder(K, Q).open(allocator, reference_env, .{});
             errdefer builder.abort();
 
             for (permutation) |i| {
@@ -66,11 +66,11 @@ fn testPermutations(
         const path = try utils.resolvePath(allocator, tmp.dir, name);
         defer allocator.free(path);
 
-        const tree = try Tree(4, 32).open(allocator, path, .{});
+        const tree = try Tree(32, 4).open(allocator, path, .{});
         defer tree.close();
 
         {
-            const txn = try Transaction(Q, K).open(allocator, tree, .{ .read_only = false, .log = log });
+            const txn = try Transaction(K, Q).open(allocator, tree, .{ .read_only = false, .log = log });
             errdefer txn.abort();
 
             for (permutation) |i, j| {
@@ -106,8 +106,8 @@ fn testPermutations(
 }
 
 fn testPseudoRandomPermutations(
-    comptime Q: u8,
     comptime K: u8,
+    comptime Q: u32,
     comptime N: u16,
     comptime P: u16,
     comptime R: u16,
@@ -126,31 +126,31 @@ fn testPseudoRandomPermutations(
         std.rand.Random.shuffle(random, u16, &permutations[n]);
     }
 
-    try testPermutations(Q, K, N, P, R, &permutations, log, environment_options);
+    try testPermutations(K, Q, N, P, R, &permutations, log, environment_options);
 }
 
 test "1 pseudo-random permutations of 10, deleting 0" {
     // const log = std.io.getStdErr().writer();
     // try log.print("\n", .{});
-    try testPseudoRandomPermutations(4, 32, 1, 10, 0, null, .{});
+    try testPseudoRandomPermutations(32, 4, 1, 10, 0, null, .{});
 }
 
 test "100 pseudo-random permutations of 50, deleting 0" {
-    try testPseudoRandomPermutations(4, 32, 100, 50, 0, null, .{});
+    try testPseudoRandomPermutations(32, 4, 100, 50, 0, null, .{});
 }
 
 test "100 pseudo-random permutations of 500, deleting 50" {
-    try testPseudoRandomPermutations(4, 32, 100, 500, 50, null, .{});
+    try testPseudoRandomPermutations(32, 4, 100, 500, 50, null, .{});
 }
 
 test "100 pseudo-random permutations of 1000, deleting 200" {
-    try testPseudoRandomPermutations(4, 32, 100, 1000, 200, null, .{});
+    try testPseudoRandomPermutations(32, 4, 100, 1000, 200, null, .{});
 }
 
 test "10 pseudo-random permutations of 10000, deleting 500" {
-    try testPseudoRandomPermutations(4, 32, 10, 10000, 500, null, .{ .map_size = 2 * 1024 * 1024 * 1024 });
+    try testPseudoRandomPermutations(32, 4, 10, 10000, 500, null, .{ .map_size = 2 * 1024 * 1024 * 1024 });
 }
 
 test "10 pseudo-random permutations of 50000, deleting 1000" {
-    try testPseudoRandomPermutations(4, 32, 10, 10000, 1000, null, .{ .map_size = 2 * 1024 * 1024 * 1024 });
+    try testPseudoRandomPermutations(32, 4, 10, 10000, 1000, null, .{ .map_size = 2 * 1024 * 1024 * 1024 });
 }
