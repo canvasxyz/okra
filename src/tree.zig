@@ -2,19 +2,13 @@ const std = @import("std");
 
 const lmdb = @import("lmdb");
 
-const header = @import("header.zig");
-const transaction = @import("transaction.zig");
-const iterator = @import("iterator.zig");
-const cursor = @import("cursor.zig");
+const Header = @import("header.zig").Header;
+
 const utils = @import("utils.zig");
 
 pub fn Tree(comptime K: u8, comptime Q: u32) type {
     return struct {
         pub const Options = struct { map_size: usize = 10485760 };
-        pub const Header = header.Header(K, Q);
-        pub const Transaction = transaction.Transaction(K, Q);
-        pub const Iterator = iterator.Iterator(K, Q);
-        pub const Cursor = cursor.Cursor(K, Q);
 
         const Self = @This();
 
@@ -23,7 +17,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
 
         pub fn open(allocator: std.mem.Allocator, path: [:0]u8, options: Options) !*Self {
             const env = try lmdb.Environment.open(path, .{ .map_size = options.map_size });
-            try Header.initialize(env);
+            try Header(K, Q).initialize(env);
 
             const self = try allocator.create(Self);
             self.allocator = allocator;
