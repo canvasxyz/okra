@@ -75,7 +75,7 @@ fn hashEntry(key: []const u8, value: []const u8, result: []u8) void {
 }
 ```
 
-Since the structure of the tree must be a pure function of the entries, it's easiest to imagine building the tree up layer by layer from the leaves. For a tree with a target fanout degree of `Q`, the rule for building layer `N+1` is to promote nodes from layer `N` whose **first four bytes** read as a big-endian `u32` is less than `2^^32 / Q` (integer division rounding towards 0). The initial null nodes of each layer are always promoted. In the diagram, nodes with `u32(node.hash[0..4]) < 2^^32 / Q` are indicated with double borders.
+Since the structure of the tree must be a pure function of the entries, it's easiest to imagine building the tree up layer by layer from the leaves. For a tree with a target fanout degree of `Q`, the rule for building layer `N+1` is to promote nodes from layer `N` whose **first four hash bytes** read as a big-endian `u32` is less than `2^^32 / Q` (integer division rounding towards 0). The initial null nodes of each layer are always promoted. In the diagram, nodes with `u32(node.hash[0..4]) < 2^^32 / Q` are indicated with double borders.
 
 In practice, the tree is incrementally maintained and is not re-built from the ground up on every change. Updates are O(log(N)).
 
