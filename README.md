@@ -75,7 +75,7 @@ okra has no external concept of versioning or time-travel. LMDB is copy-on-write
 
 ## API
 
-The four basic classes are `Tree`, `Transaction`, `Iterator`, and `Cursor`. All four are parametrized by two comptime values `K: u32` and `Q: u8`.
+The four basic classes are `Tree`, `Transaction`, `Iterator`, and `Cursor`. All four are parametrized by two comptime values `K: u8` and `Q: u32`.
 
 - `K` is the size **in bytes** of the Blake3 hash digest used internally. `32` is the maximum value; `16` is a sensible default.
 - `Q` is the target fanout degree. Nodes in a tree `Tree(K, Q)` will have, on average, `Q` children. It must be greater than 1 and less than 2^^32. `32` is a sensible default.
