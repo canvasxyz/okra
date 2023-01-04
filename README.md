@@ -59,7 +59,21 @@ Here's a diagram of an example tree. Arrows are drawn vertically for the first c
 
 The entries of the conceptual key/value store are the leaves of the tree, at level 0, sorted lexicographically by key. Each level begins with an initial "null" node (not part of the public key/value interface), and the rest are named with the key of their first child.
 
-Every node, including the leaves and the null nodes of each level, stores a Blake3 hash. The leaves hash their key/value entry (each prefixed by their `u32` length), and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the null leaf stores the hash of the empty string `Blake3() = af1349b9...`. For example, the hash value for the node at `(1, null)` would be `Blake3(Blake3(), Blake3("foo"))` since `(0, null)` and `(0, "a")` are its only children.
+Every node, including the leaves and the null nodes of each level, stores a Blake3 hash. The leaves hash their key/value entry (each prefixed by their `u32` length), and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the null leaf stores the hash of the empty string `Blake3() = af1349b9...`. For example, the hash value for the node at `(1, null)` would be `Blake3(Blake3(), hashEntry("a", "foo"))` since `(0, null)` and `(0, "a")` are its only children. `hashEntry` is implemented like this:
+
+```zig
+fn hashEntry(key: []const u8, value: []const u8, result: []u8) void {
+    var digest = Blake3.init(.{});
+    var size: [4]u8 = undefined;
+    std.mem.writeIntBig(u32, &size, @intCast(u32, key.len));
+    digest.update(&size);
+    digest.update(key);
+    std.mem.writeIntBig(u32, &size, @intCast(u32, value.len));
+    digest.update(&size);
+    digest.update(value);
+    digest.final(result);
+}
+```
 
 Since the structure of the tree must be a pure function of the entries, it's easiest to imagine building the tree up layer by layer from the leaves. For a tree with a target fanout degree of `Q`, the rule for building layer `N+1` is to promote nodes from layer `N` whose **first four bytes** read as a big-endian `u32` is less than `2^^32 / Q` (integer division rounding towards 0). The initial null nodes of each layer are always promoted. In the diagram, nodes with `u32(node.hash[0..4]) < 2^^32 / Q` are indicated with double borders.
 
