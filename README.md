@@ -89,22 +89,23 @@ okra has no external concept of versioning or time-travel. LMDB is copy-on-write
 
 ## API
 
-The four basic classes are `Tree`, `Transaction`, `Iterator`, and `Cursor`. Internally, all four are parametrized by two comptime values `K: u8` and `Q: u32`. Concrete structs are exported from [src/lib.zig](src/lib.zig) with the recommended values **`K = 16`** and **`Q = 32`**.
+The four basic classes are `Tree`, `Transaction`, `Iterator`, and `Cursor`. Internally, all four are parametrized by two comptime values `K: u8` and `Q: u32`:
 
 - `K` is the size **in bytes** of the Blake3 hash digest used internally.
 - `Q` is the target fanout degree. Nodes in a tree will have, on average, `Q` children.
+
+Concrete structs are exported from [src/lib.zig](src/lib.zig) with the recommended values **`K = 16`** and **`Q = 32`**.
 
 Trees and transactions form a classical key/value store interface. You can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries.
 
 Iterators are cursor are similar but operate on different abstractions: an iterator iterates over the entries of the abstract key/value store as a flat list (which are, in reality, just the leaves of the tree), while a cursor is used to move around the nodes of the tree itself (which includes the leaves, the intermediate-level nodes, and the root node).
 
-okra inherits its transactional semantics from LMDB. Transactions are multi-reader and single-writer - only one write transaction can be open at a time.
+okra inherits its transactional semantics from LMDB. Only one write transaction can be open at a time.
 
 ### Tree
 
 ```zig
-/// Tree(comptime K: u8, comptime Q: u32)
-struct {
+const Tree = struct {
     pub const Options = struct { map_size: usize = 10485760 };
 
     pub fn open(allocator: std.mem.Allocator, path: [:0]u8, options: Options) !*Tree
@@ -126,8 +127,7 @@ defer tree.close();
 ### Transaction
 
 ```zig
-/// Transaction(comptime K: u8, comptime Q: u32)
-struct {
+const Transaction = struct {
     pub const Options = struct { read_only: bool, log: ?std.fs.File.Writer = null };
     
     pub fn open(allocator: std.mem.Allocator, tree: *const Tree, options: Options) !*Transaction
