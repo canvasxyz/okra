@@ -89,10 +89,10 @@ okra has no external concept of versioning or time-travel. LMDB is copy-on-write
 
 ## API
 
-The four basic classes are `Tree`, `Transaction`, `Iterator`, and `Cursor`. All four are parametrized by two comptime values `K: u8` and `Q: u32`.
+The four basic classes are `Tree`, `Transaction`, `Iterator`, and `Cursor`. Internally, all four are parametrized by two comptime values `K: u8` and `Q: u32`. Concrete structs are exported from [src/lib.zig](src/lib.zig) with the recommended values **`K = 16`** and **`Q = 32`**.
 
-- `K` is the size **in bytes** of the Blake3 hash digest used internally. `32` is the maximum value; `16` is a sensible default.
-- `Q` is the target fanout degree. Nodes in a tree `Tree(K, Q)` will have, on average, `Q` children. It must be greater than `1` and less than `2^^32`. `32` is a sensible default.
+- `K` is the size **in bytes** of the Blake3 hash digest used internally.
+- `Q` is the target fanout degree. Nodes in a tree will have, on average, `Q` children.
 
 Trees and transactions form a classical key/value store interface. You can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries.
 
@@ -105,49 +105,45 @@ okra inherits its transactional semantics from LMDB. Transactions are multi-read
 ```zig
 /// Tree(comptime K: u8, comptime Q: u32)
 struct {
-    const Self = @This();
-
     pub const Options = struct { map_size: usize = 10485760 };
 
-    pub fn open(allocator: std.mem.Allocator, path: [:0]u8, options: Options) !*Self
-    pub fn close(self: *Self) void
+    pub fn open(allocator: std.mem.Allocator, path: [:0]u8, options: Options) !*Tree
+    pub fn close(self: *Tree) void
 }
 ```
 
 A `Tree` is the basic database connection handle and wraps an LMDB environment. Close it by calling `tree.close()`.
 
 ```zig
-const tree = try Tree(K, Q).open("/path/to/data.okra", .{});
+const tree = try Tree.open("/path/to/data.okra", .{});
 defer tree.close();
 
 // ...
 ```
 
-`Tree(K, Q).open(allocator, path)` returns a pointer `*Tree(K, Q)` to a new tree allocated using the provided allocator; `tree.close()` frees the tree and all its associated resources.
+`Tree.open(allocator, path)` returns a pointer `*Tree` to a new tree allocated using the provided allocator; `tree.close()` frees the tree and all its associated resources.
 
 ### Transaction
 
 ```zig
 /// Transaction(comptime K: u8, comptime Q: u32)
 struct {
-    const Self = @This();
-
     pub const Options = struct { read_only: bool, log: ?std.fs.File.Writer = null };
     
-    pub fn open(allocator: std.mem.Allocator, tree: *const Tree(K, Q), options: Options) !*Self
-    pub fn abort(self: *Self) void
-    pub fn commit(self: *Self) !void
+    pub fn open(allocator: std.mem.Allocator, tree: *const Tree, options: Options) !*Transaction
+    pub fn abort(self: *Transaction) void
+    pub fn commit(self: *Transaction) !void
 
-    pub fn get(self: *Self, key: []const u8) !?[]const u8
-    pub fn set(self: *Self, key: []const u8, value: []const u8) !void
-    pub fn delete(self: *Self, key: []const u8) !void
+    pub fn get(self: *Transaction, key: []const u8) !?[]const u8
+    pub fn set(self: *Transaction, key: []const u8, value: []const u8) !void
+    pub fn delete(self: *Transaction, key: []const u8) !void
 }
 ```
 
-Given an open tree `tree: Tree(K, Q)`, you can open a read-only transaction with
+Given an open tree `tree: *const Tree`, you can open a read-only transaction with
 
 ```zig
-const txn = try Transaction(K, Q).open(allocator, tree, .{ .read_only = true });
+const txn = try Transaction.open(allocator, tree, .{ .read_only = true });
 defer txn.abort();
 
 // ...
@@ -156,39 +152,36 @@ defer txn.abort();
 or a read-write transaction with
 
 ```zig
-const txn = try Transaction(K, Q).open(allocator, tree, .{ .read_only = false });
+const txn = try Transaction.open(allocator, tree, .{ .read_only = false });
 errdefer txn.abort();
 
 // ...
 try txn.commit();
 ```
 
-Both of these allocate and return a `*Transaction(K, Q)` which must be freed by calling either `.abort` (read-only or read-write transactions) or `.commit` (read-write transactions only).
+Both of these allocate and return a `*Transaction` which must be freed by calling either `.abort` (read-only or read-write transactions) or `.commit` (read-write transactions only).
 
 ### Iterator
 
 ```zig
-/// Iterator(comptime K: u8, comptime Q: u32)
-struct {
-    const Self = @This();
-
+pub const Iterator = struct {
     pub const Entry = struct { key: []const u8, value: []const u8 };
     
-    pub fn open(allocator: std.mem.Allocator, txn: *const Transaction(K, Q)) !*Self
-    pub fn close(self: *Self) void
+    pub fn open(allocator: std.mem.Allocator, txn: *const Transaction) !*Iterator
+    pub fn close(self: *Iterator) void
 
-    pub fn goToFirst(self: *Self) !?Entry
-    pub fn goToLast(self: *Self) !?Entry
-    pub fn goToNext(self: *Self) !?Entry
-    pub fn goToPrevious(self: *Self) !?Entry
-    pub fn seek(self: *Self, key: []const u8) !?Entry
+    pub fn goToFirst(self: *Iterator) !?Entry
+    pub fn goToLast(self: *Iterator) !?Entry
+    pub fn goToNext(self: *Iterator) !?Entry
+    pub fn goToPrevious(self: *Iterator) !?Entry
+    pub fn seek(self: *Iterator, key: []const u8) !?Entry
 }
 ```
 
-Given a transaction `txn: Transaction(K, Q)`, you can open an iterator with:
+Given a transaction `txn: *const Transaction`, you can open an iterator with:
 
 ```zig
-const iter = Iterator(K, Q).open(allocator, txn);
+const iter = Iterator.open(allocator, txn);
 defer iter.close();
 
 // ...
@@ -199,27 +192,24 @@ Iterators must be freed by calling `iterator.close()`.
 ### Cursor
 
 ```zig
-/// Cursor(comptime K: u8, comptime Q: u32)
-struct {
-    const Self = @This();
-
+const Cursor = struct {
     pub const Node = struct { level: u8, key: ?[]const u8, hash: *const [K]u8 };
 
-    pub fn open(allocator: std.mem.Allocator, txn: *const Transaction(K, Q)) !*Self
-    pub fn close(self: *Self) void
+    pub fn open(allocator: std.mem.Allocator, txn: *const Transaction) !*Cursor
+    pub fn close(self: *Cursor) void
 
-    pub fn goToRoot(self: *Self) !Node
-    pub fn goToNode(self: *Self, level: u8, key: ?[]const u8) !Node
-    pub fn goToNext(self: *Self) !?Node
-    pub fn goToPrevious(self: *Self) !?Node
-    pub fn seek(self: *Self, level: u8, key: ?[]const u8) !?Node
+    pub fn goToRoot(self: *Cursor) !Node
+    pub fn goToNode(self: *Cursor, level: u8, key: ?[]const u8) !Node
+    pub fn goToNext(self: *Cursor) !?Node
+    pub fn goToPrevious(self: *Cursor) !?Node
+    pub fn seek(self: *Cursor, level: u8, key: ?[]const u8) !?Node
 }
 ```
 
-Given a transaction `txn: Transaction(K, Q)`, you can open a cursor with:
+Given a transaction `txn: *const Transaction`, you can open a cursor with:
 
 ```zig
-const cursor = Cursor(K, Q).open(allocator, txn);
+const cursor = Cursor.open(allocator, txn);
 defer cursor.close();
 
 // ...
