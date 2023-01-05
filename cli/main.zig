@@ -61,10 +61,19 @@ fn parseEncoding() Encoding {
     }
 }
 
-fn parseKey() ?[]const u8 {
-    const key = keyOption.value.string orelse unreachable;
-    return if (key.len > 0) key else null;
-}
+// fn parseKey(encoding: Encoding) ?[]const u8 {
+//     const key = keyOption.value.string orelse unreachable;
+//     return if (key.len > 0) switch (encoding) {
+//         .utf8 => key,
+//         .hex => {
+//             if (key.len % 2 == 1) {
+//                 fail("invalid hex input", .{});
+//             }
+//             const buffer = allocator.alloc(u8, key.len / 2) catch unreachable;
+//             return std.fmt.hexToBytes(buffer, key) catch unreachable;
+//         },
+//     } else null;
+// }
 
 var app = &cli.Command{
     .name = "okra",
@@ -88,12 +97,6 @@ var app = &cli.Command{
             .options = &.{&iotaOption},
             .action = init,
         },
-        // &cli.Command{
-        //   .name = "insert",
-        //   .help = "insert a new leaf",
-        //   .options = &.{ &pathOption, &verboseOption },
-        //   .action = insert,
-        // },
         // &cli.Command{
         //   .name = "rebuild",
         //   .help = "rebuild the tree from the leaf layer",
@@ -179,6 +182,17 @@ fn cat(args: []const []const u8) !void {
 
 const hashSeparator = "  " ** okra.K;
 
+fn printNode(writer: std.fs.File.Writer, node: okra.Cursor.Node, encoding: Encoding) !void {
+    if (node.key) |key|
+        switch (encoding) {
+            .hex => try writer.print("{d: >5} | {s} | {s}\n", .{ node.level, hex(node.hash), hex(key) }),
+            .utf8 => try writer.print("{d: >5} | {s} | {s}\n", .{ node.level, hex(node.hash), key }),
+        }
+    else {
+        try writer.print("{d: >5} | {s} |\n", .{ node.level, hex(node.hash) });
+    }
+}
+
 fn ls(args: []const []const u8) !void {
     if (args.len > 1) {
         fail("too many arguments", .{});
@@ -187,10 +201,28 @@ fn ls(args: []const []const u8) !void {
     }
 
     const encoding = parseEncoding();
-    const key = parseKey();
+
+    const key = keyOption.value.string orelse unreachable;
+    var buffer = std.ArrayList(u8).init(allocator);
+    defer buffer.deinit();
+    switch (encoding) {
+        .hex => {
+            if (key.len % 2 == 0) {
+                try buffer.resize(key.len / 2);
+                _ = try std.fmt.hexToBytes(buffer.items, key);
+            } else {
+                fail("invalid hex input", .{});
+            }
+        },
+        .utf8 => {
+            try buffer.resize(key.len);
+            std.mem.copy(u8, buffer.items, key);
+        },
+    }
+
     const level = levelOption.value.int orelse unreachable;
     if (level == -1) {
-        if (key != null) {
+        if (key.len != 0) {
             fail("the root node's key is the empty string", .{});
         }
     } else if (level < 0) {
@@ -215,49 +247,22 @@ fn ls(args: []const []const u8) !void {
     const cursor = try okra.Cursor.open(allocator, txn);
     defer cursor.close();
 
-    const root = if (level == -1) try cursor.goToRoot() else try cursor.goToNode(@intCast(u8, level), key);
+    try stdout.print("level | {s: <32} | key\n", .{"hash"});
+    try stdout.print("----- | {s:-<32} | {s:-<32}\n", .{ "", "" });
 
-    if (root.level == 0) {
-        try stdout.print("{d: >32} | key\n", .{root.level});
-        try stdout.print("{s:->32} | {s:->3}\n", .{ "", "" });
-        if (root.key) |k|
-            switch (encoding) {
-                .hex => try stdout.print("{s} | {s}\n", .{ hex(root.hash), hex(k) }),
-                .utf8 => try stdout.print("{s} | {s}\n", .{ hex(root.hash), k }),
-            }
-        else {
-            try stdout.print("{s} |\n", .{hex(root.hash)});
-        }
+    const root = if (level == -1)
+        try cursor.goToRoot()
+    else
+        try cursor.goToNode(@intCast(u8, level), buffer.items);
 
-        return;
+    try printNode(stdout, root, encoding);
+
+    if (root.level > 0) {
+        try stdout.print("----- | {s:-<32} | {s:-<32}\n", .{ "", "" });
+        const first_child = try cursor.goToNode(root.level - 1, root.key);
+        try printNode(stdout, first_child, encoding);
+        while (try cursor.goToNext()) |next| try printNode(stdout, next, encoding);
     }
-
-    try stdout.print("{d: >32} {d: >32} | key\n", .{ root.level, root.level - 1 });
-    try stdout.print("{s:->32} {s:->32} | {s:->32}\n", .{ "", "", "" });
-    try stdout.print("{s} ", .{hex(root.hash)});
-
-    const first_child = try cursor.goToNode(root.level - 1, root.key);
-    if (first_child.key) |k|
-        switch (encoding) {
-            .hex => try stdout.print("{s} | {s}\n", .{ hex(first_child.hash), hex(k) }),
-            .utf8 => try stdout.print("{s} | {s}\n", .{ hex(first_child.hash), k }),
-        }
-    else {
-        try stdout.print("{s} |\n", .{hex(first_child.hash)});
-    }
-
-    while (try cursor.goToNext()) |next| {
-        if (next.key) |k| switch (encoding) {
-            .hex => try stdout.print("{s} {s} | {s}\n", .{ hashSeparator, hex(next.hash), hex(k) }),
-            .utf8 => try stdout.print("{s} {s} | {s}\n", .{ hashSeparator, hex(next.hash), k }),
-        } else {
-            try stdout.print("{s} {s} |\n", .{ hashSeparator, hex(next.hash) });
-        }
-    }
-
-    // const env = try lmdb.Environment.open(path, .{});
-    // defer env.close();
-    // try okra.printTree(allocator, env, stdout, .{ .compact = true });
 }
 
 fn init(args: []const []const u8) !void {
@@ -297,41 +302,6 @@ fn init(args: []const []const u8) !void {
         try builder.commit();
     }
 }
-
-// fn insert(args: []const []const u8) !void {
-//     const path = pathOption.value.string orelse unreachable;
-//     const verbose = verboseOption.value.bool;
-
-//     if (args.len == 0) {
-//         fail("missing leaf argument", .{});
-//     } else if (args.len == 1) {
-//         fail("missing hash argument", .{});
-//     } else if (args.len > 2) {
-//         fail("too many arguments", .{});
-//     }
-
-//     const leafArg = args[0];
-//     const hashArg = args[1];
-
-//     if (leafArg.len != 2 * X) {
-//         fail("invalid leaf size - expected exactly {d} hex bytes", .{ X });
-//     } else if (hashArg.len != 2 * V) {
-//         fail("invalid hash size - expected exactly {d} hex bytes", .{ V });
-//     }
-
-//     var leaf = [_]u8{ 0 } ** X;
-//     var hash = [_]u8{ 0 } ** V;
-
-//     _ = try std.fmt.hexToBytes(&leaf, leafArg);
-//     _ = try std.fmt.hexToBytes(&hash, hashArg);
-
-//     const log = if (verbose) std.io.getStdOut().writer() else null;
-//     var tree: Tree = undefined;
-//     try tree.init(allocator, getCString(path), .{ .log = log });
-//     defer tree.close();
-
-//     try tree.insert(&leaf, &hash);
-// }
 
 // fn rebuild(args: []const []const u8) !void {
 //     const path = pathOption.value.string orelse unreachable;
