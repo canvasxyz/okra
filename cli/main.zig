@@ -11,12 +11,12 @@ const utils = @import("./utils.zig");
 
 const allocator = std.heap.c_allocator;
 
-// var verboseOption = cli.Option{
-//     .long_name = "verbose",
-//     .short_alias = 'v',
-//     .help = "print debugging log to stdout",
-//     .value = cli.OptionValue{ .bool = false },
-// };
+var verboseOption = cli.Option{
+    .long_name = "verbose",
+    .short_alias = 'v',
+    .help = "print verbose debugging info to stdout",
+    .value = cli.OptionValue{ .bool = false },
+};
 
 var iotaOption = cli.Option{
     .long_name = "iota",
@@ -36,14 +36,14 @@ var keyOption = cli.Option{
     .long_name = "key",
     .short_alias = 'k',
     .help = "node key",
-    .value = cli.OptionValue{ .string = "" },
+    .value = cli.OptionValue{ .string = null },
     .required = false,
 };
 
 var encodingOption = cli.Option{
     .long_name = "encoding",
     .short_alias = 'e',
-    .help = "encoding (\"utf-8\" or \"hex\")",
+    .help = "\"utf-8\" or \"hex\" (default \"utf-8\")",
     .value = cli.OptionValue{ .string = "utf-8" },
     .required = false,
 };
@@ -60,20 +60,6 @@ fn parseEncoding() Encoding {
         fail("invalid encoding", .{});
     }
 }
-
-// fn parseKey(encoding: Encoding) ?[]const u8 {
-//     const key = keyOption.value.string orelse unreachable;
-//     return if (key.len > 0) switch (encoding) {
-//         .utf8 => key,
-//         .hex => {
-//             if (key.len % 2 == 1) {
-//                 fail("invalid hex input", .{});
-//             }
-//             const buffer = allocator.alloc(u8, key.len / 2) catch unreachable;
-//             return std.fmt.hexToBytes(buffer, key) catch unreachable;
-//         },
-//     } else null;
-// }
 
 var app = &cli.Command{
     .name = "okra",
@@ -96,6 +82,24 @@ var app = &cli.Command{
             .help = "initialize an empty database",
             .options = &.{&iotaOption},
             .action = init,
+        },
+        &cli.Command{
+            .name = "set",
+            .help = "set a key/value entry",
+            .options = &.{ &encodingOption, &verboseOption },
+            .action = set,
+        },
+        &cli.Command{
+            .name = "get",
+            .help = "get a key/value entry",
+            .options = &.{&encodingOption},
+            .action = get,
+        },
+        &cli.Command{
+            .name = "delete",
+            .help = "delete a key/value entry",
+            .options = &.{ &encodingOption, &verboseOption },
+            .action = delete,
         },
         // &cli.Command{
         //   .name = "rebuild",
@@ -150,7 +154,7 @@ fn cat(args: []const []const u8) !void {
     if (args.len > 1) {
         fail("too many arguments", .{});
     } else if (args.len == 0) {
-        fail("path required", .{});
+        fail("path argument required", .{});
     }
 
     const encoding = parseEncoding();
@@ -180,8 +184,6 @@ fn cat(args: []const []const u8) !void {
     }
 }
 
-const hashSeparator = "  " ** okra.K;
-
 fn printNode(writer: std.fs.File.Writer, node: okra.Cursor.Node, encoding: Encoding) !void {
     if (node.key) |key|
         switch (encoding) {
@@ -197,32 +199,33 @@ fn ls(args: []const []const u8) !void {
     if (args.len > 1) {
         fail("too many arguments", .{});
     } else if (args.len == 0) {
-        fail("path required", .{});
+        fail("path argument required", .{});
     }
 
     const encoding = parseEncoding();
 
-    const key = keyOption.value.string orelse unreachable;
-    var buffer = std.ArrayList(u8).init(allocator);
-    defer buffer.deinit();
-    switch (encoding) {
-        .hex => {
-            if (key.len % 2 == 0) {
-                try buffer.resize(key.len / 2);
-                _ = try std.fmt.hexToBytes(buffer.items, key);
-            } else {
-                fail("invalid hex input", .{});
-            }
-        },
-        .utf8 => {
-            try buffer.resize(key.len);
-            std.mem.copy(u8, buffer.items, key);
-        },
+    var key_buffer = std.ArrayList(u8).init(allocator);
+    defer key_buffer.deinit();
+    if (keyOption.value.string) |key| {
+        switch (encoding) {
+            .hex => {
+                if (key.len % 2 == 0) {
+                    try key_buffer.resize(key.len / 2);
+                    _ = try std.fmt.hexToBytes(key_buffer.items, key);
+                } else {
+                    fail("invalid hex input", .{});
+                }
+            },
+            .utf8 => {
+                try key_buffer.resize(key.len);
+                std.mem.copy(u8, key_buffer.items, key);
+            },
+        }
     }
 
     const level = levelOption.value.int orelse unreachable;
     if (level == -1) {
-        if (key.len != 0) {
+        if (key_buffer.items.len != 0) {
             fail("the root node's key is the empty string", .{});
         }
     } else if (level < 0) {
@@ -253,7 +256,7 @@ fn ls(args: []const []const u8) !void {
     const root = if (level == -1)
         try cursor.goToRoot()
     else
-        try cursor.goToNode(@intCast(u8, level), buffer.items);
+        try cursor.goToNode(@intCast(u8, level), key_buffer.items);
 
     try printNode(stdout, root, encoding);
 
@@ -265,11 +268,169 @@ fn ls(args: []const []const u8) !void {
     }
 }
 
+fn set(args: []const []const u8) !void {
+    if (args.len > 3) {
+        fail("too many arguments", .{});
+    } else if (args.len == 0) {
+        fail("path argument required", .{});
+    } else if (args.len == 1) {
+        fail("key argument required", .{});
+    } else if (args.len == 2) {
+        fail("value argument required", .{});
+    }
+
+    const encoding = parseEncoding();
+
+    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
+    defer allocator.free(path);
+
+    try std.fs.accessAbsoluteZ(path, .{ .mode = .read_only });
+
+    var key_buffer = std.ArrayList(u8).init(allocator);
+    defer key_buffer.deinit();
+
+    var value_buffer = std.ArrayList(u8).init(allocator);
+    defer value_buffer.deinit();
+
+    switch (encoding) {
+        .hex => {
+            if (args[1].len % 2 == 0) {
+                try key_buffer.resize(args[1].len / 2);
+                _ = try std.fmt.hexToBytes(key_buffer.items, args[1]);
+            } else {
+                fail("invalid hex input", .{});
+            }
+
+            if (args[2].len % 2 == 0) {
+                try value_buffer.resize(args[2].len / 2);
+                _ = try std.fmt.hexToBytes(value_buffer.items, args[2]);
+            } else {
+                fail("invalid hex input", .{});
+            }
+        },
+        .utf8 => {
+            try key_buffer.resize(args[1].len);
+            std.mem.copy(u8, key_buffer.items, args[1]);
+
+            try value_buffer.resize(args[2].len);
+            std.mem.copy(u8, value_buffer.items, args[2]);
+        },
+    }
+
+    const tree = try okra.Tree.open(allocator, path, .{});
+    defer tree.close();
+
+    const log = if (verboseOption.value.bool) std.io.getStdOut().writer() else null;
+    const txn = try okra.Transaction.open(allocator, tree, .{ .read_only = false, .log = log });
+    errdefer txn.abort();
+
+    try txn.set(key_buffer.items, value_buffer.items);
+    try txn.commit();
+}
+
+fn get(args: []const []const u8) !void {
+    if (args.len > 2) {
+        fail("too many arguments", .{});
+    } else if (args.len == 0) {
+        fail("path argument required", .{});
+    } else if (args.len == 1) {
+        fail("key argument required", .{});
+    }
+
+    const encoding = parseEncoding();
+
+    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
+    defer allocator.free(path);
+
+    try std.fs.accessAbsoluteZ(path, .{ .mode = .read_only });
+
+    var key_buffer = std.ArrayList(u8).init(allocator);
+    defer key_buffer.deinit();
+
+    switch (encoding) {
+        .hex => {
+            if (args[1].len % 2 == 0) {
+                try key_buffer.resize(args[1].len / 2);
+                _ = try std.fmt.hexToBytes(key_buffer.items, args[1]);
+            } else {
+                fail("invalid hex input", .{});
+            }
+        },
+        .utf8 => {
+            try key_buffer.resize(args[1].len);
+            std.mem.copy(u8, key_buffer.items, args[1]);
+        },
+    }
+
+    const tree = try okra.Tree.open(allocator, path, .{});
+    defer tree.close();
+
+    const txn = try okra.Transaction.open(allocator, tree, .{ .read_only = true });
+    defer txn.abort();
+
+    const value = try txn.get(key_buffer.items) orelse fail("KeyNotFound", .{});
+
+    const stdout = std.io.getStdOut().writer();
+    switch (encoding) {
+        .hex => {
+            try stdout.print("{s}\n", .{hex(value)});
+        },
+        .utf8 => {
+            try stdout.print("{s}\n", .{value});
+        },
+    }
+}
+
+fn delete(args: []const []const u8) !void {
+    if (args.len > 2) {
+        fail("too many arguments", .{});
+    } else if (args.len == 0) {
+        fail("path argument required", .{});
+    } else if (args.len == 1) {
+        fail("key argument required", .{});
+    }
+
+    const encoding = parseEncoding();
+
+    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
+    defer allocator.free(path);
+
+    try std.fs.accessAbsoluteZ(path, .{ .mode = .read_only });
+
+    var key_buffer = std.ArrayList(u8).init(allocator);
+    defer key_buffer.deinit();
+
+    switch (encoding) {
+        .hex => {
+            if (args[1].len % 2 == 0) {
+                try key_buffer.resize(args[1].len / 2);
+                _ = try std.fmt.hexToBytes(key_buffer.items, args[1]);
+            } else {
+                fail("invalid hex input", .{});
+            }
+        },
+        .utf8 => {
+            try key_buffer.resize(args[1].len);
+            std.mem.copy(u8, key_buffer.items, args[1]);
+        },
+    }
+
+    const tree = try okra.Tree.open(allocator, path, .{});
+    defer tree.close();
+
+    const log = if (verboseOption.value.bool) std.io.getStdOut().writer() else null;
+    const txn = try okra.Transaction.open(allocator, tree, .{ .read_only = false, .log = log });
+    errdefer txn.abort();
+
+    try txn.delete(key_buffer.items);
+    try txn.commit();
+}
+
 fn init(args: []const []const u8) !void {
     if (args.len > 1) {
         fail("too many arguments", .{});
     } else if (args.len == 0) {
-        fail("path required", .{});
+        fail("path argument required", .{});
     }
 
     const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
