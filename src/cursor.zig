@@ -125,8 +125,8 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
     };
 }
 
-fn h(comptime value: *const [64]u8) [32]u8 {
-    var buffer: [32]u8 = undefined;
+fn h(comptime value: *const [32]u8) [16]u8 {
+    var buffer: [16]u8 = undefined;
     _ = std.fmt.hexToBytes(&buffer, value) catch unreachable;
     return buffer;
 }
@@ -141,7 +141,7 @@ fn expectEqualKeys(expected: ?[]const u8, actual: ?[]const u8) !void {
 }
 
 test "Cursor(a, b, c)" {
-    const Node = Cursor(32, 4).Node;
+    const Node = Cursor(16, 4).Node;
 
     const allocator = std.heap.c_allocator;
 
@@ -151,60 +151,71 @@ test "Cursor(a, b, c)" {
     const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
     defer allocator.free(path);
 
-    const tree = try Tree(32, 4).open(allocator, path, .{});
+    const tree = try Tree(16, 4).open(allocator, path, .{});
     defer tree.close();
 
-    const txn = try Transaction(32, 4).open(allocator, tree, .{ .read_only = false });
+    const txn = try Transaction(16, 4).open(allocator, tree, .{ .read_only = false });
     defer txn.abort();
 
     try txn.set("a", "foo");
     try txn.set("b", "bar");
     try txn.set("c", "baz");
 
-    const cursor = try Cursor(32, 4).open(allocator, txn);
+    // okay here we expect
+    // L0 -----------------------------
+    // af1349b9f5f9a1a6a0404dea36dcc949
+    // 2f26b85f65eb9f7a8ac11e79e710148d "a"
+    // 684f1047a178e6cf9fff759ba1edec2d "b"
+    // 56cb13c78823525b08d471b6c1201360 "c"
+    // L1 -----------------------------
+    // 6c5483c477697c881f6b03dc23a52c7f
+    // d139f1b3444bc84fd46cbd56f7fe2fb5 "a"
+    // L2 -----------------------------
+    // 2453a3811e50851b4fc0bb95e1415b07
+
+    const cursor = try Cursor(16, 4).open(allocator, txn);
     defer cursor.close();
 
     const root = try cursor.goToRoot();
     try expectEqual(@as(u8, 2), root.level);
     try expectEqual(@as(?[]const u8, null), root.key);
-    try expectEqualSlices(u8, &h("3bb418b5746a2a7604f8ca73bb9270cd848c046ff3a3dcfdd0c53f063a8fd437"), root.hash);
-
+    try expectEqualSlices(u8, &h("2453a3811e50851b4fc0bb95e1415b07"), root.hash);
     try expectEqual(@as(?Node, null), try cursor.goToNext());
 
     {
         const node = try cursor.goToNode(1, null);
         try expectEqual(@as(u8, 1), node.level);
         try expectEqual(@as(?[]const u8, null), node.key);
-        try expectEqualSlices(u8, &h("67d7843048360902858aaad05aad36160453583837929d0d864983abccd46c13"), node.hash);
+        try expectEqualSlices(u8, &h("6c5483c477697c881f6b03dc23a52c7f"), node.hash);
     }
 
     try if (try cursor.goToNext()) |node| {
         try expectEqual(@as(u8, 1), node.level);
-        try expectEqualKeys("b", node.key);
-        try expectEqualSlices(u8, &h("e902487cdf8c101eb5948eca70f3ba2bfa5ade4c68554b8d009c7e76de0b2a75"), node.hash);
+        try expectEqualKeys("a", node.key);
+        try expectEqualSlices(u8, &h("d139f1b3444bc84fd46cbd56f7fe2fb5"), node.hash);
     } else error.NotFound;
 
     try expectEqual(@as(?Node, null), try cursor.goToNext());
 
-    try txn.set("x", "hello world"); // d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24
-    try txn.set("z", "lorem ipsum"); // 25352ae068b54a93ef60942c085da23a321a7f7985193910221cd4fffff5ffb6
+    try txn.set("x", "hello world"); // a4fefb21af5e42531ed2b7860cf6e80a
+    try txn.set("z", "lorem ipsum"); // 4d41c77b6d7d709e7dd9803e07060681
 
     try if (try cursor.seek(0, "y")) |node| {
         try expectEqual(@as(u8, 0), node.level);
         try expectEqualKeys("z", node.key);
-        try expectEqualSlices(u8, &h("25352ae068b54a93ef60942c085da23a321a7f7985193910221cd4fffff5ffb6"), node.hash);
+        try expectEqualSlices(u8, &h("4d41c77b6d7d709e7dd9803e07060681"), node.hash);
     } else error.NotFound;
 
     try if (try cursor.goToPrevious()) |node| {
         try expectEqual(@as(u8, 0), node.level);
         try expectEqualKeys("x", node.key);
-        try expectEqualSlices(u8, &h("d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24"), node.hash);
+        try expectEqualSlices(u8, &h("a4fefb21af5e42531ed2b7860cf6e80a"), node.hash);
     } else error.NotFound;
 
     try if (try cursor.seek(0, null)) |node| {
         try expectEqual(@as(u8, 0), node.level);
         try expectEqualKeys(null, node.key);
-        try expectEqualSlices(u8, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"), node.hash);
+        try expectEqualSlices(u8, &h("af1349b9f5f9a1a6a0404dea36dcc949"), node.hash);
     } else error.NotFound;
 
     try expectEqual(@as(?Node, null), try cursor.goToPrevious());
