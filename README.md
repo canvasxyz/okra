@@ -57,9 +57,9 @@ Here's a diagram of an example tree. Arrows are drawn vertically for the first c
             ╚════╝   └─────┘   ╚═════╝   ╚═════╝   └─────┘   └─────┘   └─────┘   ╚═════╝   └─────┘   ╚═════╝   └─────┘   └─────┘   └─────┘   ╚═════╝   └─────┘
 ```
 
-The entries of the conceptual key/value store are the leaves of the tree, at level 0, sorted lexicographically by key. Each level begins with an initial "null" node (not part of the public key/value interface), and the rest are named with the key of their first child.
+The entries of the conceptual key/value store are the leaves of the tree, at level 0, sorted lexicographically by key. Each level begins with an initial "anchor node" (not part of the public key/value interface), and the rest are named with the key of their first child.
 
-Every node, including the leaves and the null nodes of each level, stores a Blake3 hash. The leaves hash their key/value entry (each prefixed by their `u32` length), and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the null leaf stores the hash of the empty string `Blake3() = af1349b9...`. For example, the hash value for the node at `(1, null)` would be `Blake3(Blake3(), hashEntry("a", "foo"))` since `(0, null)` and `(0, "a")` are its only children. `hashEntry` is implemented like this:
+Every node, including the leaves and the anchor nodes of each level, stores a Blake3 hash. The leaves hash their key/value entry, and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the anchor leaf stores the hash of the empty string `Blake3() = af1349b9...`. For example, the hash value for the anchor node at `(1, null)` would be `Blake3(Blake3(), hashEntry("a", "foo"))` since `(0, null)` and `(0, "a")` are its only children. `hashEntry` is implemented like this:
 
 ```zig
 fn hashEntry(key: []const u8, value: []const u8, result: []u8) void {
@@ -75,11 +75,11 @@ fn hashEntry(key: []const u8, value: []const u8, result: []u8) void {
 }
 ```
 
-Since the structure of the tree must be a pure function of the entries, it's easiest to imagine building the tree up layer by layer from the leaves. For a tree with a target fanout degree of `Q`, the rule for building layer `N+1` is to promote nodes from layer `N` whose **first four hash bytes** read as a big-endian `u32` is less than `2^^32 / Q` (integer division rounding towards 0). The initial null nodes of each layer are always promoted. In the diagram, nodes with `u32(node.hash[0..4]) < 2^^32 / Q` are indicated with double borders.
+Since the structure of the tree must be a pure function of the entries, it's easiest to imagine building the tree up layer by layer from the leaves. For a tree with a target fanout degree of `Q`, the rule for building layer `N+1` is to promote nodes from layer `N` whose **first four hash bytes** read as a big-endian `u32` is less than `2^^32 / Q` (integer division rounding towards 0). The anchor nodes of each layer are always promoted. In the diagram, nodes with `u32(node.hash[0..4]) < 2^^32 / Q` are indicated with double borders.
 
 In practice, the tree is incrementally maintained and is not re-built from the ground up on every change. Updates are O(log(N)).
 
-The tree is stored in an LMDB database where nodes are _LMDB_ key/value entries with keys prefixed by a `level: u8` byte and values prefixed by the entry's `[K]u8` hash. For null node entries, the level byte is the entire key, and for non-leaf `level > 0` node entries, the hash is the entire value. The key `[1]u8{0xFF}` is reserved as a metadata entry for storing the database version, database variant, and height of the tree. This gives the tree a maximum height of 254. In practice, with the recommended fanout degree of 32, the tree will rarely be taller than 5 (millions of entries) or 6 (billions of entries) levels.
+The tree is stored in an LMDB database where nodes are _LMDB_ key/value entries with keys prefixed by a `level: u8` byte and values prefixed by the entry's `[K]u8` hash. For anchor nodes, the level byte is the entire key, and for non-leaf `level > 0` nodes, the hash is the entire value. The key `[1]u8{0xFF}` is reserved as a metadata entry for storing the database version, database variant, and height of the tree. This gives the tree a maximum height of 254. In practice, with the recommended fanout degree of 32, the tree will rarely be taller than 5 (millions of entries) or 6 (billions of entries) levels.
 
 This approach is different than e.g. Dolt's Prolly Tree implementation, which is a from-scratch b-tree that reads and writes its own pages and is used as the foundation of a full-blown relational database. okra is designed to be used as a simple efficiently-diffable key/value store, and leverages LMDB to reduce the implementation to just the logical rebalancing operations and inhert all its ACID transaction properties.
 
@@ -98,7 +98,7 @@ Concrete structs are exported from [src/lib.zig](src/lib.zig) with the recommend
 
 Trees and transactions form a classical key/value store interface. You can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries.
 
-Iterators are cursor are similar but operate on different abstractions: an iterator iterates over the entries of the abstract key/value store as a flat list (which are, in reality, just the leaves of the tree), while a cursor is used to move around the nodes of the tree itself (which includes the leaves, the intermediate-level nodes, and the root node).
+Iterators are cursor are similar but operate on different abstractions: an iterator operates linearily over the entries of the abstract key/value store (which are, in reality, just the leaves of the tree), while a cursor is used to move around the nodes of the tree itself (which includes the leaves, the intermediate-level nodes, and the root node).
 
 okra inherits its transactional semantics from LMDB. Only one write transaction can be open at a time.
 
@@ -193,7 +193,7 @@ Iterators must be freed by calling `iterator.close()`.
 
 ```zig
 const Cursor = struct {
-    pub const Node = struct { level: u8, key: ?[]const u8, hash: *const [K]u8 };
+    pub const Node = struct { level: u8, key: ?[]const u8, hash: *const [K]u8, value: ?[]const u8 };
 
     pub fn open(allocator: std.mem.Allocator, txn: *const Transaction) !*Cursor
     pub fn close(self: *Cursor) void
@@ -205,6 +205,8 @@ const Cursor = struct {
     pub fn seek(self: *Cursor, level: u8, key: ?[]const u8) !?Node
 }
 ```
+
+For any `node: Node`, `node.value` is null if `node.key == null` or `node.level > 0`, and points to the value of the leaf entry if `node.key != null` and `node.level == 0`.
 
 Given a transaction `txn: *const Transaction`, you can open a cursor with:
 
