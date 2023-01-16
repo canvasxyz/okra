@@ -1,34 +1,37 @@
 # Benchmarks
 
+Run on a 2021 M1 MacBook Pro with 32GB RAM running macos 13.1.
+
 ## LMDB benchmarks
 
-### Reads 
-| **INITIAL DB SIZE: 1,000 ENTRIES**       | iterations | min (ns) | max (ns) |  avg(ns) |      std |    ops / s |
-| ---------------------------------------- | ---------- | -------- | -------- | -------- | -------- | ---------- |
-| - read 1 random entry                    |        100 |      500 |     7417 |      844 |      702 |    1184834 |
-| - iterate over all entries               |        100 |     5083 |    19500 |     5616 |     1678 |  178062678 |
+### Reads
 
-| **INITIAL DB SIZE: 100,000 ENTRIES**     | iterations | min (ns) | max (ns) |  avg(ns) |      std |    ops / s |
+| **INITIAL DB SIZE: 1,000 ENTRIES**       | iterations | min (ns) | max (ns) | avg (ns) |      std |    ops / s |
 | ---------------------------------------- | ---------- | -------- | -------- | -------- | -------- | ---------- |
-| - read 1 random entry                    |        100 |      375 |    11167 |     1370 |     1269 |     729927 |
-| - iterate over all entries               |        100 |   502041 |   867042 |   519917 |    39472 |  192338392 |
+| - read 1 random entry                    |        100 |      583 |    15541 |     1242 |     1584 |     805152 |
+| - iterate over all entries               |        100 |    12708 |    41666 |    13075 |     2874 |   76481835 |
+
+| **INITIAL DB SIZE: 100,000 ENTRIES**     | iterations | min (ns) | max (ns) | avg (ns) |      std |    ops / s |
+| ---------------------------------------- | ---------- | -------- | -------- | -------- | -------- | ---------- |
+| - read 1 random entry                    |        100 |      334 |     7166 |     1167 |      668 |     856898 |
+| - iterate over all entries               |        100 |   502084 |   877000 |   515284 |    39882 |  194067737 |
 
 ### Writes
 
-| **INITIAL DB SIZE: 0 ENTRIES**           | iterations | min (ns) | max (ns) |  avg(ns) |      std |    ops / s |
+| **INITIAL DB SIZE: 0 ENTRIES**           | iterations | min (ns) | max (ns) | avg (ns) |      std |    ops / s |
 | ---------------------------------------- | ---------- | -------- | -------- | -------- | -------- | ---------- |
-| - set 1 random entry                     |        100 |    64375 |   195750 |    87036 |    20634 |      11489 |
-| - set 1,000 random entries               |        100 |   385792 |   651958 |   424267 |    33624 |    2357006 |
-| - set 100,000 random entries             |         10 | 45718458 | 51657250 | 47099679 |  1711927 |    2123156 |
+| - set 1 random entry                     |        100 |    58708 |   188750 |    82509 |    17894 |      12119 |
+| - set 1,000 random entries               |        100 |   384375 |   511167 |   424155 |    22397 |    2357628 |
+| - set 100,000 random entries             |         10 | 45679667 | 48239083 | 46377829 |   916548 |    2156202 |
 
-| **INITIAL DB SIZE: 1,000 ENTRIES**       | iterations | min (ns) | max (ns) |  avg(ns) |      std |    ops / s |
+| **INITIAL DB SIZE: 1,000 ENTRIES**       | iterations | min (ns) | max (ns) | avg (ns) |      std |    ops / s |
 | ---------------------------------------- | ---------- | -------- | -------- | -------- | -------- | ---------- |
-| - set 1 random entry                     |        100 |    61583 |   176167 |    77145 |    13533 |      12962 |
-| - set 1,000 random entries               |        100 |   459750 |   841208 |   504537 |    44036 |    1982015 |
-| - set 100,000 random entries             |         10 | 45570292 | 48224792 | 46227679 |   940651 |    2163206 |
+| - set 1 random entry                     |        100 |    62250 |   118541 |    77384 |     9575 |      12922 |
+| - set 1,000 random entries               |        100 |   463000 |   581750 |   504900 |    23000 |    1980590 |
+| - set 100,000 random entries             |         10 | 46344292 | 52600708 | 47491712 |  1766516 |    2105630 |
 
-| **INITIAL DB SIZE: 100,000 ENTRIES**     | iterations | min (ns) | max (ns) |  avg(ns) |      std |    ops / s |
+| **INITIAL DB SIZE: 100,000 ENTRIES**     | iterations | min (ns) | max (ns) | avg (ns) |      std |    ops / s |
 | ---------------------------------------- | ---------- | -------- | -------- | -------- | -------- | ---------- |
-| - set 1 random entry                     |        100 |    82417 |   209083 |   120811 |    24112 |       8277 |
-| - set 1,000 random entries               |        100 |  2802875 |  7035458 |  3132629 |   733831 |     319220 |
-| - set 100,000 random entries             |         10 | 53455917 | 61532625 | 54847808 |  2305727 |    1823226 |
+| - set 1 random entry                     |        100 |    80875 |  2384458 |   140605 |   226528 |       7112 |
+| - set 1,000 random entries               |        100 |  2860458 |  8235708 |  3469212 |   937571 |     288249 |
+| - set 100,000 random entries             |         10 | 59472041 | 73811083 | 63169941 |  4393324 |    1583031 |
