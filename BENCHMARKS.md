@@ -4,6 +4,12 @@ Run on a 2021 M1 MacBook Pro with 32GB RAM running macos 13.1.
 
 ## LMDB benchmarks
 
+Run the LMDB benchmarks:
+
+```sh
+$ zig build bench-lmdb
+```
+
 ### Reads
 
 | **INITIAL DB SIZE: 1,000 ENTRIES**       | iterations | min (ns) | max (ns) | avg (ns) |      std |    ops / s |
