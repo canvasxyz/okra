@@ -12,33 +12,35 @@ Run the LMDB benchmarks:
 $ zig build bench-lmdb
 ```
 
-### Initial DB size: 0 entries
-
-|                                | iterations | min (ns) | max (ns) | avg (ns) |      std |    ops / s |
-| :----------------------------- | ---------: | -------: | -------: | -------: | -------: | ---------: |
-| set 1 random entry             |        100 |    66750 |   362542 |   113852 |    45853 |       8783 |
-| set 1,000 random entries       |        100 |   386833 |   525750 |   431689 |    28748 |    2316482 |
-| set 100,000 random entries     |         10 | 45681125 | 49446625 | 46765441 |  1416505 |    2138331 |
-
 ### Initial DB size: 1,000 entries
 
 |                                | iterations | min (ns) | max (ns) | avg (ns) |      std |    ops / s |
 | :----------------------------- | ---------: | -------: | -------: | -------: | -------: | ---------: |
-| set 1 random entry             |        100 |    62334 |   117750 |    78684 |    11293 |      12709 |
-| set 1,000 random entries       |        100 |   466250 |  2333000 |   515969 |   183793 |    1938100 |
-| set 100,000 random entries     |         10 | 45727500 | 49008333 | 46625970 |  1013617 |    2144727 |
-| read 1 random entry            |        100 |      250 |     6125 |      435 |      598 |    2298850 |
-| iterate over all entries       |        100 |     5125 |     9667 |     5450 |      448 |  183486238 |
+| read 1 random entry            |        100 |      500 |    12375 |     1076 |     1346 |     929368 |
+| iterate over all entries       |        100 |    10791 |    26000 |    11029 |     1506 |   90670051 |
+| set 1 random entry             |        100 |    61250 |   182333 |    83184 |    20578 |      12021 |
+| set 1,000 random entries       |        100 |   454792 |   599458 |   485251 |    23193 |    2060789 |
+| set 50,000 random entries      |         10 | 22049083 | 23150333 | 22251454 |   307460 |    2247044 |
 
-### Initial DB size: 100,000 entries
+### Initial DB size: 50,000 entries
 
 |                                | iterations | min (ns) | max (ns) | avg (ns) |      std |    ops / s |
 | :----------------------------- | ---------: | -------: | -------: | -------: | -------: | ---------: |
-| set 1 random entry             |        100 |    79667 |  3027750 |   143362 |   290827 |       6975 |
-| set 1,000 random entries       |        100 |  2792458 |  5252917 |  3142698 |   549748 |     318197 |
-| set 100,000 random entries     |         10 | 53560208 | 56503875 | 54589008 |  1003741 |    1831870 |
-| read 1 random entry            |        100 |      375 |     4833 |     1240 |      484 |     806451 |
-| iterate over all entries       |        100 |   502166 |   975500 |   515189 |    49086 |  194103523 |
+| read 1 random entry            |        100 |      333 |     7000 |     1153 |      691 |     867302 |
+| iterate over all entries       |        100 |   250958 |   399875 |   258690 |    17911 |  193281533 |
+| set 1 random entry             |        100 |    74625 |   168583 |   121551 |    19080 |       8226 |
+| set 1,000 random entries       |        100 |  1653083 |  4549917 |  1815132 |   342399 |     550924 |
+| set 50,000 random entries      |         10 | 24989584 | 28260625 | 25718412 |  1066868 |    1944132 |
+
+### Initial DB size: 1,000,000 entries
+
+|                                | iterations | min (ns) | max (ns) | avg (ns) |      std |    ops / s |
+| :----------------------------- | ---------: | -------: | -------: | -------: | -------: | ---------: |
+| read 1 random entry            |        100 |      583 |    10250 |     1339 |      971 |     746825 |
+| iterate over all entries       |        100 |  6499542 |  7317500 |  6557768 |    90276 |  152490908 |
+| set 1 random entry             |        100 |   290250 |   380708 |   305970 |    15935 |       3268 |
+| set 1,000 random entries       |        100 |  6444834 | 15972625 |  7859663 |  2256396 |     127231 |
+| set 50,000 random entries      |         10 | 69228875 | 86158917 | 76322462 |  5492760 |     655115 |
 
 ## okra benchmarks
 
@@ -48,32 +50,34 @@ Run the okra benchmarks:
 $ zig build bench
 ```
 
-### Initial DB size: 0 entries
-
-|                                | iterations |   min (ns) |   max (ns) |   avg (ns) |        std |    ops / s |
-| :----------------------------- | ---------: | ---------: | ---------: | ---------: | ---------: | ---------: |
-| set 1 random entry             |        100 |      54750 |     152500 |      83623 |      18200 |      11958 |
-| set 1,000 random entries       |        100 |    3524875 |    3775959 |    3569761 |      41319 |     280130 |
-| set 100,000 random entries     |         10 |  817938000 |  823338292 |  820657520 |    1780655 |     121853 |
-
 ### Initial DB size: 1,000 entries
 
 |                                | iterations |   min (ns) |   max (ns) |   avg (ns) |        std |    ops / s |
 | :----------------------------- | ---------: | ---------: | ---------: | ---------: | ---------: | ---------: |
-| set 1 random entry             |        100 |      76708 |     175875 |      92192 |      13124 |      10846 |
-| set 1,000 random entries       |        100 |    5440250 |   16455459 |    5672313 |    1244540 |     176294 |
-| set 100,000 random entries     |         10 |  823786625 |  827241208 |  825023404 |     968515 |     121208 |
-| read 1 random entry            |        100 |        500 |       6292 |        800 |        648 |    1250000 |
-| iterate over all entries       |        100 |      15458 |      24833 |      16051 |       1029 |   62301414 |
+| read 1 random entry            |        100 |       1333 |      16458 |       2124 |       1680 |     470809 |
+| iterate over all entries       |        100 |      15000 |      96708 |      18890 |      10718 |   52938062 |
+| set 1 random entry             |        100 |      75459 |     173334 |      95349 |      17728 |      10487 |
+| set 1,000 random entries       |        100 |    5517958 |    5940708 |    5558630 |      49607 |     179900 |
+| set 50,000 random entries      |         10 |  383082375 |  384628292 |  383655679 |     455967 |     130325 |
 
-### Initial DB size: 100,000 entries
+### Initial DB size: 50,000 entries
 
 |                                | iterations |   min (ns) |   max (ns) |   avg (ns) |        std |    ops / s |
 | :----------------------------- | ---------: | ---------: | ---------: | ---------: | ---------: | ---------: |
-| set 1 random entry             |        100 |     110541 |     201792 |     157142 |      19421 |       6363 |
-| set 1,000 random entries       |        100 |   12712917 |   16117041 |   13032209 |     568023 |      76732 |
-| set 100,000 random entries     |         10 |  968104083 |  978815083 |  972955112 |    3946253 |     102779 |
-| read 1 random entry            |        100 |        791 |       9334 |       1778 |        975 |     562429 |
-| iterate over all entries       |        100 |    1472875 |    2207417 |    1487700 |      72757 |   67217853 |
+| read 1 random entry            |        100 |        667 |      28000 |       1694 |       2712 |     590318 |
+| iterate over all entries       |        100 |     732375 |    1027167 |     738720 |      29551 |   67684643 |
+| set 1 random entry             |        100 |      97208 |     185750 |     141838 |      24784 |       7050 |
+| set 1,000 random entries       |        100 |   10799375 |   13531167 |   11077129 |     443500 |      90276 |
+| set 50,000 random entries      |         10 |  454495708 |  460459333 |  455854091 |    1776659 |     109684 |
 
-One observation here is that batching many writes in one transaction is not as relatively efficient with okra as it is in LMDB itself: setting 100k entries in one transaction is 250x faster than setting one entry in 100k transactions when using LMDB directly, but only 16x faster when using okra. In other words, batching writes still is still effective, but its effectiveness diminishes.
+### Initial DB size: 1,000,000 entries
+
+|                                | iterations |   min (ns) |   max (ns) |   avg (ns) |        std |    ops / s |
+| :----------------------------- | ---------: | ---------: | ---------: | ---------: | ---------: | ---------: |
+| read 1 random entry            |        100 |        916 |       8084 |       1722 |        970 |     580720 |
+| iterate over all entries       |        100 |   17888666 |   18444500 |   17988865 |      91735 |   55589944 |
+| set 1 random entry             |        100 |     445833 |     717083 |     472434 |      30761 |       2116 |
+| set 1,000 random entries       |        100 |   20147000 |   28155125 |   21471819 |    1739645 |      46572 |
+| set 50,000 random entries      |         10 |  671717458 |  719311042 |  684146012 |   13422370 |      73083 |
+
+One observation here is that batching many writes in one transaction is not as relatively efficient with okra as it is in LMDB itself: for databases with 1 million entries, setting 50k new entries in one transaction is ~200x faster than setting one entry in 100k transactions when using LMDB directly, but only ~34x faster when using okra. In other words, the effectiveness of batching writes diminishes faster.
