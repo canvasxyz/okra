@@ -82,4 +82,4 @@ $ zig build bench
 | set 1,000 random entries       |        100 |   20147000 |   28155125 |   21471819 |    1739645 |      46572 |
 | set 50,000 random entries      |         10 |  671717458 |  719311042 |  684146012 |   13422370 |      73083 |
 
-One observation here is that batching many writes in one transaction is not as relatively efficient with okra as it is in LMDB itself: for databases with 1 million entries, setting 50k new entries in one transaction is ~200x faster than setting one entry in 100k transactions when using LMDB directly, but only ~34x faster when using okra. In other words, the effectiveness of batching writes diminishes faster.
+One observation here is that batching many writes in one transaction is not as relatively efficient with okra as it is in LMDB itself: for databases with 1 million entries, setting 50k new entries in one transaction is ~200x faster than setting one entry in 50k transactions when using LMDB directly, but only ~34x faster when using okra. In other words, the effectiveness of batching writes diminishes faster.
