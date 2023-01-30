@@ -52,4 +52,11 @@ pub const Environment = struct {
     pub fn close(self: Environment) void {
         lmdb.mdb_env_close(self.ptr);
     }
+
+    pub fn flush(self: Environment) !void {
+        try switch (lmdb.mdb_env_sync(self.ptr, 0)) {
+            0 => {},
+            else => Error.LmdbEnvironmentError,
+        };
+    }
 };

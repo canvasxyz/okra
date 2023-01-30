@@ -5,9 +5,7 @@ const Environment = @import("environment.zig").Environment;
 const lmdb = @import("lmdb.zig");
 
 pub const Transaction = struct {
-    pub const Options = struct {
-        read_only: bool = true,
-    };
+    pub const Options = struct { read_only: bool = true };
 
     pub const Error = error{
         LmdbTransactionError,
