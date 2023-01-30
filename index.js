@@ -1,18 +1,17 @@
-import { createRequire } from "node:module"
+import { createRequire } from "node:module";
 
-import { familySync } from "detect-libc"
+import { familySync } from "detect-libc";
 
-const family = familySync()
+const family = familySync();
 
-const { platform, arch } = process
+const { platform, arch } = process;
 
-const target =
-	family === null ? `${arch}-${platform}` : `${arch}-${platform}-${family}`
+const target = family === null
+  ? `${arch}-${platform}`
+  : `${arch}-${platform}-${family}`;
 
-console.log("[okra] Detected target", target)
+const require = createRequire(import.meta.url);
 
-const require = createRequire(import.meta.url)
+const { Tree, Transaction, Cursor } = require(`./build/${target}/okra.node`);
 
-const { Tree, Source, Target } = require(`./build/${target}/okra.node`)
-
-export { Tree, Source, Target }
+export { Cursor, Transaction, Tree };

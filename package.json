@@ -11,12 +11,14 @@
 		"build"
 	],
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"test": "ava"
 	},
 	"author": "Joel Gustafson",
 	"license": "MIT",
 	"devDependencies": {
-		"@types/node": "^18.7.10"
+		"@types/node": "^18.7.10",
+		"ava": "^5.1.1",
+		"nanoid": "^4.0.0"
 	},
 	"dependencies": {
 		"detect-libc": "^2.0.1"
