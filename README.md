@@ -10,16 +10,12 @@ d88' `88b  888 .8P'   `888""8P `P  )88b
 
 okra is a _merkle skip list_ written in Zig and built on LMDB. It can be used via C headers or the NodeJS bindings published as `node-okra` on NPM.
 
-You can use okra as a persistent key/value store, with a special skip list structure and cursor interface that **enables a new class of efficient p2p syncing algorithms**. For example, if you have a peer-to-peer network in which peers publish CRDT operations but occasionally go offline and miss operations, two peers can use okra to **quickly identify missing operations** without relying on any type of consensus, ordering, vector clocks, etc. This is fast even if the database of operations is extremely large. For more use cases, see the [examples](#examples).
+You can use okra as a persistent key/value store, with a special skip list structure and cursor interface that **enables a new class of efficient p2p syncing algorithms**. For example, if you have a peer-to-peer network in which peers publish CRDT operations but occasionally go offline and miss operations, two peers can use okra to **quickly identify missing operations** without relying on any type of consensus, ordering, vector clocks, etc. This is fast even if the database of operations is extremely large and the differences are buried deep in the past.
 
 ## Table of Contents
 
 - [Design](#design)
 - [API](#API)
-- [Examples](#examples)
-  - [CRDT operation storage](#crdt-operation-storage)
-  - [Grow-only map](#grow-only-map)
-  - [rsync for key/value stores](#rsync-for-key-value-stores)
 - [Benchmarks](#benchmarks)
 - [References](#references)
 - [Contributing](#contributing)
@@ -150,6 +146,8 @@ const Transaction = struct {
     pub fn get(self: *Transaction, key: []const u8) !?[]const u8
     pub fn set(self: *Transaction, key: []const u8, value: []const u8) !void
     pub fn delete(self: *Transaction, key: []const u8) !void
+
+    pub fn getNode(self: *Transaction, level: u8, key: ?[]const u8) !Node
 }
 ```
 
@@ -228,7 +226,7 @@ pub const Cursor = struct {
 }
 ```
 
-Cursor methods return `Node` structs. For any `node: Node`, `node.key` is `null` for anchor nodes. `node.value` is null if `node.key == null` or `node.level > 0`, and points to the value of the leaf entry if `node.key != null` and `node.level == 0`.
+Cursor methods return `Node` structs.  `node.key` is `null` for anchor nodes. `node.value` is null if `node.key == null` or `node.level > 0`, and points to the value of the leaf entry if `node.key != null` and `node.level == 0`.
 
 Just like trees and transactions, cursors can be allocated on the stack:
 
@@ -262,12 +260,6 @@ defer cursor.close();
 ```
 
 Cursors must be closed before their parent transaction is aborted or committed. Cursor operations return a `Node`, whose fields `key`, `hash`, and `value` are **only valid until the next cursor operation**.
-
-## Use cases
-
-okra is good for things like pulling in updates from a single of truth (uni-directional), or storing CRDT operations or serving as a general persistence layer for decentralized pubsub messages (grow-only).
-
-Its major limitation is that if you try to use it directly as a general p2p key/value store, it's impossible to tell whether a given entry has been deleted, or was just never seen in the first place. Of course, you can still implement this yourself by storing vector clock timestamps in every entry and keeping deleted tombstones around. This "roll-your-own-concept-of-deletion" rigmarole is what every CRDT map implementation has to do anyway.
 
 ## Benchmarks
 
