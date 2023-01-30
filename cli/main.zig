@@ -101,6 +101,12 @@ var app = &cli.Command{
             .options = &.{ &encodingOption, &verboseOption },
             .action = delete,
         },
+        &cli.Command{
+            .name = "hash",
+            .help = "compute the hash of a key/value entry",
+            .options = &.{&encodingOption},
+            .action = hash,
+        },
         // &cli.Command{
         //   .name = "rebuild",
         //   .help = "rebuild the tree from the leaf layer",
@@ -166,25 +172,25 @@ fn cat(args: []const []const u8) !void {
 
     const stdout = std.io.getStdOut().writer();
 
-    const tree = try okra.Tree.open(allocator, path, .{});
+    var tree = try okra.Tree.open(allocator, path, .{});
     defer tree.close();
 
-    const txn = try okra.Transaction.open(allocator, tree, .{ .read_only = true });
+    var txn = try okra.Transaction.open(allocator, &tree, .{ .read_only = true });
     defer txn.abort();
 
-    const iter = try okra.Iterator.open(allocator, txn);
-    defer iter.close();
+    var cursor = try okra.Cursor.open(allocator, &txn);
+    defer cursor.close();
 
-    var entry = try iter.goToFirst();
-    while (entry) |e| : (entry = try iter.goToNext()) {
+    _ = try cursor.goToNode(0, null);
+    while (try cursor.goToNext()) |node| {
         switch (encoding) {
-            .utf8 => try stdout.print("{s}\t{s}\n", .{ e.key, e.value }),
-            .hex => try stdout.print("{s}\t{s}\n", .{ hex(e.key), hex(e.value) }),
+            .utf8 => try stdout.print("{s}\t{s}\n", .{ node.key.?, node.value.? }),
+            .hex => try stdout.print("{s}\t{s}\n", .{ hex(node.key.?), hex(node.value.?) }),
         }
     }
 }
 
-fn printNode(writer: std.fs.File.Writer, node: okra.Cursor.Node, encoding: Encoding) !void {
+fn printNode(writer: std.fs.File.Writer, node: okra.Node, encoding: Encoding) !void {
     if (node.key) |key|
         switch (encoding) {
             .hex => try writer.print("{d: >5} | {s} | {s}\n", .{ node.level, hex(node.hash), hex(key) }),
@@ -241,23 +247,22 @@ fn ls(args: []const []const u8) !void {
 
     const stdout = std.io.getStdOut().writer();
 
-    const tree = try okra.Tree.open(allocator, path, .{});
+    var tree = try okra.Tree.open(allocator, path, .{});
     defer tree.close();
 
-    const txn = try okra.Transaction.open(allocator, tree, .{ .read_only = true });
+    var txn = try okra.Transaction.open(allocator, &tree, .{ .read_only = true });
     defer txn.abort();
 
-    const cursor = try okra.Cursor.open(allocator, txn);
+    var cursor = try okra.Cursor.open(allocator, &txn);
     defer cursor.close();
-
-    try stdout.print("level | {s: <32} | key\n", .{"hash"});
-    try stdout.print("----- | {s:-<32} | {s:-<32}\n", .{ "", "" });
 
     const root = if (level == -1)
         try cursor.goToRoot()
     else
         try cursor.goToNode(@intCast(u8, level), key_buffer.items);
 
+    try stdout.print("level | {s: <32} | key\n", .{"hash"});
+    try stdout.print("----- | {s:-<32} | {s:-<32}\n", .{ "", "" });
     try printNode(stdout, root, encoding);
 
     if (root.level > 0) {
@@ -317,11 +322,11 @@ fn set(args: []const []const u8) !void {
         },
     }
 
-    const tree = try okra.Tree.open(allocator, path, .{});
+    var tree = try okra.Tree.open(allocator, path, .{});
     defer tree.close();
 
     const log = if (verboseOption.value.bool) std.io.getStdOut().writer() else null;
-    const txn = try okra.Transaction.open(allocator, tree, .{ .read_only = false, .log = log });
+    var txn = try okra.Transaction.open(allocator, &tree, .{ .read_only = false, .log = log });
     errdefer txn.abort();
 
     try txn.set(key_buffer.items, value_buffer.items);
@@ -362,10 +367,10 @@ fn get(args: []const []const u8) !void {
         },
     }
 
-    const tree = try okra.Tree.open(allocator, path, .{});
+    var tree = try okra.Tree.open(allocator, path, .{});
     defer tree.close();
 
-    const txn = try okra.Transaction.open(allocator, tree, .{ .read_only = true });
+    var txn = try okra.Transaction.open(allocator, &tree, .{ .read_only = true });
     defer txn.abort();
 
     const value = try txn.get(key_buffer.items) orelse fail("KeyNotFound", .{});
@@ -415,11 +420,11 @@ fn delete(args: []const []const u8) !void {
         },
     }
 
-    const tree = try okra.Tree.open(allocator, path, .{});
+    var tree = try okra.Tree.open(allocator, path, .{});
     defer tree.close();
 
     const log = if (verboseOption.value.bool) std.io.getStdOut().writer() else null;
-    const txn = try okra.Transaction.open(allocator, tree, .{ .read_only = false, .log = log });
+    var txn = try okra.Transaction.open(allocator, &tree, .{ .read_only = false, .log = log });
     errdefer txn.abort();
 
     try txn.delete(key_buffer.items);
@@ -461,6 +466,48 @@ fn init(args: []const []const u8) !void {
         }
 
         try builder.commit();
+    }
+}
+
+fn hash(args: []const []const u8) !void {
+    if (args.len > 2) {
+        fail("too many arguments", .{});
+    } else if (args.len == 0) {
+        fail("key argument required", .{});
+    } else if (args.len == 1) {
+        fail("value argument required", .{});
+    }
+
+    var key_buffer = std.ArrayList(u8).init(allocator);
+    defer key_buffer.deinit();
+
+    var value_buffer = std.ArrayList(u8).init(allocator);
+    defer value_buffer.deinit();
+
+    const encoding = parseEncoding();
+    try parseBuffer(args[0], &key_buffer, encoding);
+    try parseBuffer(args[1], &value_buffer, encoding);
+
+    var hash_buffer: [okra.K]u8 = undefined;
+    okra.hashEntry(key_buffer.items, value_buffer.items, &hash_buffer);
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print("{s}\n", .{hex(&hash_buffer)});
+}
+
+fn parseBuffer(arg: []const u8, buffer: *std.ArrayList(u8), encoding: Encoding) !void {
+    switch (encoding) {
+        .hex => {
+            if (arg.len % 2 == 0) {
+                try buffer.resize(arg.len / 2);
+                _ = try std.fmt.hexToBytes(buffer.items, arg);
+            } else {
+                fail("invalid hex input", .{});
+            }
+        },
+        .utf8 => {
+            try buffer.resize(arg.len);
+            std.mem.copy(u8, buffer.items, arg);
+        },
     }
 }
 
