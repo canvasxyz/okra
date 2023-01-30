@@ -133,7 +133,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
 
             try switch (result) {
                 Result.update => {},
-                Result.delete => error.InsertError,
+                Result.delete => error.InternalError,
             };
 
             _ = try self.hashNode(root_level, &nil);
@@ -165,18 +165,24 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         fn applyLeaf(self: *Self, first_child: []const u8, operation: Operation) !Result {
             switch (operation) {
                 .set => |entry| {
-                    // try self.value_buffer.resize(K + entry.value.len);
                     utils.hashEntry(entry.key, entry.value, &self.hash_buffer);
-                    // std.mem.copy(u8, self.value_buffer.items[K..], entry.value);
-                    try self.setNode(0, entry.key, &self.hash_buffer, entry.value);
+                    const leaf = Node{
+                        .level = 0,
+                        .key = entry.key,
+                        .hash = &self.hash_buffer,
+                        .value = entry.value,
+                    };
+
+                    try self.setNode(leaf);
+
                     if (std.mem.lessThan(u8, first_child, entry.key)) {
-                        if (isSplit(self.value_buffer.items[0..K])) {
+                        if (leaf.isSplit()) {
                             try self.new_siblings.append(entry.key);
                         }
 
                         return Result.update;
                     } else if (std.mem.eql(u8, first_child, entry.key)) {
-                        if (first_child.len == 0 or isSplit(self.value_buffer.items[0..K])) {
+                        if (first_child.len == 0 or leaf.isSplit()) {
                             return Result.update;
                         } else {
                             return Result.delete;
@@ -335,7 +341,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                 try self.cursor.deleteCurrentKey();
             }
 
-            return error.InsertError;
+            return error.InternalError;
         }
 
         /// Computes and sets the hash of the given node. Doesn't assume anything about the current cursor position.
@@ -351,23 +357,24 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             var digest = Blake3.init(.{});
 
             {
-                const value = try self.cursor.getCurrentValue();
-                const hash = try getNodeHash(value);
+                const node = try self.getCurrentNode();
                 if (key.len == 0) {
-                    try self.log("- hashing {s} <- null", .{hex(hash)});
+                    try self.log("- hashing {s} <- null", .{hex(node.hash)});
                 } else {
-                    try self.log("- hashing {s} <- {s}", .{ hex(hash), hex(key) });
+                    try self.log("- hashing {s} <- {s}", .{ hex(node.hash), hex(key) });
                 }
 
-                digest.update(hash);
+                digest.update(node.hash);
             }
 
             while (try self.goToNext(level - 1)) |next_key| {
-                const value = try self.cursor.getCurrentValue();
-                const hash = try getNodeHash(value);
-                if (isSplit(hash)) break;
-                try self.log("- hashing {s} <- {s}", .{ hex(hash), hex(next_key) });
-                digest.update(hash);
+                const node = try self.getCurrentNode();
+                if (node.isSplit()) {
+                    break;
+                } else {
+                    try self.log("- hashing {s} <- {s}", .{ hex(node.hash), hex(next_key) });
+                    digest.update(node.hash);
+                }
             }
 
             digest.final(&self.hash_buffer);
@@ -379,8 +386,15 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                 try self.log("setting {s} <- ({d}) {s}", .{ hex(&self.hash_buffer), level, hex(key) });
             }
 
-            try self.setNode(level, key, &self.hash_buffer, null);
-            return isSplit(&self.hash_buffer);
+            const node = Node{
+                .level = level,
+                .key = if (key.len == 0) null else key,
+                .hash = &self.hash_buffer,
+                .value = null,
+            };
+
+            try self.setNode(node);
+            return node.isSplit();
         }
 
         fn promote(self: *Self, level: u8) !void {
@@ -428,15 +442,23 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             }
         }
 
-        fn setNode(self: *Self, level: u8, key: ?[]const u8, hash: *const [K]u8, value: ?[]const u8) !void {
-            try self.setKey(level, key);
-            if (value) |bytes| {
-                try self.value_buffer.resize(K + bytes.len);
-                std.mem.copy(u8, self.value_buffer.items[0..K], hash);
-                std.mem.copy(u8, self.value_buffer.items[K .. K + bytes.len], bytes);
+        fn setNode(self: *Self, node: Node) !void {
+            try self.setKey(node.level, node.key);
+            if (node.value) |value| {
+                if (node.level != 0) {
+                    return error.InternalError;
+                }
+
+                try self.value_buffer.resize(K + value.len);
+                std.mem.copy(u8, self.value_buffer.items[0..K], node.hash);
+                std.mem.copy(u8, self.value_buffer.items[K .. K + value.len], value);
             } else {
+                if (node.level == 0) {
+                    return error.InternalError;
+                }
+
                 try self.value_buffer.resize(K);
-                std.mem.copy(u8, self.value_buffer.items, hash);
+                std.mem.copy(u8, self.value_buffer.items, node.hash);
             }
 
             try self.txn.set(self.key_buffer.items, self.value_buffer.items);
@@ -484,25 +506,19 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             return error.KeyNotFound;
         }
 
-        fn isSplit(value: *const [K]u8) bool {
-            const limit: comptime_int = (1 << 32) / @intCast(u33, Q);
-            return std.mem.readIntBig(u32, value[0..4]) < limit;
-        }
-
-        fn getNodeHash(value: []const u8) !*const [K]u8 {
-            if (value.len < K) {
+        fn getCurrentNode(self: *Self) !Node {
+            const key = try self.cursor.getCurrentKey();
+            const value = try self.cursor.getCurrentValue();
+            if (key.len == 0 or value.len < K) {
                 return error.InvalidDatabase;
-            } else {
-                return value[0..K];
             }
-        }
 
-        fn getNodeValue(value: []const u8) ![]const u8 {
-            if (value.len < K) {
-                return error.InvalidDatabase;
-            } else {
-                return value[K..];
-            }
+            return Node{
+                .level = key[0],
+                .key = if (key.len == 1) null else key[1..],
+                .hash = value[0..K],
+                .value = if (key[0] == 0) value[K..] else null,
+            };
         }
 
         fn log(self: *Self, comptime format: []const u8, args: anytype) !void {
