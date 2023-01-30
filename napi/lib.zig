@@ -1,28 +1,21 @@
 const std = @import("std");
-const assert = std.debug.assert;
-const hex = std.fmt.fmtSliceHexLower;
 const allocator = std.heap.c_allocator;
 
 const okra = @import("okra");
 const c = @import("./c.zig");
 const n = @import("./n.zig");
 
-const X: comptime_int = 14;
-const V: comptime_int = 32;
-const Q: comptime_int = 0x42;
-const Node = okra.Node(X);
-const Tree = okra.Tree(X, Q);
-const Source = okra.Source(X, Q);
-const Target = okra.Target(X, Q);
+const TreeTypeTag = c.napi_type_tag{
+    .lower = 0x1B67FCDD82CD4514,
+    .upper = 0xB2B9016A53BAF0F9,
+};
 
-const TreeTypeTag: c.napi_type_tag = .{ .lower = 0x1B67FCDD82CD4514, .upper = 0xB2B9016A53BAF0F9 };
-
-const SourceTypeTag: c.napi_type_tag = .{
+const TransactionTypeTag = c.napi_type_tag{
     .lower = 0xF727CF6D5C254E54,
     .upper = 0xB5EDCA98B9F7AA6F,
 };
 
-const TargetTypeTag: c.napi_type_tag = .{
+const CursorTypeTag = c.napi_type_tag{
     .lower = 0x7311FA8C57A94355,
     .upper = 0x93FEEF1DF0E5C0B4,
 };
@@ -30,42 +23,46 @@ const TargetTypeTag: c.napi_type_tag = .{
 export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) callconv(.C) c.napi_value {
     const treeMethods = [_]n.Method{
         .{ .name = "close", .callback = treeCloseMethod },
-        .{ .name = "insert", .callback = treeInsertMethod },
     };
 
-    n.defineClass("Tree", createTree, treeMethods.len, &treeMethods, env, exports) catch return null;
+    n.defineClass("Tree", createTree, &treeMethods, env, exports) catch return null;
 
-    const sourceMethods = [_]n.Method{
-        .{ .name = "close", .callback = sourceCloseMethod },
-        .{ .name = "getRootLevel", .callback = sourceGetRootLevelMethod },
-        .{ .name = "getRootHash", .callback = sourceGetRootHashMethod },
-        .{ .name = "getChildren", .callback = sourceGetChildrenMethod },
+    const transactionMethods = [_]n.Method{
+        .{ .name = "abort", .callback = transactionAbortMethod },
+        .{ .name = "commit", .callback = transactionCommitMethod },
+        .{ .name = "get", .callback = transactionGetMethod },
+        .{ .name = "set", .callback = transactionSetMethod },
+        .{ .name = "delete", .callback = transactionDeleteMethod },
     };
 
-    n.defineClass("Source", createSource, sourceMethods.len, &sourceMethods, env, exports) catch return null;
+    n.defineClass("Transaction", createTransaction, &transactionMethods, env, exports) catch return null;
 
-    const targetMethods = [_]n.Method{
-        .{ .name = "close", .callback = targetCloseMethod },
-        .{ .name = "getRootLevel", .callback = targetGetRootLevelMethod },
-        .{ .name = "getRootHash", .callback = targetGetRootHashMethod },
-        .{ .name = "seek", .callback = targetSeekMethod },
-        .{ .name = "filter", .callback = targetFilterMethod },
-        // .{ .name = "insert", .callback = targetInsertMethod },
+    const cursorMethods = [_]n.Method{
+        .{ .name = "close", .callback = cursorCloseMethod },
+        .{ .name = "goToRoot", .callback = cursorGoToRootMethod },
+        .{ .name = "goToNode", .callback = cursorGoToNodeMethod },
+        .{ .name = "goToNext", .callback = cursorGoToNextMethod },
+        .{ .name = "goToPrevious", .callback = cursorGoToPreviousMethod },
+        .{ .name = "seek", .callback = cursorSeekMethod },
+        .{ .name = "getCurrentNode", .callback = cursorGetCurrentNodeMethod },
+        .{ .name = "isCurrentNodeSplit", .callback = cursorIsCurrentNodeSplitMethod },
     };
 
-    n.defineClass("Target", createTarget, targetMethods.len, &targetMethods, env, exports) catch return null;
+    n.defineClass("Cursor", createCursor, &cursorMethods, env, exports) catch return null;
 
     return exports;
 }
 
+// Tree
+
 pub fn createTree(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(1, env, info) catch return null;
-    const pathArg = stat.argv[0];
+    const pathArg = stat.args[0];
 
     const path = n.parseStringAlloc(env, pathArg, allocator) catch return null;
     defer allocator.free(path);
 
-    const tree = allocator.create(Tree) catch |err| {
+    const tree = allocator.create(okra.Tree) catch |err| {
         const name = @errorName(err);
         _ = c.napi_throw_error(env, null, name.ptr);
         return null;
@@ -77,14 +74,15 @@ pub fn createTree(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.na
         return null;
     };
 
-    n.wrap(Tree, env, stat.thisArg, tree, destroyTree, &TreeTypeTag) catch return null;
+    n.wrap(okra.Tree, env, stat.this, tree, destroyTree, &TreeTypeTag) catch return null;
 
     return n.getUndefined(env) catch return null;
 }
 
 pub fn destroyTree(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
     if (finalize_data) |ptr| {
-        const tree = @ptrCast(*Tree, @alignCast(@alignOf(Tree), ptr));
+        const tree = @ptrCast(*okra.Tree, @alignCast(@alignOf(okra.Tree), ptr));
+
         tree.close();
         allocator.destroy(tree);
     }
@@ -92,289 +90,314 @@ pub fn destroyTree(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) ca
 
 fn treeCloseMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const tree = n.unwrap(Tree, &TreeTypeTag, env, stat.thisArg, true) catch return null;
+    const tree = n.unwrap(okra.Tree, &TreeTypeTag, env, stat.this, true) catch return null;
+    defer allocator.destroy(tree);
+
     tree.close();
 
     return n.getUndefined(env) catch return null;
 }
 
-fn treeInsertMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+// Transaction
+
+pub fn createTransaction(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(2, env, info) catch return null;
-    const leaf = n.parseBuffer(env, X, stat.argv[0]) catch return null;
-    const hash = n.parseBuffer(env, V, stat.argv[1]) catch return null;
-    const tree = n.unwrap(Tree, &TreeTypeTag, env, stat.thisArg, false) catch return null;
+    const tree = n.unwrap(okra.Tree, &TreeTypeTag, env, stat.args[0], false) catch return null;
 
-    if (tree.insert(leaf, hash)) |_| {
-        return n.getUndefined(env) catch return null;
-    } else |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    }
-}
+    const read_only_property = n.createString(env, "readOnly") catch return null;
+    const read_only_value = n.getProperty(env, stat.args[1], read_only_property) catch return null;
+    const read_only = n.parseBoolean(env, read_only_value) catch return null;
 
-// Source
-
-pub fn createSource(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(1, env, info) catch return null;
-    const tree = n.unwrap(Tree, &TreeTypeTag, env, stat.argv[0], false) catch return null;
-
-    const source = allocator.create(Source) catch |err| {
+    const txn = allocator.create(okra.Transaction) catch |err| {
         const name = @errorName(err);
         _ = c.napi_throw_error(env, null, name.ptr);
         return null;
     };
 
-    source.init(allocator, tree) catch |err| {
+    txn.init(allocator, tree, .{ .read_only = read_only }) catch |err| {
         const name = @errorName(err);
         _ = c.napi_throw_error(env, null, name.ptr);
         return null;
     };
 
-    n.wrap(Source, env, stat.thisArg, source, destroySource, &SourceTypeTag) catch return null;
+    n.wrap(okra.Transaction, env, stat.this, txn, destroyTransaction, &TransactionTypeTag) catch return null;
     return n.getUndefined(env) catch return null;
 }
 
-pub fn destroySource(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
+pub fn destroyTransaction(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
     if (finalize_data) |ptr| {
-        const source = @ptrCast(*Source, @alignCast(@alignOf(Source), ptr));
-        source.close();
-        allocator.destroy(source);
+        const txn = @ptrCast(*okra.Transaction, @alignCast(@alignOf(okra.Transaction), ptr));
+        txn.abort();
+        allocator.destroy(txn);
     }
 }
 
-fn sourceCloseMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+fn transactionAbortMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const source = n.unwrap(Source, &SourceTypeTag, env, stat.thisArg, true) catch return null;
-    source.close();
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, true) catch return null;
+    defer allocator.destroy(txn);
+
+    txn.abort();
+    return n.getUndefined(env) catch return null;
+}
+
+fn transactionCommitMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(0, env, info) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, true) catch return null;
+    defer allocator.destroy(txn);
+
+    txn.commit() catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
 
     return n.getUndefined(env) catch return null;
 }
 
-fn sourceGetRootLevelMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const source = n.unwrap(Source, &SourceTypeTag, env, stat.thisArg, false) catch return null;
+fn transactionGetMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(1, env, info) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
 
-    var result: c.napi_value = undefined;
-    if (c.napi_create_uint32(env, source.rootLevel, &result) != c.napi_ok) {
-        _ = c.napi_throw_error(env, null, "failed to create unsigned integer");
+    const key = n.parseBuffer(env, stat.args[0]) catch return null;
+    const value = txn.get(key) catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
         return null;
+    };
+
+    if (value) |bytes| {
+        return n.createBuffer(env, bytes) catch return null;
+    } else {
+        return n.getNull(env) catch return null;
+    }
+}
+
+fn transactionSetMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(2, env, info) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
+
+    const key = n.parseBuffer(env, stat.args[0]) catch return null;
+    const value = n.parseBuffer(env, stat.args[1]) catch return null;
+    txn.set(key, value) catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
+
+    return n.getUndefined(env) catch return null;
+}
+
+fn transactionDeleteMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(1, env, info) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
+
+    const key = n.parseBuffer(env, stat.args[0]) catch return null;
+    txn.delete(key) catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
+
+    return n.getUndefined(env) catch return null;
+}
+
+// Cursor
+
+pub fn createCursor(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(1, env, info) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.args[0], false) catch return null;
+
+    const cursor = allocator.create(okra.Cursor) catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
+
+    cursor.init(allocator, txn) catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
+
+    n.wrap(okra.Cursor, env, stat.this, cursor, destroyCursor, &CursorTypeTag) catch return null;
+    return n.getUndefined(env) catch return null;
+}
+
+pub fn destroyCursor(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
+    if (finalize_data) |ptr| {
+        const cursor = @ptrCast(*okra.Cursor, @alignCast(@alignOf(okra.Cursor), ptr));
+        cursor.close();
+        allocator.destroy(cursor);
+    }
+}
+
+fn cursorCloseMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(0, env, info) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, true) catch return null;
+    defer allocator.destroy(cursor);
+    cursor.close();
+
+    return n.getUndefined(env) catch return null;
+}
+
+fn cursorGoToRootMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(0, env, info) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+
+    const root = cursor.goToRoot() catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
+
+    return createNode(env, root) catch return null;
+}
+
+fn cursorGoToNodeMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(2, env, info) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+
+    const level = parseLevel(env, stat.args[0]) catch return null;
+    const key = parseKey(env, stat.args[1]) catch return null;
+
+    if (level > 0xFF) {}
+
+    const node = cursor.goToNode(level, key) catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
+
+    return createNode(env, node) catch return null;
+}
+
+fn cursorGoToNextMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(0, env, info) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+
+    const next = cursor.goToNext() catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
+
+    if (next) |node| {
+        return createNode(env, node) catch return null;
+    } else {
+        return n.getNull(env) catch return null;
+    }
+}
+
+fn cursorGoToPreviousMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(0, env, info) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+
+    const previous = cursor.goToPrevious() catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
+
+    if (previous) |node| {
+        return createNode(env, node) catch return null;
+    } else {
+        return n.getNull(env) catch return null;
+    }
+}
+
+fn cursorSeekMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(2, env, info) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+
+    const level = parseLevel(env, stat.args[0]) catch return null;
+    const key = parseKey(env, stat.args[1]) catch return null;
+
+    const seek = cursor.seek(level, key) catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
+
+    if (seek) |node| {
+        return createNode(env, node) catch return null;
+    } else {
+        return n.getNull(env) catch return null;
+    }
+}
+
+fn cursorGetCurrentNodeMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(2, env, info) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+    const node = cursor.getCurrentNode() catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
+
+    return createNode(env, node) catch return null;
+}
+
+fn cursorIsCurrentNodeSplitMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(2, env, info) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+    const is_split = cursor.isCurrentNodeSplit() catch |err| {
+        const name = @errorName(err);
+        _ = c.napi_throw_error(env, null, name.ptr);
+        return null;
+    };
+
+    return n.createBoolean(env, is_split) catch return null;
+}
+
+fn createNode(env: c.napi_env, node: okra.Node) !c.napi_value {
+    const result = try n.createObject(env);
+
+    const level_property = try n.createString(env, "level");
+    const level = try n.createUint32(env, node.level);
+    try n.setProperty(env, result, level_property, level);
+
+    const key_property = try n.createString(env, "key");
+    if (node.key) |key| {
+        try n.setProperty(env, result, key_property, try n.createBuffer(env, key));
+    } else {
+        try n.setProperty(env, result, key_property, try n.getNull(env));
+    }
+
+    const hash_property = try n.createString(env, "hash");
+    const hash = try n.createBuffer(env, node.hash);
+    try n.setProperty(env, result, hash_property, hash);
+
+    if (node.value) |value| {
+        const value_property = try n.createString(env, "value");
+        try n.setProperty(env, result, value_property, try n.createBuffer(env, value));
     }
 
     return result;
 }
 
-fn sourceGetRootHashMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const source = n.unwrap(Source, &SourceTypeTag, env, stat.thisArg, false) catch return null;
-
-    return n.createBuffer(env, &source.rootValue) catch return null;
+fn parseLevel(env: c.napi_env, levelValue: c.napi_value) !u8 {
+    const level = try n.parseUint32(env, levelValue);
+    if (level > 0xFF) {
+        _ = c.napi_throw_range_error(env, null, "level must be less than 256");
+        return n.Error.Exception;
+    } else {
+        return @intCast(u8, level);
+    }
 }
 
-fn sourceGetChildrenMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(2, env, info) catch return null;
-
-    const level = n.parseUint32(env, stat.argv[0]) catch return null;
-
-    const leafValueType = n.typeOf(env, stat.argv[1]) catch return null;
-    const leaf = switch (leafValueType) {
-        c.napi_null => &[_]u8{0} ** X,
-        c.napi_object => n.parseBuffer(env, X, stat.argv[1]) catch return null,
-        else => {
-            _ = c.napi_throw_type_error(env, null, "expected Buffer or null");
+fn parseKey(env: c.napi_env, keyValue: c.napi_value) !?[]const u8 {
+    const keyType = try n.typeOf(env, keyValue);
+    switch (keyType) {
+        c.napi_null => {
             return null;
         },
-    };
-
-    const source = n.unwrap(Source, &SourceTypeTag, env, stat.thisArg, false) catch return null;
-
-    if (level > 0xFFFF) {
-        _ = c.napi_throw_range_error(env, null, "level out of range");
-        return null;
-    }
-
-    var nodes = std.ArrayList(Node).init(allocator);
-    defer nodes.deinit();
-    source.getChildren(@intCast(u16, level), leaf, &nodes) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
-
-    const leafProperty = n.createString(env, "leaf") catch return null;
-    const hashProperty = n.createString(env, "hash") catch return null;
-    const resultArray = n.createArrayWithLength(env, nodes.items.len) catch return null;
-    for (nodes.items) |node, i| {
-        const leafBuffer = n.createBuffer(env, &node.leaf) catch return null;
-        const hashBuffer = n.createBuffer(env, &node.hash) catch return null;
-        const object = n.createObject(env) catch return null;
-        n.setProperty(env, object, leafProperty, leafBuffer) catch return null;
-        n.setProperty(env, object, hashProperty, hashBuffer) catch return null;
-        n.setElement(env, resultArray, @intCast(u32, i), object) catch return null;
-    }
-
-    return resultArray;
-}
-
-// Target
-
-pub fn createTarget(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(1, env, info) catch return null;
-    const tree = n.unwrap(Tree, &TreeTypeTag, env, stat.argv[0], false) catch return null;
-
-    const target = allocator.create(Target) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
-
-    target.init(allocator, tree) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
-
-    n.wrap(Target, env, stat.thisArg, target, destroyTarget, &TargetTypeTag) catch return null;
-    return n.getUndefined(env) catch return null;
-}
-
-pub fn destroyTarget(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
-    if (finalize_data) |ptr| {
-        const target = @ptrCast(*Target, @alignCast(@alignOf(Target), ptr));
-        target.close();
-        allocator.destroy(target);
+        c.napi_object => {
+            return try n.parseBuffer(env, keyValue);
+        },
+        else => {
+            _ = c.napi_throw_type_error(env, null, "expected Buffer or null");
+            return n.Error.Exception;
+        },
     }
 }
-
-fn targetCloseMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const target = n.unwrap(Target, &TargetTypeTag, env, stat.thisArg, true) catch return null;
-    target.close();
-
-    return n.getUndefined(env) catch return null;
-}
-
-fn targetGetRootLevelMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const target = n.unwrap(Target, &TargetTypeTag, env, stat.thisArg, false) catch return null;
-
-    var result: c.napi_value = undefined;
-    if (c.napi_create_uint32(env, target.rootLevel, &result) != c.napi_ok) {
-        _ = c.napi_throw_error(env, null, "failed to create unsigned integer");
-        return null;
-    }
-
-    return result;
-}
-
-fn targetGetRootHashMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const target = n.unwrap(Target, &TargetTypeTag, env, stat.thisArg, false) catch return null;
-
-    return n.createBuffer(env, &target.rootValue) catch return null;
-}
-
-fn targetFilterMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(1, env, info) catch return null;
-    const target = n.unwrap(Target, &TargetTypeTag, env, stat.thisArg, false) catch return null;
-
-    var arrayValue = stat.argv[0];
-    var isArray: bool = false;
-    if (c.napi_is_array(env, arrayValue, &isArray) != c.napi_ok) {
-        _ = c.napi_throw_error(env, null, "failed to validate array");
-        return null;
-    } else if (!isArray) {
-        _ = c.napi_throw_error(env, null, "expected Array");
-        return null;
-    }
-
-    var nodes = std.ArrayList(c.napi_value).init(allocator);
-    defer nodes.deinit();
-
-    const leafProperty = n.createString(env, "leaf") catch return null;
-    const hashProperty = n.createString(env, "hash") catch return null;
-
-    var length: u32 = 0;
-    if (c.napi_get_array_length(env, arrayValue, &length) != c.napi_ok) {
-        _ = c.napi_throw_error(env, null, "failed to get array length");
-        return null;
-    }
-
-    var key = Tree.createKey(0, null);
-
-    var index: u32 = 0;
-    while (index < length) : (index += 1) {
-        var element = n.getElement(env, arrayValue, index) catch return null;
-
-        const leaf = n.getProperty(env, element, leafProperty) catch return null;
-        const leafBytes = n.parseBuffer(env, X, leaf) catch return null;
-        const hash = n.getProperty(env, element, hashProperty) catch return null;
-        const valueBytes = n.parseBuffer(env, V, hash) catch return null;
-
-        Tree.setLeaf(&key, leafBytes);
-        if (target.txn.get(target.tree.dbi, &key)) |value| {
-            if (value) |bytes| {
-                if (!std.mem.eql(u8, bytes, valueBytes)) {
-                    _ = c.napi_throw_error(env, null, "Conflict");
-                    return null;
-                }
-            } else {
-                nodes.append(element) catch |err| {
-                    const name = @errorName(err);
-                    _ = c.napi_throw_error(env, null, name.ptr);
-                    return null;
-                };
-            }
-        } else |err| {
-            const name = @errorName(err);
-            _ = c.napi_throw_error(env, null, name.ptr);
-            return null;
-        }
-    }
-
-    return n.wrapArray(env, nodes.items) catch return null;
-}
-
-fn targetSeekMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(2, env, info) catch return null;
-    const target = n.unwrap(Target, &TargetTypeTag, env, stat.thisArg, false) catch return null;
-
-    const level = n.parseUint32(env, stat.argv[0]) catch return null;
-    const sourceRoot = n.parseBuffer(env, X, stat.argv[1]) catch return null;
-
-    if (level == 0 or level > target.rootLevel) {
-        _ = c.napi_throw_range_error(env, null, "out of range");
-        return null;
-    }
-
-    const pointer = target.seek(@intCast(u16, level), sourceRoot) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_range_error(env, null, name.ptr);
-        return null;
-    };
-
-    const leaf = n.createBuffer(env, Tree.getLeaf(pointer.key)) catch return null;
-    const hash = n.createBuffer(env, pointer.value) catch return null;
-
-    const object = n.createObject(env) catch return null;
-    const leafProperty = n.createString(env, "leaf") catch return null;
-    const hashProperty = n.createString(env, "hash") catch return null;
-    n.setProperty(env, object, leafProperty, leaf) catch return null;
-    n.setProperty(env, object, hashProperty, hash) catch return null;
-
-    return object;
-}
-
-// fn targetInsertMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-//   const stat = n.parseCallbackInfo(2, env, info) catch return null;
-//   const leaf = n.parseBuffer(env, X, stat.argv[0]) catch return null;
-//   const hash = n.parseBuffer(env, V, stat.argv[1]) catch return null;
-//   const target = n.unwrap(Target, &TargetTypeTag, env, stat.thisArg, false) catch return null;
-
-//   if (target.insert(leaf, hash)) |_| {
-//     return n.getUndefined(env) catch return null;
-//   } else |err| {
-//     _ = c.napi_throw_error(env, null, @errorName(err));
-//     return null;
-//   }
-// }
