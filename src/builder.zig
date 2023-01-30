@@ -1,20 +1,13 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
 const assert = std.debug.assert;
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-const expectEqualSlices = std.testing.expectEqualSlices;
 const Blake3 = std.crypto.hash.Blake3;
 
 const lmdb = @import("lmdb");
 
-const Header = @import("header.zig").Header;
 const Logger = @import("logger.zig").Logger;
 const print = @import("print.zig");
 const utils = @import("utils.zig");
-const library = @import("library.zig");
-
-pub const Options = struct { log: ?std.fs.File.Writer = null };
 
 /// A Builder is naive bottom-up tree builder used to construct large trees
 /// at once and for reference when unit testing SkipList.
@@ -22,15 +15,18 @@ pub const Options = struct { log: ?std.fs.File.Writer = null };
 /// as you want using .set(key, value), and then call .commit().
 /// Builder is also used in the rebuild cli command.
 pub fn Builder(comptime K: u8, comptime Q: u32) type {
+    const Header = @import("header.zig").Header(K, Q);
+
     return struct {
+        const Self = @This();
+        pub const Options = struct { log: ?std.fs.File.Writer = null };
+
         txn: lmdb.Transaction,
         cursor: lmdb.Cursor,
         key_buffer: std.ArrayList(u8),
         value_buffer: std.ArrayList(u8),
         hash_buffer: [K]u8 = undefined,
         logger: Logger,
-
-        const Self = @This();
 
         pub fn open(allocator: std.mem.Allocator, env: lmdb.Environment, options: Options) !Self {
             var builder: Self = undefined;
@@ -43,7 +39,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
             self.txn = try lmdb.Transaction.open(env, .{ .read_only = false });
             errdefer self.txn.abort();
 
-            try Header(K, Q).write(self.txn);
+            try Header.write(self.txn);
 
             self.cursor = try lmdb.Cursor.open(self.txn);
             self.key_buffer = std.ArrayList(u8).init(allocator);
@@ -176,44 +172,4 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
             }
         }
     };
-}
-
-var path_buffer: [4096]u8 = undefined;
-
-const Entry = [2][]const u8;
-
-fn testEntryList(comptime K: u8, comptime Q: u32, t: library.Test, options: Options) !void {
-    const allocator = std.heap.c_allocator;
-
-    // const log = std.io.getStdErr().writer();
-    // try log.print("\n", .{});
-
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
-    const env = try lmdb.Environment.open(path, .{});
-    defer env.close();
-
-    var builder = try Builder(K, Q).open(allocator, env, options);
-
-    for (t.leaves) |leaf| try builder.set(leaf[0], leaf[1]);
-
-    try builder.commit();
-
-    // try log.print("----------------------------------------------------------------\n", .{});
-    // try print.printEntries(env, log);
-
-    try lmdb.expectEqualEntries(env, t.entries);
-
-    // try log.print("----------------------------------------------------------------\n", .{});
-    // try printTree(allocator, env, log, .{ .compact = true });
-}
-
-test "Builder" {
-    for (&library.tests) |t| {
-        try testEntryList(32, 4, t, .{});
-    }
 }

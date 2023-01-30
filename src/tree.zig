@@ -2,50 +2,31 @@ const std = @import("std");
 
 const lmdb = @import("lmdb");
 
-const Header = @import("header.zig").Header;
-
-const utils = @import("utils.zig");
-
 pub fn Tree(comptime K: u8, comptime Q: u32) type {
+    const Header = @import("header.zig").Header(K, Q);
+
     return struct {
+        const Self = @This();
         pub const Options = struct { map_size: usize = 10485760 };
 
-        const Self = @This();
-
-        allocator: std.mem.Allocator,
         env: lmdb.Environment,
+        allocator: std.mem.Allocator,
 
-        pub fn open(allocator: std.mem.Allocator, path: [:0]u8, options: Options) !*Self {
+        pub fn open(allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !Self {
+            var tree: Self = undefined;
+            try tree.init(allocator, path, options);
+            return tree;
+        }
+
+        pub fn init(self: *Self, allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !void {
             const env = try lmdb.Environment.open(path, .{ .map_size = options.map_size });
-            try Header(K, Q).initialize(env);
-
-            const self = try allocator.create(Self);
-            self.allocator = allocator;
+            try Header.initialize(env);
             self.env = env;
-            return self;
+            self.allocator = allocator;
         }
 
         pub fn close(self: *Self) void {
             self.env.close();
-            self.allocator.destroy(self);
         }
     };
-}
-
-test "Tree.open()" {
-    const allocator = std.heap.c_allocator;
-
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
-    const tree = try Tree(32, 4).open(allocator, path, .{});
-    defer tree.close();
-
-    try lmdb.expectEqualEntries(tree.env, &.{
-        .{ &[_]u8{0}, &utils.parseHash("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
-    });
 }

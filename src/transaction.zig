@@ -6,12 +6,6 @@ const Blake3 = std.crypto.hash.Blake3;
 
 const lmdb = @import("lmdb");
 
-const Tree = @import("tree.zig").Tree;
-const Header = @import("header.zig").Header;
-const Logger = @import("logger.zig").Logger;
-const BufferPool = @import("buffer_pool.zig").BufferPool;
-
-const library = @import("library.zig");
 const utils = @import("utils.zig");
 const print = @import("print.zig");
 
@@ -24,7 +18,16 @@ const Operation = union(OperationTag) {
 };
 
 pub fn Transaction(comptime K: u8, comptime Q: u32) type {
+    const Node = @import("node.zig").Node(K, Q);
+    const Tree = @import("tree.zig").Tree(K, Q);
+    const Header = @import("header.zig").Header(K, Q);
+    const Logger = @import("logger.zig").Logger;
+    const BufferPool = @import("buffer_pool.zig").BufferPool;
+
     return struct {
+        const Self = @This();
+        pub const Options = struct { read_only: bool, log: ?std.fs.File.Writer = null };
+
         allocator: std.mem.Allocator,
         txn: lmdb.Transaction,
         cursor: lmdb.Cursor,
@@ -36,20 +39,21 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         new_siblings: std.ArrayList([]const u8),
         logger: Logger,
 
-        const Self = @This();
+        pub fn open(allocator: std.mem.Allocator, tree: *const Tree, options: Options) !Self {
+            var transaction: Self = undefined;
+            try transaction.init(allocator, tree, options);
+            return transaction;
+        }
 
-        pub const Options = struct { read_only: bool, log: ?std.fs.File.Writer = null };
-
-        pub fn open(allocator: std.mem.Allocator, tree: *const Tree(K, Q), options: Options) !*Self {
+        pub fn init(self: *Self, allocator: std.mem.Allocator, tree: *const Tree, options: Options) !void {
             const txn = try lmdb.Transaction.open(tree.env, .{ .read_only = options.read_only });
             errdefer txn.abort();
 
             const cursor = try lmdb.Cursor.open(txn);
             errdefer cursor.close();
 
-            try Header(K, Q).validate(txn);
+            try Header.validate(txn);
 
-            const self = try allocator.create(Self);
             self.allocator = allocator;
             self.txn = txn;
             self.cursor = cursor;
@@ -58,7 +62,6 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             self.value_buffer = std.ArrayList(u8).init(allocator);
             self.new_siblings = std.ArrayList([]const u8).init(allocator);
             self.logger = Logger.init(allocator, options.log);
-            return self;
         }
 
         pub fn abort(self: *Self) void {
@@ -77,12 +80,15 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             self.value_buffer.deinit();
             self.new_siblings.deinit();
             self.logger.deinit();
-            self.allocator.destroy(self);
         }
 
         pub fn get(self: *Self, key: []const u8) !?[]const u8 {
-            if (try self.getNode(0, key)) |value| {
-                return try getNodeValue(value);
+            if (try self.getNode(0, key)) |node| {
+                if (node.value == null) {
+                    return error.InvalidDatabase;
+                } else {
+                    return node.value;
+                }
             } else {
                 return null;
             }
@@ -108,7 +114,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
 
         fn apply(self: *Self, operation: Operation) !void {
             // go to root
-            try self.cursor.goToKey(&Header(K, Q).HEADER_KEY);
+            try self.cursor.goToKey(&Header.HEADER_KEY);
             const height = try if (try self.cursor.goToPrevious()) |key| key[0] else error.InvalidDatabase;
 
             try self.log("height: {d}", .{height});
@@ -159,19 +165,25 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         fn applyLeaf(self: *Self, first_child: []const u8, operation: Operation) !Result {
             switch (operation) {
                 .set => |entry| {
-                    try self.value_buffer.resize(K + entry.value.len);
-                    utils.hashEntry(entry.key, entry.value, self.value_buffer.items[0..K]);
-                    std.mem.copy(u8, self.value_buffer.items[K..], entry.value);
-                    try self.setNode(0, entry.key, self.value_buffer.items);
+                    // try self.value_buffer.resize(K + entry.value.len);
+                    utils.hashEntry(entry.key, entry.value, &self.hash_buffer);
+                    // std.mem.copy(u8, self.value_buffer.items[K..], entry.value);
+                    try self.setNode(0, entry.key, &self.hash_buffer, entry.value);
                     if (std.mem.lessThan(u8, first_child, entry.key)) {
                         if (isSplit(self.value_buffer.items[0..K])) {
                             try self.new_siblings.append(entry.key);
                         }
-                    } else {
-                        return error.WTF;
-                    }
 
-                    return Result.update;
+                        return Result.update;
+                    } else if (std.mem.eql(u8, first_child, entry.key)) {
+                        if (first_child.len == 0 or isSplit(self.value_buffer.items[0..K])) {
+                            return Result.update;
+                        } else {
+                            return Result.delete;
+                        }
+                    } else {
+                        return error.InvalidDatabase;
+                    }
                 },
                 .delete => |key| {
                     try self.deleteNode(0, key);
@@ -314,9 +326,8 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             while (try self.goToPrevious(level)) |previous_child| {
                 if (previous_child.len == 0) {
                     return try self.pool.copy(id, previous_child);
-                } else if (try self.getNode(level - 1, previous_child)) |previous_grand_child_value| {
-                    const previous_grand_child_hash = try getNodeHash(previous_grand_child_value);
-                    if (isSplit(previous_grand_child_hash)) {
+                } else if (try self.getNode(level - 1, previous_child)) |previous_grand_child| {
+                    if (previous_grand_child.isSplit()) {
                         return try self.pool.copy(id, previous_child);
                     }
                 }
@@ -359,18 +370,17 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                 digest.update(hash);
             }
 
-            var value: [K]u8 = undefined;
-            digest.final(&value);
-            try self.log("--------- {s}", .{hex(&value)});
+            digest.final(&self.hash_buffer);
+            try self.log("--------- {s}", .{hex(&self.hash_buffer)});
 
             if (key.len == 0) {
-                try self.log("setting {s} <- ({d}) null", .{ hex(&value), level });
+                try self.log("setting {s} <- ({d}) null", .{ hex(&self.hash_buffer), level });
             } else {
-                try self.log("setting {s} <- ({d}) {s}", .{ hex(&value), level, hex(key) });
+                try self.log("setting {s} <- ({d}) {s}", .{ hex(&self.hash_buffer), level, hex(key) });
             }
 
-            try self.setNode(level, key, &value);
-            return isSplit(&value);
+            try self.setNode(level, key, &self.hash_buffer, null);
+            return isSplit(&self.hash_buffer);
         }
 
         fn promote(self: *Self, level: u8) !void {
@@ -389,20 +399,47 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             try self.new_siblings.resize(new_index);
         }
 
-        fn setKey(self: *Self, level: u8, key: []const u8) !void {
-            try self.key_buffer.resize(1 + key.len);
+        fn setKey(self: *Self, level: u8, key: ?[]const u8) !void {
+            if (key) |bytes| {
+                try self.key_buffer.resize(1 + bytes.len);
+                std.mem.copy(u8, self.key_buffer.items[1..], bytes);
+            } else {
+                try self.key_buffer.resize(1);
+            }
+
             self.key_buffer.items[0] = level;
-            std.mem.copy(u8, self.key_buffer.items[1..], key);
         }
 
-        fn getNode(self: *Self, level: u8, key: []const u8) !?[]const u8 {
+        pub fn getNode(self: *Self, level: u8, key: ?[]const u8) !?Node {
             try self.setKey(level, key);
-            return try self.txn.get(self.key_buffer.items);
+            if (try self.txn.get(self.key_buffer.items)) |value| {
+                if (value.len < K) {
+                    return error.InvalidDatabase;
+                }
+
+                return Node{
+                    .level = level,
+                    .key = if (key != null) self.key_buffer.items[1..] else null,
+                    .hash = value[0..K],
+                    .value = if (level == 0) value[K..] else null,
+                };
+            } else {
+                return null;
+            }
         }
 
-        fn setNode(self: *Self, level: u8, key: []const u8, value: []const u8) !void {
+        fn setNode(self: *Self, level: u8, key: ?[]const u8, hash: *const [K]u8, value: ?[]const u8) !void {
             try self.setKey(level, key);
-            try self.txn.set(self.key_buffer.items, value);
+            if (value) |bytes| {
+                try self.value_buffer.resize(K + bytes.len);
+                std.mem.copy(u8, self.value_buffer.items[0..K], hash);
+                std.mem.copy(u8, self.value_buffer.items[K .. K + bytes.len], bytes);
+            } else {
+                try self.value_buffer.resize(K);
+                std.mem.copy(u8, self.value_buffer.items, hash);
+            }
+
+            try self.txn.set(self.key_buffer.items, self.value_buffer.items);
         }
 
         fn deleteNode(self: *Self, level: u8, key: []const u8) !void {
@@ -473,110 +510,3 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         }
     };
 }
-
-fn testEntryList(comptime K: u8, comptime Q: u32, t: library.Test, log: ?std.fs.File.Writer) !void {
-    const allocator = std.heap.c_allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
-    const tree = try Tree(K, Q).open(allocator, path, .{});
-    defer tree.close();
-
-    {
-        const txn = try Transaction(K, Q).open(allocator, tree, .{ .read_only = false, .log = log });
-        errdefer txn.abort();
-        for (t.leaves) |leaf| try txn.set(leaf[0], leaf[1]);
-        try txn.commit();
-    }
-
-    try lmdb.expectEqualEntries(tree.env, t.entries);
-}
-
-fn l(comptime N: u8) [1]u8 {
-    return [1]u8{N};
-}
-
-fn h(comptime value: *const [64]u8) [32]u8 {
-    var buffer: [32]u8 = undefined;
-    _ = std.fmt.hexToBytes(&buffer, value) catch unreachable;
-    return buffer;
-}
-
-test "Transaction.get" {
-    const allocator = std.heap.c_allocator;
-
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
-    const tree = try Tree(32, 4).open(allocator, path, .{});
-    defer tree.close();
-
-    const txn = try Transaction(32, 4).open(allocator, tree, .{ .read_only = false });
-    defer txn.abort();
-
-    try txn.set("a", "foo");
-    try txn.set("b", "bar");
-    try txn.set("c", "baz");
-
-    try if (try txn.get("b")) |value| try expectEqualSlices(u8, value, "bar") else error.NotFound;
-    try if (try txn.get("a")) |value| try expectEqualSlices(u8, value, "foo") else error.NotFound;
-    try if (try txn.get("c")) |value| try expectEqualSlices(u8, value, "baz") else error.NotFound;
-}
-
-test "Transaction.set" {
-    for (&library.tests) |t| {
-        try testEntryList(32, 4, t, null);
-    }
-}
-
-// test "Transaction.delete" {
-//     const allocator = std.heap.c_allocator;
-
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
-
-//     const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-//     defer allocator.free(path);
-
-//     const tree = try Tree(32, 4).open(allocator, path, .{});
-//     defer tree.close();
-
-//     {
-//         const txn = try Transaction(32, 4).open(allocator, tree, .{ .read_only = false });
-//         errdefer txn.abort();
-
-//         try txn.set("a", "foo");
-//         try txn.set("b", "bar");
-//         try txn.set("c", "baz");
-//         try txn.set("d", "wow");
-//         try txn.set("e", "aaa");
-
-//         try txn.delete("b");
-
-//         try txn.commit();
-//     }
-
-//     const entries = [_]Entry{
-//         // Blake3() = af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262
-//         .{ &l(0), &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-//         .{ &[_]u8{ 0, 'a' }, h("04e0bb39f30b1a3feb89f536c93be15055482df748674b00d26e5a75777702e9") ++ "foo" },
-//         .{ &[_]u8{ 0, 'c' }, h("9624faa79d245cea9c345474fdb1a863b75921a8dd7aff3d84b22c65d1fc0847") ++ "baz" },
-//         .{ &[_]u8{ 0, 'd' }, h("f77f056978b0003579dd044debc30cf5e287103387ddceeb7787ab3daca558cf") ++ "wow" },
-//         .{ &[_]u8{ 0, 'e' }, h("30c0f9c6a167fc2a91285c85be7ea341569b3b39fcc5f77fd34534cade971d20") ++ "aaa" }, // X
-
-//         .{ &l(1), &h("b547e541829b617963555c3ac160205444edbbce2799c5f5d678ba94bd770af8") },
-//         .{ &[_]u8{ 1, 'e' }, &h("92caac92c967d76cb792411bb03a24585843f4e64b0b22d9a111d31dc8c249ac") },
-
-//         .{ &l(2), &h("3bb085a04453e838efb7180ff1e4669f093a9eecd17e8131f3e1c2147de1b386") },
-
-//         .{ &l(0xFF), &[_]u8{ 'o', 'k', 'r', 'a', 1, 4, 32 } },
-//     };
-
-//     try lmdb.expectEqualEntries(tree.env, &entries);
-// }

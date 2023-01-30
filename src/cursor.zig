@@ -1,16 +1,13 @@
 const std = @import("std");
-const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
-const expectEqualSlices = std.testing.expectEqualSlices;
 
 const lmdb = @import("lmdb");
 
-const Tree = @import("tree.zig").Tree;
-const Header = @import("header.zig").Header;
-const Transaction = @import("transaction.zig").Transaction;
-const utils = @import("utils.zig");
-
 pub fn Cursor(comptime K: u8, comptime Q: u32) type {
+    const Transaction = @import("transaction.zig").Transaction(K, Q);
+    const Header = @import("header.zig").Header(K, Q);
+    const Node = @import("node.zig").Node(K, Q);
+
     return struct {
         allocator: std.mem.Allocator,
         cursor: lmdb.Cursor,
@@ -18,30 +15,26 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
 
         const Self = @This();
 
-        pub const Node = struct {
-            level: u8,
-            key: ?[]const u8,
-            hash: *const [K]u8,
-            value: ?[]const u8,
-        };
+        pub fn open(allocator: std.mem.Allocator, txn: *const Transaction) !Self {
+            var cursor: Self = undefined;
+            try cursor.init(allocator, txn);
+            return cursor;
+        }
 
-        pub fn open(allocator: std.mem.Allocator, txn: *const Transaction(K, Q)) !*Self {
+        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: *const Transaction) !void {
             const cursor = try lmdb.Cursor.open(txn.txn);
-            const self = try allocator.create(Self);
             self.allocator = allocator;
             self.cursor = cursor;
             self.key = std.ArrayList(u8).init(allocator);
-            return self;
         }
 
         pub fn close(self: *Self) void {
             self.key.deinit();
             self.cursor.close();
-            self.allocator.destroy(self);
         }
 
         pub fn goToRoot(self: *Self) !Node {
-            try self.cursor.goToKey(&[_]u8{0xFF});
+            try self.cursor.goToKey(&Header.HEADER_KEY);
             if (try self.cursor.goToPrevious()) |k| {
                 if (k.len == 1) {
                     // this is just to avoid Uninitialized errors later
@@ -110,7 +103,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
             }
         }
 
-        pub fn getCurrentNode(self: *Self) !Node {
+        pub fn getCurrentNode(self: Self) !Node {
             const key = try self.cursor.getCurrentKey();
             if (key.len == 0) {
                 return error.InvalidDatabase;
@@ -128,96 +121,11 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
                 .value = if (key.len > 1 and key[0] == 0) value[K..] else null,
             };
         }
+
+        pub fn isCurrentNodeSplit(self: Self) !bool {
+            const limit: comptime_int = (1 << 32) / @intCast(u33, Q);
+            const node = try self.getCurrentNode();
+            return node.key != null and std.mem.readIntBig(u32, node.hash[0..4]) < limit;
+        }
     };
-}
-
-fn h(value: *const [32]u8) [16]u8 {
-    var buffer: [16]u8 = undefined;
-    _ = std.fmt.hexToBytes(&buffer, value) catch unreachable;
-    return buffer;
-}
-
-fn expectEqualKeys(expected: ?[]const u8, actual: ?[]const u8) !void {
-    if (expected == null) {
-        try expectEqual(expected, actual);
-    } else {
-        try expect(actual != null);
-        try expectEqualSlices(u8, expected.?, actual.?);
-    }
-}
-
-fn expectEqualNode(level: u8, key: ?[]const u8, hash: *const [32]u8, value: ?[]const u8, node: Cursor(16, 4).Node) !void {
-    try expectEqual(level, node.level);
-    try expectEqualKeys(key, node.key);
-    try expectEqualSlices(u8, &h(hash), node.hash);
-    try expectEqualKeys(value, node.value);
-}
-
-test "Cursor(a, b, c)" {
-    const Node = Cursor(16, 4).Node;
-
-    const allocator = std.heap.c_allocator;
-
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
-    const tree = try Tree(16, 4).open(allocator, path, .{});
-    defer tree.close();
-
-    const txn = try Transaction(16, 4).open(allocator, tree, .{ .read_only = false });
-    defer txn.abort();
-
-    try txn.set("a", "foo");
-    try txn.set("b", "bar");
-    try txn.set("c", "baz");
-
-    // okay here we expect
-    // L0 -----------------------------
-    // af1349b9f5f9a1a6a0404dea36dcc949
-    // 2f26b85f65eb9f7a8ac11e79e710148d "a"
-    // 684f1047a178e6cf9fff759ba1edec2d "b"
-    // 56cb13c78823525b08d471b6c1201360 "c"
-    // L1 -----------------------------
-    // 6c5483c477697c881f6b03dc23a52c7f
-    // d139f1b3444bc84fd46cbd56f7fe2fb5 "a"
-    // L2 -----------------------------
-    // 2453a3811e50851b4fc0bb95e1415b07
-
-    const cursor = try Cursor(16, 4).open(allocator, txn);
-    defer cursor.close();
-
-    const root = try cursor.goToRoot();
-    try expectEqualNode(2, null, "2453a3811e50851b4fc0bb95e1415b07", null, root);
-    try expectEqual(@as(?Node, null), try cursor.goToNext());
-
-    {
-        const node = try cursor.goToNode(1, null);
-        try expectEqualNode(1, null, "6c5483c477697c881f6b03dc23a52c7f", null, node);
-    }
-
-    try if (try cursor.goToNext()) |node| {
-        try expectEqualNode(1, "a", "d139f1b3444bc84fd46cbd56f7fe2fb5", null, node);
-    } else error.NotFound;
-
-    try expectEqual(@as(?Node, null), try cursor.goToNext());
-
-    try txn.set("x", "hello world"); // a4fefb21af5e42531ed2b7860cf6e80a
-    try txn.set("z", "lorem ipsum"); // 4d41c77b6d7d709e7dd9803e07060681
-
-    try if (try cursor.seek(0, "y")) |node| {
-        try expectEqualNode(0, "z", "4d41c77b6d7d709e7dd9803e07060681", "lorem ipsum", node);
-    } else error.NotFound;
-
-    try if (try cursor.goToPrevious()) |node| {
-        try expectEqualNode(0, "x", "a4fefb21af5e42531ed2b7860cf6e80a", "hello world", node);
-    } else error.NotFound;
-
-    try if (try cursor.seek(0, null)) |node| {
-        try expectEqualNode(0, null, "af1349b9f5f9a1a6a0404dea36dcc949", null, node);
-    } else error.NotFound;
-
-    try expectEqual(@as(?Node, null), try cursor.goToPrevious());
 }

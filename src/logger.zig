@@ -26,7 +26,7 @@ pub const Logger = struct {
 
     pub fn deindent(self: *Logger) void {
         if (self.writer != null and self.prefix.items.len >= indentation_unit.len) {
-            self.prefix.shrinkAndFree(self.prefix.items.len - indentation_unit.len);
+            self.prefix.resize(self.prefix.items.len - indentation_unit.len) catch unreachable;
         }
     }
 
