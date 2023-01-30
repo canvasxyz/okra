@@ -33,6 +33,8 @@ export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) callco
         .{ .name = "get", .callback = transactionGetMethod },
         .{ .name = "set", .callback = transactionSetMethod },
         .{ .name = "delete", .callback = transactionDeleteMethod },
+        .{ .name = "getNode", .callback = transactionGetNodeMethod },
+        .{ .name = "getChildren", .callback = transactionGetChildrenMethod },
     };
 
     n.defineClass("Transaction", createTransaction, &transactionMethods, env, exports) catch return null;
@@ -45,7 +47,6 @@ export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) callco
         .{ .name = "goToPrevious", .callback = cursorGoToPreviousMethod },
         .{ .name = "seek", .callback = cursorSeekMethod },
         .{ .name = "getCurrentNode", .callback = cursorGetCurrentNodeMethod },
-        .{ .name = "isCurrentNodeSplit", .callback = cursorIsCurrentNodeSplitMethod },
     };
 
     n.defineClass("Cursor", createCursor, &cursorMethods, env, exports) catch return null;
@@ -62,17 +63,9 @@ pub fn createTree(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.na
     const path = n.parseStringAlloc(env, pathArg, allocator) catch return null;
     defer allocator.free(path);
 
-    const tree = allocator.create(okra.Tree) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    const tree = allocator.create(okra.Tree) catch |err| return n.throw(env, err);
 
-    tree.init(allocator, path, .{}) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    tree.init(allocator, path, .{}) catch |err| return n.throw(env, err);
 
     n.wrap(okra.Tree, env, stat.this, tree, destroyTree, &TreeTypeTag) catch return null;
 
@@ -108,17 +101,9 @@ pub fn createTransaction(env: c.napi_env, info: c.napi_callback_info) callconv(.
     const read_only_value = n.getProperty(env, stat.args[1], read_only_property) catch return null;
     const read_only = n.parseBoolean(env, read_only_value) catch return null;
 
-    const txn = allocator.create(okra.Transaction) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    const txn = allocator.create(okra.Transaction) catch |err| return n.throw(env, err);
 
-    txn.init(allocator, tree, .{ .read_only = read_only }) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    txn.init(allocator, tree, .{ .read_only = read_only }) catch |err| return n.throw(env, err);
 
     n.wrap(okra.Transaction, env, stat.this, txn, destroyTransaction, &TransactionTypeTag) catch return null;
     return n.getUndefined(env) catch return null;
@@ -146,11 +131,7 @@ fn transactionCommitMethod(env: c.napi_env, info: c.napi_callback_info) callconv
     const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, true) catch return null;
     defer allocator.destroy(txn);
 
-    txn.commit() catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    txn.commit() catch |err| return n.throw(env, err);
 
     return n.getUndefined(env) catch return null;
 }
@@ -160,11 +141,7 @@ fn transactionGetMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C
     const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
 
     const key = n.parseBuffer(env, stat.args[0]) catch return null;
-    const value = txn.get(key) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    const value = txn.get(key) catch |err| return n.throw(env, err);
 
     if (value) |bytes| {
         return n.createBuffer(env, bytes) catch return null;
@@ -179,11 +156,7 @@ fn transactionSetMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C
 
     const key = n.parseBuffer(env, stat.args[0]) catch return null;
     const value = n.parseBuffer(env, stat.args[1]) catch return null;
-    txn.set(key, value) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    txn.set(key, value) catch |err| return n.throw(env, err);
 
     return n.getUndefined(env) catch return null;
 }
@@ -193,13 +166,57 @@ fn transactionDeleteMethod(env: c.napi_env, info: c.napi_callback_info) callconv
     const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
 
     const key = n.parseBuffer(env, stat.args[0]) catch return null;
-    txn.delete(key) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    txn.delete(key) catch |err| return n.throw(env, err);
 
     return n.getUndefined(env) catch return null;
+}
+
+fn transactionGetNodeMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(2, env, info) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
+
+    const level = parseLevel(env, stat.args[0]) catch return null;
+    const key = parseKey(env, stat.args[1]) catch return null;
+
+    if (txn.getNode(level, key) catch |err| return n.throw(env, err)) |node| {
+        return createNode(env, node) catch return null;
+    } else {
+        return n.throw(env, error.KeyNotFound);
+    }
+}
+
+fn transactionGetChildrenMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(2, env, info) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
+
+    const level = parseLevel(env, stat.args[0]) catch return null;
+    const key = parseKey(env, stat.args[1]) catch return null;
+
+    if (level == 0) {
+        _ = c.napi_throw_range_error(env, null, "cannot get children of a leaf node");
+        return null;
+    }
+
+    var children = std.ArrayList(c.napi_value).init(allocator);
+    defer children.deinit();
+
+    var cursor = okra.Cursor.open(allocator, txn) catch |err| return n.throw(env, err);
+    defer cursor.close();
+
+    const first_child = cursor.goToNode(level - 1, key) catch |err| return n.throw(env, err);
+    const first_child_node = createNode(env, first_child) catch return null;
+    children.append(first_child_node) catch |err| return n.throw(env, err);
+
+    while (cursor.goToNext() catch |err| return n.throw(env, err)) |next_child| {
+        if (next_child.isSplit()) {
+            break;
+        } else {
+            const next_child_node = createNode(env, next_child) catch return null;
+            children.append(next_child_node) catch |err| return n.throw(env, err);
+        }
+    }
+
+    return n.wrapArray(env, children.items) catch return null;
 }
 
 // Cursor
@@ -261,13 +278,7 @@ fn cursorGoToNodeMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C
     const level = parseLevel(env, stat.args[0]) catch return null;
     const key = parseKey(env, stat.args[1]) catch return null;
 
-    if (level > 0xFF) {}
-
-    const node = cursor.goToNode(level, key) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    const node = cursor.goToNode(level, key) catch |err| return n.throw(env, err);
 
     return createNode(env, node) catch return null;
 }
@@ -276,11 +287,7 @@ fn cursorGoToNextMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
     const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
 
-    const next = cursor.goToNext() catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    const next = cursor.goToNext() catch |err| return n.throw(env, err);
 
     if (next) |node| {
         return createNode(env, node) catch return null;
@@ -293,11 +300,7 @@ fn cursorGoToPreviousMethod(env: c.napi_env, info: c.napi_callback_info) callcon
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
     const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
 
-    const previous = cursor.goToPrevious() catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    const previous = cursor.goToPrevious() catch |err| return n.throw(env, err);
 
     if (previous) |node| {
         return createNode(env, node) catch return null;
@@ -313,11 +316,7 @@ fn cursorSeekMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.
     const level = parseLevel(env, stat.args[0]) catch return null;
     const key = parseKey(env, stat.args[1]) catch return null;
 
-    const seek = cursor.seek(level, key) catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    const seek = cursor.seek(level, key) catch |err| return n.throw(env, err);
 
     if (seek) |node| {
         return createNode(env, node) catch return null;
@@ -327,27 +326,11 @@ fn cursorSeekMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.
 }
 
 fn cursorGetCurrentNodeMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(2, env, info) catch return null;
+    const stat = n.parseCallbackInfo(0, env, info) catch return null;
     const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
-    const node = cursor.getCurrentNode() catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
+    const node = cursor.getCurrentNode() catch |err| return n.throw(env, err);
 
     return createNode(env, node) catch return null;
-}
-
-fn cursorIsCurrentNodeSplitMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(2, env, info) catch return null;
-    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
-    const is_split = cursor.isCurrentNodeSplit() catch |err| {
-        const name = @errorName(err);
-        _ = c.napi_throw_error(env, null, name.ptr);
-        return null;
-    };
-
-    return n.createBoolean(env, is_split) catch return null;
 }
 
 fn createNode(env: c.napi_env, node: okra.Node) !c.napi_value {

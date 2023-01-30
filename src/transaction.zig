@@ -435,7 +435,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                     .level = level,
                     .key = if (key != null) self.key_buffer.items[1..] else null,
                     .hash = value[0..K],
-                    .value = if (level == 0) value[K..] else null,
+                    .value = if (level == 0 and key != null) value[K..] else null,
                 };
             } else {
                 return null;

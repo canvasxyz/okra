@@ -121,11 +121,5 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
                 .value = if (key.len > 1 and key[0] == 0) value[K..] else null,
             };
         }
-
-        pub fn isCurrentNodeSplit(self: Self) !bool {
-            const limit: comptime_int = (1 << 32) / @intCast(u33, Q);
-            const node = try self.getCurrentNode();
-            return node.key != null and std.mem.readIntBig(u32, node.hash[0..4]) < limit;
-        }
     };
 }

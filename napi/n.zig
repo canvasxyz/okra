@@ -340,3 +340,9 @@ pub fn wrapArray(env: c.napi_env, elements: []c.napi_value) Error!c.napi_value {
 
     return result;
 }
+
+pub fn throw(env: c.napi_env, err: anyerror) c.napi_value {
+    const name = @errorName(err);
+    _ = c.napi_throw_error(env, null, name.ptr);
+    return null;
+}
