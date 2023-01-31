@@ -124,7 +124,7 @@ test(
 );
 
 test(
-  "getNode, getChildren",
+  "getRoot, getNode, getChildren",
   tmpdir((t, directory) => {
     const tree = new okra.Tree(path.resolve(directory, "data.okra"));
 
@@ -157,6 +157,13 @@ test(
 
     {
       const txn = new okra.Transaction(tree, { readOnly: false });
+
+      t.deepEqual(txn.getRoot(), {
+        level: 0,
+        key: null,
+        hash: Buffer.from("af1349b9f5f9a1a6a0404dea36dcc949", "hex"),
+      });
+
       txn.set(a.key, a.value);
       txn.set(b.key, b.value);
       txn.set(c.key, c.value);
