@@ -1,7 +1,7 @@
 FLAGS=-dynamic -fallow-shlib-undefined -lc
-PACKAGES=--pkg-begin okra ./src/lib.zig --pkg-begin lmdb ./lmdb/lib.zig
-INCLUDES=-isystem /usr/local/include/node -I./libs/openldap/libraries/liblmdb
-SOURCES=libs/openldap/libraries/liblmdb/mdb.c libs/openldap/libraries/liblmdb/midl.c napi/lib.zig
+PACKAGES=--pkg-begin okra ../src/lib.zig --pkg-begin lmdb ../lmdb/lib.zig
+INCLUDES=-isystem /usr/local/include/node -I../libs/openldap/libraries/liblmdb
+SOURCES=../libs/openldap/libraries/liblmdb/mdb.c ../libs/openldap/libraries/liblmdb/midl.c src/lib.zig
 
 all: build/x64-linux-glibc build/x64-linux-musl build/arm64-linux-glibc build/arm64-linux-musl build/x64-darwin build/arm64-darwin
 

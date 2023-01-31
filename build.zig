@@ -21,23 +21,6 @@ pub fn build(b: *std.build.Builder) void {
     cli.linkLibC();
     cli.install();
 
-    // build node-api dylib
-    const napi = b.addSharedLibrary("okra", "./napi/lib.zig", .unversioned);
-    napi.addPackage(okra);
-    napi.addIncludePath("/usr/local/include/node");
-    napi.addIncludePath("./libs/openldap/libraries/liblmdb");
-    napi.addCSourceFiles(lmdbSources, &.{});
-    napi.linkLibC();
-    napi.linker_allow_shlib_undefined = true;
-    napi.install();
-
-    // buildArchOS(b, "aarch64-macos");
-    // buildArchOS(b, "aarch64-linux-gnu");
-    // buildArchOS(b, "aarch64-linux-musl");
-    // buildArchOS(b, "x86_64-macos");
-    // buildArchOS(b, "x86_64-linux-gnu");
-    // buildArchOS(b, "x86_64-linux-musl");
-
     // Tests
     const lmdb_tests = b.addTest("lmdb/test.zig");
     lmdb_tests.addIncludePath("libs/openldap/libraries/liblmdb");
@@ -119,32 +102,3 @@ const lmdbSources: []const []const u8 = &.{
     "libs/openldap/libraries/liblmdb/mdb.c",
     "libs/openldap/libraries/liblmdb/midl.c",
 };
-
-// fn buildArchOS(b: *std.build.Builder, comptime _: []const u8) void {
-//     const mode = b.standardReleaseOptions();
-//     // const target = std.zig.CrossTarget.parse(.{ .arch_os_abi = archOS }) catch unreachable;
-
-//     const cli = b.addExecutable("okra", "./cli/main.zig");
-//     cli.setBuildMode(mode);
-//     // cli.setTarget(target);
-//     cli.addPackagePath("zig-cli", "./libs/zig-cli/src/main.zig");
-//     cli.addPackage(lmdb);
-//     cli.addPackage(okra);
-//     cli.addIncludePath("./libs/openldap/libraries/liblmdb");
-//     cli.addCSourceFiles(lmdbSources, &.{});
-//     // cli.setOutputDir("zig-out/" ++ archOS);
-//     cli.linkLibC();
-//     cli.install();
-
-//     // const napi = b.addSharedLibrary("okra", "napi/lib.zig", .unversioned);
-//     // napi.setBuildMode(mode);
-//     // napi.setTarget(target);
-//     // napi.addPackage(okra);
-//     // napi.addIncludeDir("/usr/local/include/node");
-//     // napi.addIncludeDir("libs/openldap/libraries/liblmdb");
-//     // napi.addCSourceFiles(lmdbSources, &.{ });
-//     // napi.setOutputDir("zig-out/" ++ archOS);
-//     // napi.linkLibC();
-//     // napi.linker_allow_shlib_undefined = true;
-//     // napi.install();
-// }

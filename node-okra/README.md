@@ -1,5 +1,38 @@
-import type { Buffer } from "node:buffer"
+# node-okra
 
+NodeJS bindings for okra.
+
+## Table of Contents
+
+- [Installation](#installation)
+- [API](#api)
+  - [Tree](#tree)
+  - [Transaction](#transaction)
+  - [Cursor](#cursor)
+
+## Installation
+
+```
+npm i node-okra
+```
+
+```ts
+import * as okra from "node-okra"
+
+const tree = new okra.Tree("/path/to/db.okra")
+const txn = new okra.Transaction(tree, { readOnly: false })
+txn.set(Buffer.from("foo"), Buffer.from("bar"))
+txn.commit()
+// ...
+```
+
+## API
+
+The three basic classes are `Tree`, `Transaction`, and `Cursor`. Trees and transactions form a classical key/value store interface: you can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries. A cursor can be used to move around the nodes of the tree itself, which includes the leaves, the intermediate-level nodes, and the root node.
+
+### Tree
+
+```ts
 declare class Tree {
 	constructor(path: string)
 
@@ -8,8 +41,20 @@ declare class Tree {
 	 */
 	close(): void
 }
+```
 
+### Transaction
+
+```ts
 declare class Transaction {
+	/**
+	 * Transactions must be opened as either read-only or read-write.
+	 * Only one read-write transaction can be open at a time.
+	 * Read-only transactions must be manually aborted when finished,
+	 * and read-read transactions must be either aborted or committed.
+	 * Failure to abort or commmit transactions will cause the database
+	 * file to grow.
+	 */
 	constructor(tree: Tree, options: { readOnly: boolean })
 
 	/**
@@ -66,16 +111,22 @@ declare class Transaction {
 	 */
 	getChildren(level: number, key: Buffer | null): Node[]
 }
+```
 
-declare type Node = {
-	level: number
-	key: Buffer | null
-	hash: Buffer
-	value?: Buffer
-}
+### Cursor
 
+```ts
 declare class Cursor {
+  /**
+   * Cursors can be opened using read-write or read-only transactions,
+   * and must be closed before the transaction is aborted or committed.
+   */
 	constructor(txn: Transaction)
+
+  /**
+	 * Close the cursor and free its associated resources
+	 */
+	close(): void
 
 	/**
 	 * Go to the root node
@@ -107,9 +158,5 @@ declare class Cursor {
 	 * @param key
 	 */
 	seek(level: number, key: Buffer | null): Node | null
-
-	/**
-	 * Close the cursor and free its associated resources
-	 */
-	close(): void
 }
+```
