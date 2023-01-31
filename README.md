@@ -147,6 +147,7 @@ const Transaction = struct {
     pub fn set(self: *Transaction, key: []const u8, value: []const u8) !void
     pub fn delete(self: *Transaction, key: []const u8) !void
 
+    pub fn getRoot(self: *Transaction) !Node
     pub fn getNode(self: *Transaction, level: u8, key: ?[]const u8) !Node
 }
 ```

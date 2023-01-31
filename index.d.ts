@@ -25,7 +25,7 @@ declare class Transaction {
 
 	/**
 	 * Get the value of an entry
-	 * @param {Buffer} key 
+	 * @param {Buffer} key
 	 * @returns the entry's value, or null if the entry does not exist
 	 */
 	get(key: Buffer): Buffer | null
@@ -54,6 +54,11 @@ declare class Transaction {
 	getNode(level: number, key: Buffer | null): Node
 
 	/**
+	 * Get the root of the internal skip-list
+	 */
+	getRoot(): Node
+
+	/**
 	 * Get the children of an internal skip-list node
 	 * @param level node level (cannot be zero)
 	 * @param key node key (null for anchor nodes)
@@ -63,7 +68,7 @@ declare class Transaction {
 }
 
 declare type Node = {
-	level: Number
+	level: number
 	key: Buffer | null
 	hash: Buffer
 	value?: Buffer
@@ -98,8 +103,8 @@ declare class Cursor {
 
 	/**
 	 * Seek to the first node on the given level with a key greater than or equal to the provided search key
-	 * @param level 
-	 * @param key 
+	 * @param level
+	 * @param key
 	 */
 	seek(level: number, key: Buffer | null): Node | null
 
