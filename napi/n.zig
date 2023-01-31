@@ -60,7 +60,7 @@ pub fn wrap(
     }
 }
 
-pub fn unwrap(comptime T: type, tag: *const c.napi_type_tag, env: c.napi_env, value: c.napi_value, remove: bool) Error!*T {
+pub fn unwrap(comptime T: type, tag: *const c.napi_type_tag, env: c.napi_env, value: c.napi_value) Error!*T {
     var is_tag = false;
     if (c.napi_check_object_type_tag(env, value, tag, &is_tag) != c.napi_ok) {
         _ = c.napi_throw_error(env, null, "failed to check object type tag");
@@ -71,16 +71,9 @@ pub fn unwrap(comptime T: type, tag: *const c.napi_type_tag, env: c.napi_env, va
     }
 
     var ptr: ?*anyopaque = null;
-    if (remove) {
-        if (c.napi_remove_wrap(env, value, &ptr) != c.napi_ok) {
-            _ = c.napi_throw_error(env, null, "failed to remove object wrap");
-            return Error.Exception;
-        }
-    } else {
-        if (c.napi_unwrap(env, value, &ptr) != c.napi_ok) {
-            _ = c.napi_throw_error(env, null, "failed to unwrap object");
-            return Error.Exception;
-        }
+    if (c.napi_unwrap(env, value, &ptr) != c.napi_ok) {
+        _ = c.napi_throw_error(env, null, "failed to unwrap object");
+        return Error.Exception;
     }
 
     if (ptr == null) {

@@ -34,6 +34,7 @@ export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) callco
         .{ .name = "set", .callback = transactionSetMethod },
         .{ .name = "delete", .callback = transactionDeleteMethod },
         .{ .name = "getNode", .callback = transactionGetNodeMethod },
+        .{ .name = "getRoot", .callback = transactionGetRootMethod },
         .{ .name = "getChildren", .callback = transactionGetChildrenMethod },
     };
 
@@ -75,19 +76,14 @@ pub fn createTree(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.na
 pub fn destroyTree(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
     if (finalize_data) |ptr| {
         const tree = @ptrCast(*okra.Tree, @alignCast(@alignOf(okra.Tree), ptr));
-
-        tree.close();
         allocator.destroy(tree);
     }
 }
 
 fn treeCloseMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const tree = n.unwrap(okra.Tree, &TreeTypeTag, env, stat.this, true) catch return null;
-    defer allocator.destroy(tree);
-
+    const tree = n.unwrap(okra.Tree, &TreeTypeTag, env, stat.this) catch return null;
     tree.close();
-
     return n.getUndefined(env) catch return null;
 }
 
@@ -95,7 +91,7 @@ fn treeCloseMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.n
 
 pub fn createTransaction(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(2, env, info) catch return null;
-    const tree = n.unwrap(okra.Tree, &TreeTypeTag, env, stat.args[0], false) catch return null;
+    const tree = n.unwrap(okra.Tree, &TreeTypeTag, env, stat.args[0]) catch return null;
 
     const read_only_property = n.createString(env, "readOnly") catch return null;
     const read_only_value = n.getProperty(env, stat.args[1], read_only_property) catch return null;
@@ -112,33 +108,27 @@ pub fn createTransaction(env: c.napi_env, info: c.napi_callback_info) callconv(.
 pub fn destroyTransaction(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
     if (finalize_data) |ptr| {
         const txn = @ptrCast(*okra.Transaction, @alignCast(@alignOf(okra.Transaction), ptr));
-        txn.abort();
         allocator.destroy(txn);
     }
 }
 
 fn transactionAbortMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, true) catch return null;
-    defer allocator.destroy(txn);
-
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this) catch return null;
     txn.abort();
     return n.getUndefined(env) catch return null;
 }
 
 fn transactionCommitMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, true) catch return null;
-    defer allocator.destroy(txn);
-
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this) catch return null;
     txn.commit() catch |err| return n.throw(env, err);
-
     return n.getUndefined(env) catch return null;
 }
 
 fn transactionGetMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(1, env, info) catch return null;
-    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this) catch return null;
 
     const key = n.parseBuffer(env, stat.args[0]) catch return null;
     const value = txn.get(key) catch |err| return n.throw(env, err);
@@ -152,7 +142,7 @@ fn transactionGetMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C
 
 fn transactionSetMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(2, env, info) catch return null;
-    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this) catch return null;
 
     const key = n.parseBuffer(env, stat.args[0]) catch return null;
     const value = n.parseBuffer(env, stat.args[1]) catch return null;
@@ -163,7 +153,7 @@ fn transactionSetMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C
 
 fn transactionDeleteMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(1, env, info) catch return null;
-    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this) catch return null;
 
     const key = n.parseBuffer(env, stat.args[0]) catch return null;
     txn.delete(key) catch |err| return n.throw(env, err);
@@ -173,7 +163,7 @@ fn transactionDeleteMethod(env: c.napi_env, info: c.napi_callback_info) callconv
 
 fn transactionGetNodeMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(2, env, info) catch return null;
-    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this) catch return null;
 
     const level = parseLevel(env, stat.args[0]) catch return null;
     const key = parseKey(env, stat.args[1]) catch return null;
@@ -185,9 +175,17 @@ fn transactionGetNodeMethod(env: c.napi_env, info: c.napi_callback_info) callcon
     }
 }
 
+fn transactionGetRootMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
+    const stat = n.parseCallbackInfo(0, env, info) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this) catch return null;
+
+    const root = txn.getRoot() catch |err| return n.throw(env, err);
+    return createNode(env, root) catch return null;
+}
+
 fn transactionGetChildrenMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(2, env, info) catch return null;
-    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this, false) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.this) catch return null;
 
     const level = parseLevel(env, stat.args[0]) catch return null;
     const key = parseKey(env, stat.args[1]) catch return null;
@@ -223,7 +221,7 @@ fn transactionGetChildrenMethod(env: c.napi_env, info: c.napi_callback_info) cal
 
 pub fn createCursor(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(1, env, info) catch return null;
-    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.args[0], false) catch return null;
+    const txn = n.unwrap(okra.Transaction, &TransactionTypeTag, env, stat.args[0]) catch return null;
 
     const cursor = allocator.create(okra.Cursor) catch |err| {
         const name = @errorName(err);
@@ -244,15 +242,13 @@ pub fn createCursor(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.
 pub fn destroyCursor(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
     if (finalize_data) |ptr| {
         const cursor = @ptrCast(*okra.Cursor, @alignCast(@alignOf(okra.Cursor), ptr));
-        cursor.close();
         allocator.destroy(cursor);
     }
 }
 
 fn cursorCloseMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, true) catch return null;
-    defer allocator.destroy(cursor);
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this) catch return null;
     cursor.close();
 
     return n.getUndefined(env) catch return null;
@@ -260,7 +256,7 @@ fn cursorCloseMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c
 
 fn cursorGoToRootMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this) catch return null;
 
     const root = cursor.goToRoot() catch |err| {
         const name = @errorName(err);
@@ -273,7 +269,7 @@ fn cursorGoToRootMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C
 
 fn cursorGoToNodeMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(2, env, info) catch return null;
-    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this) catch return null;
 
     const level = parseLevel(env, stat.args[0]) catch return null;
     const key = parseKey(env, stat.args[1]) catch return null;
@@ -285,7 +281,7 @@ fn cursorGoToNodeMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C
 
 fn cursorGoToNextMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this) catch return null;
 
     const next = cursor.goToNext() catch |err| return n.throw(env, err);
 
@@ -298,7 +294,7 @@ fn cursorGoToNextMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C
 
 fn cursorGoToPreviousMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this) catch return null;
 
     const previous = cursor.goToPrevious() catch |err| return n.throw(env, err);
 
@@ -311,7 +307,7 @@ fn cursorGoToPreviousMethod(env: c.napi_env, info: c.napi_callback_info) callcon
 
 fn cursorSeekMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(2, env, info) catch return null;
-    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this) catch return null;
 
     const level = parseLevel(env, stat.args[0]) catch return null;
     const key = parseKey(env, stat.args[1]) catch return null;
@@ -327,7 +323,7 @@ fn cursorSeekMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.
 
 fn cursorGetCurrentNodeMethod(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
     const stat = n.parseCallbackInfo(0, env, info) catch return null;
-    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this, false) catch return null;
+    const cursor = n.unwrap(okra.Cursor, &CursorTypeTag, env, stat.this) catch return null;
     const node = cursor.getCurrentNode() catch |err| return n.throw(env, err);
 
     return createNode(env, node) catch return null;
