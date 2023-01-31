@@ -113,20 +113,17 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         }
 
         fn apply(self: *Self, operation: Operation) !void {
-            // go to root
-            try self.cursor.goToKey(&Header.HEADER_KEY);
-            const height = try if (try self.cursor.goToPrevious()) |key| key[0] else error.InvalidDatabase;
+            const root = try self.getRoot();
+            try self.log("height: {d}", .{root.level});
 
-            try self.log("height: {d}", .{height});
-
-            var root_level = if (height == 0) 1 else height;
+            var root_level = if (root.level == 0) 1 else root.level;
 
             self.logger.reset();
             try self.new_siblings.resize(0);
             try self.pool.allocate(root_level - 1);
 
             const nil = [_]u8{};
-            const result = try switch (height) {
+            const result = try switch (root.level) {
                 0 => self.applyLeaf(&nil, operation),
                 else => self.applyNode(root_level - 1, &nil, operation),
             };
@@ -422,6 +419,18 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             }
 
             self.key_buffer.items[0] = level;
+        }
+
+        pub fn getRoot(self: *Self) !Node {
+            try self.cursor.goToKey(&Header.HEADER_KEY);
+            if (try self.cursor.goToPrevious()) |k| {
+                const value = try self.cursor.getCurrentValue();
+                if (k.len == 1 and value.len == K) {
+                    return Node{ .level = k[0], .key = null, .hash = value[0..K], .value = null };
+                }
+            }
+
+            return error.InvalidDatabase;
         }
 
         pub fn getNode(self: *Self, level: u8, key: ?[]const u8) !?Node {
