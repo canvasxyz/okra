@@ -8,7 +8,7 @@
 	"files": [
 		"index.js",
 		"index.d.ts",
-		"build/*.node"
+		"build/*/*.node"
 	],
 	"scripts": {
 		"test": "ava"
