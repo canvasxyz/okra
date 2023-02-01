@@ -87,6 +87,10 @@ The tree is stored in an LMDB database where nodes are _LMDB_ key/value entries 
 
 okra has no external concept of versioning or time-travel. LMDB is copy-on-write, and open transactions retain a consistent view of a snapshot of the database, but the old pages are garbage-collected once the last transaction referencing them is closed. When we talk about "comparing two merkle roots", we mean two separate database instances (e.g. on different machines), not two local revisions of the same database.
 
+## Tests
+
+Run all tests with `zig build test`.
+
 ## Benchmarks
 
 See [BENCHMARKS.md](./BENCHMARKS.md).
