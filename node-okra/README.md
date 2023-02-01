@@ -30,6 +30,17 @@ txn.commit()
 
 The three basic classes are `Tree`, `Transaction`, and `Cursor`. Trees and transactions form a classical key/value store interface: you can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries. A cursor can be used to move around the nodes of the tree itself, which includes the leaves, the intermediate-level nodes, and the root node.
 
+Cursor methods and some transaction methods return `Node` objects. `node.key === null` for anchor nodes, and `node.value === undefined` if `level > 0 || key === null`.
+
+```ts
+declare type Node = {
+	level: number
+	key: Buffer | null
+	hash: Buffer
+	value?: Buffer
+}
+```
+
 ### Tree
 
 ```ts
@@ -51,7 +62,7 @@ declare class Transaction {
    * Transactions must be opened as either read-only or read-write.
    * Only one read-write transaction can be open at a time.
    * Read-only transactions must be manually aborted when finished,
-   * and read-read transactions must be either aborted or committed.
+   * and read-write transactions must be either aborted or committed.
    * Failure to abort or commmit transactions will cause the database
    * file to grow.
    */

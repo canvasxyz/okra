@@ -21,7 +21,7 @@ declare class Transaction {
 	 * Transactions must be opened as either read-only or read-write.
 	 * Only one read-write transaction can be open at a time.
 	 * Read-only transactions must be manually aborted when finished,
-	 * and read-read transactions must be either aborted or committed.
+	 * and read-write transactions must be either aborted or committed.
 	 * Failure to abort or commmit transactions will cause the database
 	 * file to grow.
 	 */
