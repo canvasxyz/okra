@@ -2,6 +2,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const expectError = std.testing.expectError;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const allocator = std.heap.c_allocator;
 
@@ -198,6 +199,50 @@ test "overwrite a leaf anchor with a non-anchor" {
         .{ &[_]u8{2}, &h("733469f093b400276d5f804fc7f698e4a5a6d608bd4e75190f5917e1ff6663b1") },
         .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
     });
+}
+
+test "open a named database" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
+    defer allocator.free(path);
+
+    const dbs: []const [*:0]const u8 = &.{ "a", "b" };
+
+    var tree = try Tree.open(allocator, path, .{ .dbs = dbs });
+    defer tree.close();
+
+    {
+        var txn = try Transaction.open(allocator, &tree, .{ .read_only = false, .dbi = "a" });
+        errdefer txn.abort();
+        try txn.set("x", "foo");
+        try txn.commit();
+    }
+
+    {
+        var txn = try Transaction.open(allocator, &tree, .{ .read_only = false, .dbi = "b" });
+        errdefer txn.abort();
+        try txn.set("x", "bar");
+        try txn.commit();
+    }
+
+    {
+        var txn = try Transaction.open(allocator, &tree, .{ .read_only = true, .dbi = "a" });
+        defer txn.abort();
+        try if (try txn.get("x")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
+    }
+
+    {
+        var txn = try Transaction.open(allocator, &tree, .{ .read_only = true, .dbi = "b" });
+        defer txn.abort();
+        try if (try txn.get("x")) |value| expectEqualSlices(u8, "bar", value) else error.KeyNotFound;
+    }
+
+    try expectError(
+        error.DatabaseNotFound,
+        Transaction.open(allocator, &tree, .{ .read_only = true, .dbi = "c" }),
+    );
 }
 
 fn testPseudoRandomPermutations(

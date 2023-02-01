@@ -58,16 +58,39 @@ export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) callco
 // Tree
 
 pub fn createTree(env: c.napi_env, info: c.napi_callback_info) callconv(.C) c.napi_value {
-    const stat = n.parseCallbackInfo(1, env, info) catch return null;
+    const stat = n.parseCallbackInfo(2, env, info) catch return null;
     const pathArg = stat.args[0];
 
     const path = n.parseStringAlloc(env, pathArg, allocator) catch return null;
     defer allocator.free(path);
 
+    var map_size: usize = 10485760;
+    const map_size_property = n.createString(env, "mapSize") catch return null;
+    const map_size_value = n.getProperty(env, stat.args[1], map_size_property) catch return null;
+    const map_size_value_type = n.typeOf(env, map_size_value) catch return null;
+    if (map_size_value_type != c.napi_undefined) {
+        map_size = n.parseUint32(env, map_size_value) catch return null;
+    }
+
+    var dbs = std.ArrayList([*:0]const u8).init(allocator);
+    defer dbs.deinit();
+    defer for (dbs.items) |dbi| allocator.free(std.mem.span(dbi));
+
+    const dbs_property = n.createString(env, "dbs") catch return null;
+    const dbs_value = n.getProperty(env, stat.args[1], dbs_property) catch return null;
+    const dbs_value_type = n.typeOf(env, dbs_value) catch return null;
+    if (dbs_value_type != c.napi_undefined) {
+        const length = n.getLength(env, dbs_value) catch return null;
+        var i: u32 = 0;
+        while (i < length) : (i += 1) {
+            const dbi_value = n.getElement(env, dbs_value, i) catch return null;
+            const dbi = n.parseStringAlloc(env, dbi_value, allocator) catch return null;
+            dbs.append(dbi) catch |err| return n.throw(env, err);
+        }
+    }
+
     const tree = allocator.create(okra.Tree) catch |err| return n.throw(env, err);
-
-    tree.init(allocator, path, .{}) catch |err| return n.throw(env, err);
-
+    tree.init(allocator, path, .{ .map_size = map_size, .dbs = dbs.items }) catch |err| return n.throw(env, err);
     n.wrap(okra.Tree, env, stat.this, tree, destroyTree, &TreeTypeTag) catch return null;
 
     return n.getUndefined(env) catch return null;
@@ -97,11 +120,22 @@ pub fn createTransaction(env: c.napi_env, info: c.napi_callback_info) callconv(.
     const read_only_value = n.getProperty(env, stat.args[1], read_only_property) catch return null;
     const read_only = n.parseBoolean(env, read_only_value) catch return null;
 
+    const dbi_property = n.createString(env, "dbi") catch return null;
+    const dbi_value = n.getProperty(env, stat.args[1], dbi_property) catch return null;
+    const dbi_value_type = n.typeOf(env, dbi_value) catch return null;
+
     const txn = allocator.create(okra.Transaction) catch |err| return n.throw(env, err);
 
-    txn.init(allocator, tree, .{ .read_only = read_only }) catch |err| return n.throw(env, err);
+    if (dbi_value_type != c.napi_undefined) {
+        const dbi = n.parseStringAlloc(env, dbi_value, allocator) catch return null;
+        defer allocator.free(dbi);
+        txn.init(allocator, tree, .{ .read_only = read_only, .dbi = dbi.ptr }) catch |err| return n.throw(env, err);
+    } else {
+        txn.init(allocator, tree, .{ .read_only = read_only, .dbi = null }) catch |err| return n.throw(env, err);
+    }
 
     n.wrap(okra.Transaction, env, stat.this, txn, destroyTransaction, &TransactionTypeTag) catch return null;
+
     return n.getUndefined(env) catch return null;
 }
 

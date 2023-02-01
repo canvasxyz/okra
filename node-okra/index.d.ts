@@ -7,13 +7,21 @@ declare type Node = {
 	value?: Buffer
 }
 
+declare namespace Tree {
+	type Options = { mapSize?: number, dbs?: string[] }
+}
+
 declare class Tree {
-	constructor(path: string)
+	constructor(path: string, options?: Tree.Options)
 
 	/**
 	 * Close the tree and free its associated resources
 	 */
 	close(): void
+}
+
+declare namespace Transaction {
+	type Options = { readOnly: boolean; dbi?: string }
 }
 
 declare class Transaction {
@@ -25,7 +33,7 @@ declare class Transaction {
 	 * Failure to abort or commmit transactions will cause the database
 	 * file to grow.
 	 */
-	constructor(tree: Tree, options: { readOnly: boolean })
+	constructor(tree: Tree, options: Transaction.Options)
 
 	/**
 	 * Abort the transaction

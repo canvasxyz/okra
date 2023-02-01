@@ -11,13 +11,51 @@ const compareEntries = @import("compare.zig").compareEntries;
 
 const allocator = std.heap.c_allocator;
 
+var path_buffer: [4096]u8 = undefined;
+
+test "multiple named databases" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const tmp_path = try tmp.dir.realpath(".", &path_buffer);
+    const path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
+    defer allocator.free(path);
+
+    const env = try Environment.open(path, .{ .max_dbs = 2 });
+    defer env.close();
+
+    {
+        const txn = try Transaction.open(env, .{ .read_only = false, .dbi = "a" });
+        errdefer txn.abort();
+        try txn.set("x", "foo");
+        try txn.commit();
+    }
+
+    {
+        const txn = try Transaction.open(env, .{ .read_only = false, .dbi = "b" });
+        errdefer txn.abort();
+        try txn.set("x", "bar");
+        try txn.commit();
+    }
+
+    {
+        const txn = try Transaction.open(env, .{ .read_only = true, .dbi = "a" });
+        defer txn.abort();
+        try if (try txn.get("x")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
+    }
+
+    {
+        const txn = try Transaction.open(env, .{ .read_only = true, .dbi = "b" });
+        defer txn.abort();
+        try if (try txn.get("x")) |value| expectEqualSlices(u8, "bar", value) else error.KeyNotFound;
+    }
+}
+
 test "compareEntries" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var buffer: [4096]u8 = undefined;
-    const tmp_path = try tmp.dir.realpath(".", &buffer);
-
+    const tmp_path = try tmp.dir.realpath(".", &path_buffer);
     const path_a = try std.fs.path.joinZ(allocator, &.{ tmp_path, "a.mdb" });
     defer allocator.free(path_a);
     const path_b = try std.fs.path.joinZ(allocator, &.{ tmp_path, "b.mdb" });
@@ -65,9 +103,7 @@ test "set empty value" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var buffer: [4096]u8 = undefined;
-    var tmp_path = try tmp.dir.realpath(".", &buffer);
-
+    var tmp_path = try tmp.dir.realpath(".", &path_buffer);
     var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
     defer allocator.free(path);
 
@@ -89,9 +125,7 @@ test "delete while iterating" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var buffer: [4096]u8 = undefined;
-    var tmp_path = try tmp.dir.realpath(".", &buffer);
-
+    var tmp_path = try tmp.dir.realpath(".", &path_buffer);
     var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
     defer allocator.free(path);
 
@@ -119,9 +153,7 @@ test "seek" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var buffer: [4096]u8 = undefined;
-    var tmp_path = try tmp.dir.realpath(".", &buffer);
-
+    var tmp_path = try tmp.dir.realpath(".", &path_buffer);
     var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
     defer allocator.free(path);
 
@@ -145,9 +177,7 @@ test "seek" {
 //     var tmp = std.testing.tmpDir(.{});
 //     defer tmp.cleanup();
 
-//     var buffer: [4096]u8 = undefined;
-//     var tmp_path = try tmp.dir.realpath(".", &buffer);
-
+//     var tmp_path = try tmp.dir.realpath(".", &path_buffer);
 //     var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
 //     defer allocator.free(path);
 

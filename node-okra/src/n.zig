@@ -143,7 +143,7 @@ pub fn parseUint32(env: c.napi_env, value: c.napi_value) Error!u32 {
     }
 }
 
-pub fn parseStringAlloc(env: c.napi_env, value: c.napi_value, allocator: std.mem.Allocator) ![:0]u8 {
+pub fn parseStringAlloc(env: c.napi_env, value: c.napi_value, allocator: std.mem.Allocator) ![:0]const u8 {
     var length: usize = 0;
     switch (c.napi_get_value_string_utf8(env, value, null, 0, &length)) {
         c.napi_ok => {},
@@ -264,7 +264,7 @@ pub fn createString(env: c.napi_env, value: []const u8) Error!c.napi_value {
 pub fn getProperty(env: c.napi_env, object: c.napi_value, key: c.napi_value) Error!c.napi_value {
     var result: c.napi_value = undefined;
     if (c.napi_get_property(env, object, key, &result) != c.napi_ok) {
-        _ = c.napi_throw_error(env, null, "failed to get property");
+        _ = c.napi_throw_error(env, null, "failed to get object property");
         return Error.Exception;
     }
 
@@ -273,22 +273,32 @@ pub fn getProperty(env: c.napi_env, object: c.napi_value, key: c.napi_value) Err
 
 pub fn setProperty(env: c.napi_env, object: c.napi_value, key: c.napi_value, value: c.napi_value) Error!void {
     if (c.napi_set_property(env, object, key, value) != c.napi_ok) {
-        _ = c.napi_throw_error(env, null, "failed to set property");
+        _ = c.napi_throw_error(env, null, "failed to set object property");
         return Error.Exception;
     }
 }
 
 pub fn setElement(env: c.napi_env, array: c.napi_value, index: u32, value: c.napi_value) Error!void {
     if (c.napi_set_element(env, array, index, value) != c.napi_ok) {
-        _ = c.napi_throw_error(env, null, "failed to set element");
+        _ = c.napi_throw_error(env, null, "failed to set array element");
         return Error.Exception;
     }
+}
+
+pub fn getLength(env: c.napi_env, array: c.napi_value) Error!u32 {
+    var result: u32 = undefined;
+    if (c.napi_get_array_length(env, array, &result) != c.napi_ok) {
+        _ = c.napi_throw_error(env, null, "failed to get array length");
+        return Error.Exception;
+    }
+
+    return result;
 }
 
 pub fn getElement(env: c.napi_env, array: c.napi_value, index: u32) Error!c.napi_value {
     var result: c.napi_value = undefined;
     if (c.napi_get_element(env, array, index, &result) != c.napi_ok) {
-        _ = c.napi_throw_error(env, null, "failed to get element");
+        _ = c.napi_throw_error(env, null, "failed to get array element");
         return Error.Exception;
     }
 

@@ -5,7 +5,7 @@ const Environment = @import("environment.zig").Environment;
 const lmdb = @import("lmdb.zig");
 
 pub const Transaction = struct {
-    pub const Options = struct { read_only: bool = true };
+    pub const Options = struct { read_only: bool = true, dbi: ?[*:0]const u8 = null };
 
     pub const Error = error{
         LmdbTransactionError,
@@ -30,7 +30,7 @@ pub const Transaction = struct {
 
         {
             const flags: c_uint = if (options.read_only) 0 else lmdb.MDB_CREATE;
-            try switch (lmdb.mdb_dbi_open(txn.ptr, null, flags, &txn.dbi)) {
+            try switch (lmdb.mdb_dbi_open(txn.ptr, options.dbi, flags, &txn.dbi)) {
                 0 => {},
                 else => Error.LmdbTransactionError,
             };

@@ -26,7 +26,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
 
     return struct {
         const Self = @This();
-        pub const Options = struct { read_only: bool, log: ?std.fs.File.Writer = null };
+        pub const Options = struct { read_only: bool, dbi: ?[*:0]const u8 = null, log: ?std.fs.File.Writer = null };
 
         allocator: std.mem.Allocator,
         txn: lmdb.Transaction,
@@ -46,7 +46,17 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn init(self: *Self, allocator: std.mem.Allocator, tree: *const Tree, options: Options) !void {
-            const txn = try lmdb.Transaction.open(tree.env, .{ .read_only = options.read_only });
+            if (options.dbi) |dbi| {
+                if (!tree.dbs.contains(std.mem.span(dbi))) {
+                    return error.DatabaseNotFound;
+                }
+            } else {
+                if (tree.dbs.count() > 0) {
+                    return error.DatabaseNotFound;
+                }
+            }
+
+            const txn = try lmdb.Transaction.open(tree.env, .{ .read_only = options.read_only, .dbi = options.dbi });
             errdefer txn.abort();
 
             const cursor = try lmdb.Cursor.open(txn);

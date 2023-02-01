@@ -6,7 +6,8 @@ const lmdb = @import("lmdb.zig");
 pub const Environment = struct {
     pub const Options = struct {
         map_size: usize = 10485760,
-        create: bool = true,
+        max_dbs: u32 = 0,
+        mode: u16 = 0o664,
     };
 
     pub const Error = error{
@@ -32,11 +33,15 @@ pub const Environment = struct {
             else => Error.LmdbEnvironmentError,
         };
 
+        try switch (lmdb.mdb_env_set_maxdbs(env.ptr, options.max_dbs)) {
+            0 => {},
+            else => Error.LmdbEnvironmentError,
+        };
+
         const flags = lmdb.MDB_WRITEMAP | lmdb.MDB_NOSUBDIR | lmdb.MDB_NOLOCK;
-        const mode = 0o664;
 
         errdefer lmdb.mdb_env_close(env.ptr);
-        try switch (lmdb.mdb_env_open(env.ptr, path, flags, mode)) {
+        try switch (lmdb.mdb_env_open(env.ptr, path, flags, options.mode)) {
             0 => {},
             lmdb.MDB_VERSION_MISMATCH => Error.LmdbVersionMismatch,
             lmdb.MDB_INVALID => Error.LmdbCorruptDatabase,

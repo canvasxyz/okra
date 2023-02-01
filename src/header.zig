@@ -20,8 +20,8 @@ pub fn Header(comptime K: u8, comptime Q: u32) type {
 
         const header = [_]u8{ 'o', 'k', 'r', 'a', DATABASE_VERSION, K } ++ getFanoutDegree(Q);
 
-        pub fn initialize(env: lmdb.Environment) !void {
-            const txn = try lmdb.Transaction.open(env, .{ .read_only = false });
+        pub fn initialize(env: lmdb.Environment, dbi: ?[*:0]const u8) !void {
+            const txn = try lmdb.Transaction.open(env, .{ .read_only = false, .dbi = dbi });
             errdefer txn.abort();
 
             if (try txn.get(&HEADER_KEY)) |value| {

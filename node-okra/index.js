@@ -12,6 +12,24 @@ const target = family === null
 
 const require = createRequire(import.meta.url);
 
-const { Tree, Transaction, Cursor } = require(`./build/${target}/okra.node`);
+const okra = require(
+  `./build/${target}/okra.node`,
+);
 
-export { Cursor, Transaction, Tree };
+export class Tree extends okra.Tree {
+  constructor(path, options = {}) {
+    super(path, options);
+  }
+}
+
+export class Transaction extends okra.Transaction {
+  constructor(tree, options) {
+    super(tree, options);
+  }
+}
+
+export class Cursor extends okra.Cursor {
+  constructor(txn) {
+    super(txn);
+  }
+}

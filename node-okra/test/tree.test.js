@@ -20,7 +20,7 @@ test(
   tmpdir((t, directory) => {
     t.throws(() => {
       const tree = new okra.Tree();
-    }, { message: "expected 1 arguments, received 0" });
+    });
   }),
 );
 
@@ -29,6 +29,17 @@ test(
   tmpdir((t, directory) => {
     t.throws(() => {
       const tree = new okra.Tree(8);
-    }, { message: "string expected" });
+    });
+  }),
+);
+
+test(
+  "Open tree an array of database names",
+  tmpdir((t, directory) => {
+    const tree = new okra.Tree(path.resolve(directory, "data.okra"), {
+      dbs: ["a", "b"],
+    });
+    tree.close();
+    t.pass();
   }),
 );

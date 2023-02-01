@@ -22,7 +22,7 @@ A cursor can be used to move around the nodes of the tree itself, which includes
 
 ```zig
 const Tree = struct {
-    pub const Options = struct { map_size: usize = 10485760 };
+    pub const Options = struct { map_size: usize = 10485760, dbs: ?[]const [*:0]const u8 = null };
 
     pub fn open(allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !Tree
     pub fn init(self: *Tree, allocator: std.mem.Allocator, path: [*:0]const u8, options: Options) !void
@@ -50,11 +50,13 @@ The `map_size` parameter is forwarded to the underlying LMDB environment. From [
 
 > The size should be a multiple of the OS page size. The default is 10485760 bytes. The size of the memory map is also the maximum size of the database. The value should be chosen as large as possible, to accommodate future growth of the database.
 
+LMDB has optional support for multiple [named databases](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) (called "DBI handles") within a single LMDB environment. By default, okra trees interact with the single default LMDB DBI. You can opt in to using isolated named DBIs by passing a slice of `[*:0]const u8` names in `Tree.Options.dbs`, and selecting a specific DBI with `Transaction.Options.dbi` with every transaction. Note that **these two modes are exclusive**: if `Tree.Options.dbs == null`, then every `Transaction.Options.dbi` must also be null, and if `Tree.Options.dbs != null` then every `Transaction.Options.dbi` must be one of the values in `Tree.Options.dbs`.
+
 ## Transaction
 
 ```zig
 const Transaction = struct {
-    pub const Options = struct { read_only: bool, log: ?std.fs.File.Writer = null };
+    pub const Options = struct { read_only: bool, dbi: ?[*:0]const u8 = null, log: ?std.fs.File.Writer = null };
     
     // lifecycle methods
     pub fn open(allocator: std.mem.Allocator, tree: *const Tree, options: Options) !*Transaction
@@ -119,6 +121,8 @@ defer txn.abort();
 
 const value = try txn.get("foo");
 ```
+
+If the environment was opened with a positive `options.max_dbs`, you can open a transaction inside an isolated named database by passing an `Options.dbi: [*:0]const u8` name.
 
 ## Cursor
 

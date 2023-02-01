@@ -69,7 +69,7 @@ test(
     const tree = new okra.Tree(path.resolve(directory, "data.okra"));
     t.throws(() => {
       const transaction = new okra.Transaction(tree);
-    }, { message: "expected 2 arguments, received 1" });
+    });
     tree.close();
   }),
 );
@@ -181,5 +181,67 @@ test(
     }
 
     tree.close();
+  }),
+);
+
+test(
+  "get and set within named databases",
+  tmpdir((t, directory) => {
+    const tree = new okra.Tree(path.resolve(directory, "data.okra"), {
+      dbs: ["a", "b"],
+    });
+
+    {
+      const txn = new okra.Transaction(tree, { readOnly: false, dbi: "a" });
+      txn.set(Buffer.from("x"), Buffer.from("foo"));
+      txn.commit();
+    }
+
+    {
+      const txn = new okra.Transaction(tree, { readOnly: false, dbi: "b" });
+      txn.set(Buffer.from("x"), Buffer.from("bar"));
+      txn.commit();
+    }
+
+    {
+      const txn = new okra.Transaction(tree, { readOnly: true, dbi: "a" });
+      t.deepEqual(txn.get(Buffer.from("x")), Buffer.from("foo"));
+      txn.abort();
+    }
+
+    {
+      const txn = new okra.Transaction(tree, { readOnly: true, dbi: "b" });
+      t.deepEqual(txn.get(Buffer.from("x")), Buffer.from("bar"));
+      txn.abort();
+    }
+
+    tree.close();
+    t.pass();
+  }),
+);
+
+test(
+  "try to open an invalid database name",
+  tmpdir((t, directory) => {
+    const tree = new okra.Tree(path.resolve(directory, "data.okra"), {
+      dbs: ["a", "b"],
+    });
+
+    t.throws(() => {
+      new okra.Transaction(tree, { readOnly: false, dbi: "c" });
+    }, { message: "DatabaseNotFound" });
+  }),
+);
+
+test(
+  "try to open the default database in a named environemnt",
+  tmpdir((t, directory) => {
+    const tree = new okra.Tree(path.resolve(directory, "data.okra"), {
+      dbs: ["a", "b"],
+    });
+
+    t.throws(() => {
+      new okra.Transaction(tree, { readOnly: false });
+    }, { message: "DatabaseNotFound" });
   }),
 );

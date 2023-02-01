@@ -43,9 +43,15 @@ declare type Node = {
 
 ### Tree
 
+LMDB has optional support for multiple [named databases](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) (called "DBI handles") within a single LMDB environment. By default, okra trees interact with the single default LMDB DBI. You can opt in to using isolated named DBIs by setting `Tree.Options.dbs: string[]` in the tree constructor, and selecting a specific DBI with `Transaction.Options.dbi: string` with every transaction. Note that **these two modes are exclusive**: if `Tree.Options.dbs === undefined`, then every `Transaction.Options.dbi` must also be `undefined`, and if `Tree.Options.dbs !== undefined` then every `Transaction.Options.dbi` must be one of the values in `Tree.Options.dbs`.
+
 ```ts
+declare namespace Tree {
+	type Options = { mapSize?: number, dbs?: string[] }
+}
+
 declare class Tree {
-  constructor(path: string)
+  constructor(path: string, options: Tree.Options = {})
 
   /**
    * Close the tree and free its associated resources
@@ -57,6 +63,10 @@ declare class Tree {
 ### Transaction
 
 ```ts
+declare namespace Transaction {
+	type Options = { readOnly: boolean; dbi?: string }
+}
+
 declare class Transaction {
   /**
    * Transactions must be opened as either read-only or read-write.
@@ -66,7 +76,7 @@ declare class Transaction {
    * Failure to abort or commmit transactions will cause the database
    * file to grow.
    */
-  constructor(tree: Tree, options: { readOnly: boolean })
+  constructor(tree: Tree, options: Transaction.Options)
 
   /**
    * Abort the transaction
