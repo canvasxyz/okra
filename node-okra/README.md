@@ -43,8 +43,6 @@ declare type Node = {
 
 ### Tree
 
-LMDB has optional support for multiple [named databases](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) (called "DBI handles") within a single LMDB environment. By default, okra trees interact with the single default LMDB DBI. You can opt in to using isolated named DBIs by setting `Tree.Options.dbs: string[]` in the tree constructor, and selecting a specific DBI with `Transaction.Options.dbi: string` with every transaction. Note that **these two modes are exclusive**: if `Tree.Options.dbs === undefined`, then every `Transaction.Options.dbi` must also be `undefined`, and if `Tree.Options.dbs !== undefined` then every `Transaction.Options.dbi` must be one of the values in `Tree.Options.dbs`.
-
 ```ts
 declare namespace Tree {
 	type Options = { mapSize?: number, dbs?: string[] }
@@ -59,6 +57,10 @@ declare class Tree {
   close(): void
 }
 ```
+
+The `path` must be a an absolute path to a **directory** that already exists (LMDB will not make it for you).
+
+LMDB has optional support for multiple [named databases](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) (called "DBI handles") within a single LMDB environment. By default, okra trees interact with the single default LMDB DBI. You can opt in to using isolated named DBIs by setting `Tree.Options.dbs: string[]` in the tree constructor, and selecting a specific DBI with `Transaction.Options.dbi: string` with every transaction. Note that **these two modes are exclusive**: if `Tree.Options.dbs === undefined`, then every `Transaction.Options.dbi` must also be `undefined`, and if `Tree.Options.dbs !== undefined` then every `Transaction.Options.dbi` must be one of the values in `Tree.Options.dbs`.
 
 ### Transaction
 

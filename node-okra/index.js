@@ -23,7 +23,7 @@ export class Tree extends okra.Tree {
 }
 
 export class Transaction extends okra.Transaction {
-  constructor(tree, options) {
+  constructor(tree, options = {}) {
     super(tree, options);
   }
 }

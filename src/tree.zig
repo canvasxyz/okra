@@ -10,6 +10,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         pub const Options = struct { map_size: usize = 10485760, dbs: ?[]const [*:0]const u8 = null };
 
         allocator: std.mem.Allocator,
+        open: bool = false,
         dbs: std.BufSet,
         env: lmdb.Environment,
 
@@ -26,6 +27,8 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 .map_size = options.map_size,
                 .max_dbs = if (options.dbs) |dbs| @intCast(u32, dbs.len) else 0,
             });
+
+            self.open = true;
 
             errdefer self.close();
 
@@ -44,8 +47,11 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn close(self: *Self) void {
-            self.dbs.deinit();
-            self.env.close();
+            if (self.open) {
+                self.open = false;
+                self.dbs.deinit();
+                self.env.close();
+            }
         }
     };
 }

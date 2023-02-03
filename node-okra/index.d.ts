@@ -21,7 +21,7 @@ declare class Tree {
 }
 
 declare namespace Transaction {
-	type Options = { readOnly: boolean; dbi?: string }
+	type Options = { readOnly?: boolean; dbi?: string }
 }
 
 declare class Transaction {
@@ -33,7 +33,7 @@ declare class Transaction {
 	 * Failure to abort or commmit transactions will cause the database
 	 * file to grow.
 	 */
-	constructor(tree: Tree, options: Transaction.Options)
+	constructor(tree: Tree, options?: Transaction.Options)
 
 	/**
 	 * Abort the transaction

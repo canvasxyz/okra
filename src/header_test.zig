@@ -19,14 +19,10 @@ fn h(comptime value: *const [64]u8) [32]u8 {
 const empty_hash = h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262");
 
 test "initialize header in default database" {
-    const allocator = std.heap.c_allocator;
-
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
+    const path = try utils.resolvePath(tmp.dir, ".");
     const env = try lmdb.Environment.open(path, .{});
     defer env.close();
 
@@ -39,14 +35,10 @@ test "initialize header in default database" {
 }
 
 test "initialize header in named databases" {
-    const allocator = std.heap.c_allocator;
-
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
+    const path = try utils.resolvePath(tmp.dir, ".");
     const env = try lmdb.Environment.open(path, .{ .max_dbs = 2 });
     defer env.close();
 

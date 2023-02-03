@@ -7,6 +7,7 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const Environment = @import("environment.zig").Environment;
 const Transaction = @import("transaction.zig").Transaction;
 const Cursor = @import("cursor.zig").Cursor;
+const utils = @import("utils.zig");
 
 const Options = struct {
     log: ?std.fs.File.Writer = null,
@@ -116,11 +117,7 @@ test "expectEqualEntries" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var buffer: [4096]u8 = undefined;
-    var tmp_path = try tmp.dir.realpath(".", &buffer);
-
-    const path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
-    defer allocator.free(path);
+    const path = try utils.resolvePath(tmp.dir, ".");
 
     const env = try Environment.open(path, .{});
     defer env.close();

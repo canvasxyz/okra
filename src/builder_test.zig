@@ -19,9 +19,7 @@ test "Builder" {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-        defer allocator.free(path);
-
+        const path = try utils.resolvePath(tmp.dir, ".");
         const env = try lmdb.Environment.open(path, .{});
         defer env.close();
 

@@ -29,6 +29,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         pub const Options = struct { read_only: bool, dbi: ?[*:0]const u8 = null, log: ?std.fs.File.Writer = null };
 
         allocator: std.mem.Allocator,
+        open: bool = false,
         txn: lmdb.Transaction,
         cursor: lmdb.Cursor,
 
@@ -65,6 +66,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             try Header.validate(txn);
 
             self.allocator = allocator;
+            self.open = true;
             self.txn = txn;
             self.cursor = cursor;
             self.pool = BufferPool.init(allocator);
@@ -75,16 +77,23 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn abort(self: *Self) void {
-            defer self.deinit();
-            self.txn.abort();
+            if (self.open) {
+                defer self.deinit();
+                self.txn.abort();
+            }
         }
 
         pub fn commit(self: *Self) !void {
-            defer self.deinit();
-            try self.txn.commit();
+            if (self.open) {
+                defer self.deinit();
+                try self.txn.commit();
+            } else {
+                return error.TransactionClosed;
+            }
         }
 
         fn deinit(self: *Self) void {
+            self.open = false;
             self.pool.deinit();
             self.key_buffer.deinit();
             self.value_buffer.deinit();

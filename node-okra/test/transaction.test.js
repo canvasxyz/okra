@@ -64,17 +64,6 @@ test(
 );
 
 test(
-  "Open a transaction without the options argument",
-  tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"));
-    t.throws(() => {
-      const transaction = new okra.Transaction(tree);
-    });
-    tree.close();
-  }),
-);
-
-test(
   "Open a transaction with an invalid readOnly value",
   tmpdir((t, directory) => {
     const tree = new okra.Tree(path.resolve(directory, "data.okra"));

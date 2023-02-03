@@ -10,6 +10,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
 
     return struct {
         allocator: std.mem.Allocator,
+        open: bool = false,
         cursor: lmdb.Cursor,
         key: std.ArrayList(u8),
 
@@ -23,14 +24,19 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
 
         pub fn init(self: *Self, allocator: std.mem.Allocator, txn: *const Transaction) !void {
             const cursor = try lmdb.Cursor.open(txn.txn);
+
             self.allocator = allocator;
+            self.open = true;
             self.cursor = cursor;
             self.key = std.ArrayList(u8).init(allocator);
         }
 
         pub fn close(self: *Self) void {
-            self.key.deinit();
-            self.cursor.close();
+            if (self.open) {
+                self.open = false;
+                self.key.deinit();
+                self.cursor.close();
+            }
         }
 
         pub fn goToRoot(self: *Self) !Node {

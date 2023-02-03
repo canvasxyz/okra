@@ -8,19 +8,15 @@ const Transaction = @import("transaction.zig").Transaction;
 const Cursor = @import("cursor.zig").Cursor;
 
 const compareEntries = @import("compare.zig").compareEntries;
+const utils = @import("utils.zig");
 
 const allocator = std.heap.c_allocator;
-
-var path_buffer: [4096]u8 = undefined;
 
 test "multiple named databases" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const tmp_path = try tmp.dir.realpath(".", &path_buffer);
-    const path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
-    defer allocator.free(path);
-
+    const path = try utils.resolvePath(tmp.dir, ".");
     const env = try Environment.open(path, .{ .max_dbs = 2 });
     defer env.close();
 
@@ -55,12 +51,10 @@ test "compareEntries" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const tmp_path = try tmp.dir.realpath(".", &path_buffer);
-    const path_a = try std.fs.path.joinZ(allocator, &.{ tmp_path, "a.mdb" });
-    defer allocator.free(path_a);
-    const path_b = try std.fs.path.joinZ(allocator, &.{ tmp_path, "b.mdb" });
-    defer allocator.free(path_b);
+    try tmp.dir.makeDir("a");
+    try tmp.dir.makeDir("b");
 
+    const path_a = try utils.resolvePath(tmp.dir, "a");
     const env_a = try Environment.open(path_a, .{});
     defer env_a.close();
 
@@ -73,6 +67,7 @@ test "compareEntries" {
         try txn_a.commit();
     }
 
+    const path_b = try utils.resolvePath(tmp.dir, "b");
     const env_b = try Environment.open(path_b, .{});
     defer env_b.close();
 
@@ -103,9 +98,7 @@ test "set empty value" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var tmp_path = try tmp.dir.realpath(".", &path_buffer);
-    var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
-    defer allocator.free(path);
+    const path = try utils.resolvePath(tmp.dir, ".");
 
     const env = try Environment.open(path, .{});
     defer env.close();
@@ -125,10 +118,7 @@ test "delete while iterating" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var tmp_path = try tmp.dir.realpath(".", &path_buffer);
-    var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
-    defer allocator.free(path);
-
+    const path = try utils.resolvePath(tmp.dir, ".");
     const env = try Environment.open(path, .{});
     defer env.close();
 
@@ -153,10 +143,7 @@ test "seek" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var tmp_path = try tmp.dir.realpath(".", &path_buffer);
-    var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
-    defer allocator.free(path);
-
+    const path = try utils.resolvePath(tmp.dir, ".");
     const env = try Environment.open(path, .{});
     defer env.close();
 

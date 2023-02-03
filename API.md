@@ -32,6 +32,8 @@ const Tree = struct {
 
 A `Tree` is the basic database connection handle and wraps an LMDB environment. It can be allocated on the stack or the heap, and must be closed by calling `tree.close()`.
 
+The `path` must be a an absolute path to a **directory** that already exists (LMDB will not make it for you).
+
 ```zig
 // allocate on the stack
 var tree = try Tree.open("/path/to/data.okra", .{});

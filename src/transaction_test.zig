@@ -36,9 +36,7 @@ test "Transaction.get" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
+    const path = try utils.resolvePath(tmp.dir, ".");
     var tree = try Tree.open(allocator, path, .{});
     defer tree.close();
 
@@ -59,9 +57,7 @@ test "Transaction.set" {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-        defer allocator.free(path);
-
+        const path = try utils.resolvePath(tmp.dir, ".");
         var tree = try Tree.open(allocator, path, .{});
         defer tree.close();
 
@@ -80,9 +76,7 @@ test "delete a leaf anchor" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
+    const path = try utils.resolvePath(tmp.dir, ".");
     var tree = try Tree.open(allocator, path, .{});
     defer tree.close();
 
@@ -120,9 +114,7 @@ test "overwrite a leaf anchor with another anchor" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
+    const path = try utils.resolvePath(tmp.dir, ".");
     var tree = try Tree.open(allocator, path, .{});
     defer tree.close();
 
@@ -163,9 +155,7 @@ test "overwrite a leaf anchor with a non-anchor" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
+    const path = try utils.resolvePath(tmp.dir, ".");
     var tree = try Tree.open(allocator, path, .{});
     defer tree.close();
 
@@ -205,9 +195,7 @@ test "open a named database" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try utils.resolvePath(allocator, tmp.dir, "data.mdb");
-    defer allocator.free(path);
-
+    const path = try utils.resolvePath(tmp.dir, ".");
     const dbs: []const [*:0]const u8 = &.{ "a", "b" };
 
     var tree = try Tree.open(allocator, path, .{ .dbs = dbs });
@@ -274,10 +262,9 @@ fn testPseudoRandomPermutations(
 
     var name_buffer: [24]u8 = undefined;
     for (&permutations) |permutation, p| {
-        const reference_name = try std.fmt.bufPrint(&name_buffer, "r{d}.{x}.mdb", .{ N, p });
-        const reference_path = try utils.resolvePath(allocator, tmp.dir, reference_name);
-        defer allocator.free(reference_path);
-
+        const reference_name = try std.fmt.bufPrint(&name_buffer, "r{d}.{x}", .{ N, p });
+        try tmp.dir.makeDir(reference_name);
+        const reference_path = try utils.resolvePath(tmp.dir, reference_name);
         const reference_env = try lmdb.Environment.open(reference_path, environment_options);
         defer reference_env.close();
 
@@ -299,10 +286,9 @@ fn testPseudoRandomPermutations(
             try builder.commit();
         }
 
-        const name = try std.fmt.bufPrint(&name_buffer, "p{d}.{x}.mdb", .{ N, p });
-        const path = try utils.resolvePath(allocator, tmp.dir, name);
-        defer allocator.free(path);
-
+        const name = try std.fmt.bufPrint(&name_buffer, "p{d}.{x}", .{ N, p });
+        try tmp.dir.makeDir(name);
+        const path = try utils.resolvePath(tmp.dir, name);
         var tree = try Tree.open(allocator, path, .{});
         defer tree.close();
 
