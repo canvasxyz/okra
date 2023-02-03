@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import test from "ava";
 
 import * as okra from "../index.js";
