@@ -9,7 +9,7 @@ import { tmpdir } from "./utils.js";
 test(
   "Open and close a tree",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"));
+    const tree = new okra.Tree(directory);
     tree.close();
     t.pass();
   }),
@@ -36,7 +36,7 @@ test(
 test(
   "Open tree an array of database names",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"), {
+    const tree = new okra.Tree(directory, {
       dbs: ["a", "b"],
     });
     tree.close();

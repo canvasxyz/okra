@@ -9,7 +9,7 @@ import { tmpdir } from "./utils.js";
 test(
   "Open and abort a read-only transaction",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"));
+    const tree = new okra.Tree(directory);
     const transaction = new okra.Transaction(tree, { readOnly: true });
     transaction.abort();
     tree.close();
@@ -20,7 +20,7 @@ test(
 test(
   "Open and abort a read-write transaction",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"));
+    const tree = new okra.Tree(directory);
     const transaction = new okra.Transaction(tree, { readOnly: false });
     transaction.abort();
     tree.close();
@@ -31,7 +31,7 @@ test(
 test(
   "Open and commit a read-write transaction",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"));
+    const tree = new okra.Tree(directory);
     const transaction = new okra.Transaction(tree, { readOnly: false });
     transaction.commit();
     tree.close();
@@ -42,7 +42,7 @@ test(
 test(
   "Call .set in a read-only transaction",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"));
+    const tree = new okra.Tree(directory);
     const transaction = new okra.Transaction(tree, { readOnly: true });
     t.throws(() => {
       transaction.set(Buffer.from("foo"), Buffer.from("bar"));
@@ -66,7 +66,7 @@ test(
 test(
   "Open a transaction with an invalid readOnly value",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"));
+    const tree = new okra.Tree(directory);
     t.throws(() => {
       const transaction = new okra.Transaction(tree, { readOnly: 1 });
     }, { message: "expected a boolean" });
@@ -77,7 +77,7 @@ test(
 test(
   "Set, delete, commit, get",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"));
+    const tree = new okra.Tree(directory);
 
     {
       const txn = new okra.Transaction(tree, { readOnly: false });
@@ -115,7 +115,7 @@ test(
 test(
   "getRoot, getNode, getChildren",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"));
+    const tree = new okra.Tree(directory);
 
     const anchor = {
       level: 0,
@@ -176,7 +176,7 @@ test(
 test(
   "get and set within named databases",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"), {
+    const tree = new okra.Tree(directory, {
       dbs: ["a", "b"],
     });
 
@@ -212,7 +212,7 @@ test(
 test(
   "try to open an invalid database name",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"), {
+    const tree = new okra.Tree(directory, {
       dbs: ["a", "b"],
     });
 
@@ -225,7 +225,7 @@ test(
 test(
   "try to open the default database in a named environemnt",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"), {
+    const tree = new okra.Tree(directory, {
       dbs: ["a", "b"],
     });
 

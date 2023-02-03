@@ -9,7 +9,7 @@ import { tmpdir } from "./utils.js";
 test(
   "Open cursor",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"));
+    const tree = new okra.Tree(directory);
 
     {
       const txn = new okra.Transaction(tree, { readOnly: false });
@@ -40,7 +40,7 @@ test(
 test(
   "goToNode(), goToNext(), goToPrevious()",
   tmpdir((t, directory) => {
-    const tree = new okra.Tree(path.resolve(directory, "data.okra"));
+    const tree = new okra.Tree(directory);
 
     const anchor = {
       level: 0,
