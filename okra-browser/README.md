@@ -48,7 +48,7 @@ The basic interfaces are `Tree`, `ReadOnlyTransaction`, and `ReadWriteTransactio
 Transactions also have `getRoot`, `getNode`, and `getChildren` methods to access the internal merkle tree. These methods return `Node` objects. `node.key === null` for anchor nodes, and `node.value === undefined` if `level > 0 || key === null`.
 
 ```ts
-declare class Tree<T = Uint8Array> {
+class Tree<T = Uint8Array> {
   public static open<T = Uint8Array>(
     name: string,
     options?: { dbs?: string[]; getID?: (value: T) => Uint8Array },
@@ -82,7 +82,7 @@ type Node<T = Uint8Array> = {
 ```
 
 ```ts
-declare interface ReadOnlyTransaction<T> {
+interface ReadOnlyTransaction<T> {
   // get a leaf key/value entry
   public get(key: Uint8Array): Promise<T | null>
 
@@ -93,7 +93,7 @@ declare interface ReadOnlyTransaction<T> {
   public seek(level: number, key: Key): Promise<Node<T> | null>
 }
 
-declare interface ReadWriteTransaction<T> extends ReadOnlyTransaction<T> {
+interface ReadWriteTransaction<T> extends ReadOnlyTransaction<T> {
   // set a leaf key/value entry
   public set(key: Uint8Array, value: T): Promise<void>
 
