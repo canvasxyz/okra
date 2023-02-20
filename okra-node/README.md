@@ -22,9 +22,22 @@ import * as okra from "@canvas-js/okra-node"
 // if one does not already exist
 const tree = new okra.Tree("/path/to/db")
 const txn = new okra.Transaction(tree, { readOnly: false })
-txn.set(Buffer.from("foo"), Buffer.from("bar"))
+txn.set(Buffer.from("a"), Buffer.from("foo"))
 txn.commit()
-// ...
+
+// alternatively, you can use the .read and .write methods,
+// which manage commits and aborts automatically.
+await tree.write(async (txn) => {
+  txn.set(Buffer.from("b"), Buffer.from("bar"))
+})
+
+await tree.read(async (txn) => {
+  console.log(txn.get(Buffer.from("a"))) // <Buffer 66 6f 6f> ("foo")
+  console.log(txn.get(Buffer.from("b"))) // <Buffer 62 61 72> ("bar")
+  console.log(txn.get(Buffer.from("c"))) // null
+})
+
+tree.close()
 ```
 
 ## API
@@ -52,6 +65,16 @@ class Tree {
    * Close the tree and free its associated resources
    */
   close(): void
+
+  /**
+	 * Open a manageded read-only transaction
+	 */
+	public read<R>(callback: (txn: Transaction) => Promise<R> | R): Promise<R>
+
+	/**
+	 * Open a manageded read-write transaction
+	 */
+	public write<R>(callback: (txn: Transaction) => Promise<R> | R): Promise<R>
 }
 ```
 
