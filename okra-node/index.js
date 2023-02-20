@@ -21,6 +21,32 @@ export class Tree extends okra.Tree {
   constructor(path, options = {}) {
     super(resolve(path), options);
   }
+
+  async read(callback, options = {}) {
+    const txn = new Transaction(this, true, options);
+    let result = undefined;
+    try {
+      result = await callback(txn);
+    } finally {
+      txn.abort();
+    }
+
+    return result;
+  }
+
+  async write(callback, options = {}) {
+    const txn = new Transaction(this, false, options);
+    let result = undefined;
+    try {
+      result = await callback(txn);
+    } catch (err) {
+      txn.abort();
+      throw err;
+    }
+
+    txn.commit();
+    return result;
+  }
 }
 
 export class Transaction extends okra.Transaction {

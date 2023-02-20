@@ -17,7 +17,17 @@ declare class Tree {
 	/**
 	 * Close the tree and free its associated resources
 	 */
-	close(): void
+	public close(): void
+
+	/**
+	 * Open a manageded read-only transaction
+	 */
+	public read<R>(callback: (txn: Transaction) => Promise<R> | R): Promise<R>
+
+	/**
+	 * Open a manageded read-write transaction
+	 */
+	public write<R>(callback: (txn: Transaction) => Promise<R> | R): Promise<R>
 }
 
 declare namespace Transaction {
@@ -94,48 +104,4 @@ declare class Transaction {
 	 * greater than or equal to the provided needle.
 	 */
 	seek(level: number, needle: Buffer | null): Node | null
-}
-
-declare class Cursor {
-	/**
-	 * Cursors can be opened using read-write or read-only transactions,
-	 * and must be closed before the transaction is aborted or committed.
-	 */
-	constructor(txn: Transaction)
-
-	/**
-	 * Close the cursor and free its associated resources
-	 */
-	close(): void
-
-	/**
-	 * Go to the root node
-	 */
-	goToRoot(): Node
-
-	/**
-	 * Go to an internal skip-list node
-	 * @param level node level
-	 * @param key node key (null for anchor nodes)
-	 */
-	goToNode(level: number, key: Buffer | null): Node
-
-	/**
-	 * Go to the next sibling on the same level.
-	 * goToNext() and goToPrevious() ignore parent boundaries: they can be used to traverse an entire level from beginning to end.
-	 */
-	goToNext(): Node | null
-
-	/**
-	 * Go to the previous sibling on the same level.
-	 * goToNext() and goToPrevious() ignore parent boundaries: they can be used to traverse an entire level from beginning to end.
-	 */
-	goToPrevious(): Node | null
-
-	/**
-	 * Seek to the first node on the given level with a key greater than or equal to the provided search key
-	 * @param level
-	 * @param key
-	 */
-	seek(level: number, key: Buffer | null): Node | null
 }
