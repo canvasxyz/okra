@@ -1,4 +1,4 @@
-FLAGS=-dynamic -fallow-shlib-undefined -lc
+FLAGS=-dynamic -fallow-shlib-undefined -lc -O ReleaseSafe
 PACKAGES=--pkg-begin okra ../src/lib.zig --pkg-begin lmdb ../lmdb/lib.zig
 INCLUDES=-isystem /usr/local/include/node -I../libs/openldap/libraries/liblmdb
 SOURCES=../libs/openldap/libraries/liblmdb/mdb.c ../libs/openldap/libraries/liblmdb/midl.c src/lib.zig
