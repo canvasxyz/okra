@@ -8,7 +8,7 @@ test(
   "Open and abort a read-only transaction",
   tmpdir((t, directory) => {
     const tree = new okra.Tree(directory);
-    const transaction = new okra.Transaction(tree, { readOnly: true });
+    const transaction = new okra.Transaction(tree, true);
     transaction.abort();
     tree.close();
     t.pass();
@@ -19,7 +19,7 @@ test(
   "Open and abort a read-write transaction",
   tmpdir((t, directory) => {
     const tree = new okra.Tree(directory);
-    const transaction = new okra.Transaction(tree, { readOnly: false });
+    const transaction = new okra.Transaction(tree, false);
     transaction.abort();
     tree.close();
     t.pass();
@@ -30,7 +30,7 @@ test(
   "Open and commit a read-write transaction",
   tmpdir((t, directory) => {
     const tree = new okra.Tree(directory);
-    const transaction = new okra.Transaction(tree, { readOnly: false });
+    const transaction = new okra.Transaction(tree, false);
     transaction.commit();
     tree.close();
     t.pass();
@@ -41,11 +41,11 @@ test(
   "Call .set in a read-only transaction",
   tmpdir((t, directory) => {
     const tree = new okra.Tree(directory);
-    const transaction = new okra.Transaction(tree, { readOnly: true });
+    const transaction = new okra.Transaction(tree, true);
     t.throws(() => {
       transaction.set(Buffer.from("foo"), Buffer.from("bar"));
       transaction.commit();
-    }, { message: "LmdbTransactionError" });
+    }, { message: "ACCES" });
     tree.close();
   }),
 );
@@ -56,7 +56,7 @@ test(
     class Tree {}
     const tree = new Tree();
     t.throws(() => {
-      const transaction = new okra.Transaction(tree, { readOnly: true });
+      const transaction = new okra.Transaction(tree, true);
     }, { message: "invalid object type tag" });
   },
 );
@@ -66,7 +66,7 @@ test(
   tmpdir((t, directory) => {
     const tree = new okra.Tree(directory);
     t.throws(() => {
-      const transaction = new okra.Transaction(tree, { readOnly: 1 });
+      const transaction = new okra.Transaction(tree, 1);
     }, { message: "expected a boolean" });
     tree.close();
   }),
@@ -78,14 +78,14 @@ test(
     const tree = new okra.Tree(directory);
 
     {
-      const txn = new okra.Transaction(tree, { readOnly: false });
+      const txn = new okra.Transaction(tree, false);
       txn.set(Buffer.from("a"), Buffer.from("foo"));
       txn.set(Buffer.from("b"), Buffer.from("bar"));
       txn.commit();
     }
 
     {
-      const txn = new okra.Transaction(tree, { readOnly: true });
+      const txn = new okra.Transaction(tree, true);
       t.deepEqual(txn.get(Buffer.from("a")), Buffer.from("foo"));
       t.deepEqual(txn.get(Buffer.from("b")), Buffer.from("bar"));
       t.deepEqual(txn.get(Buffer.from("c")), null);
@@ -93,13 +93,13 @@ test(
     }
 
     {
-      const txn = new okra.Transaction(tree, { readOnly: false });
+      const txn = new okra.Transaction(tree, false);
       txn.delete(Buffer.from("b"));
       txn.commit();
     }
 
     {
-      const txn = new okra.Transaction(tree, { readOnly: true });
+      const txn = new okra.Transaction(tree, true);
       t.deepEqual(txn.get(Buffer.from("a")), Buffer.from("foo"));
       t.deepEqual(txn.get(Buffer.from("b")), null);
       t.deepEqual(txn.get(Buffer.from("c")), null);
@@ -143,7 +143,7 @@ test(
     };
 
     {
-      const txn = new okra.Transaction(tree, { readOnly: false });
+      const txn = new okra.Transaction(tree, false);
 
       t.deepEqual(txn.getRoot(), {
         level: 0,
@@ -158,7 +158,7 @@ test(
     }
 
     {
-      const txn = new okra.Transaction(tree, { readOnly: true });
+      const txn = new okra.Transaction(tree, true);
       t.deepEqual(txn.getNode(0, null), anchor);
       t.deepEqual(txn.getNode(0, a.key), a);
       t.deepEqual(txn.getNode(0, b.key), b);
@@ -179,25 +179,25 @@ test(
     });
 
     {
-      const txn = new okra.Transaction(tree, { readOnly: false, dbi: "a" });
+      const txn = new okra.Transaction(tree, false, { dbi: "a" });
       txn.set(Buffer.from("x"), Buffer.from("foo"));
       txn.commit();
     }
 
     {
-      const txn = new okra.Transaction(tree, { readOnly: false, dbi: "b" });
+      const txn = new okra.Transaction(tree, false, { dbi: "b" });
       txn.set(Buffer.from("x"), Buffer.from("bar"));
       txn.commit();
     }
 
     {
-      const txn = new okra.Transaction(tree, { readOnly: true, dbi: "a" });
+      const txn = new okra.Transaction(tree, true, { dbi: "a" });
       t.deepEqual(txn.get(Buffer.from("x")), Buffer.from("foo"));
       txn.abort();
     }
 
     {
-      const txn = new okra.Transaction(tree, { readOnly: true, dbi: "b" });
+      const txn = new okra.Transaction(tree, true, { dbi: "b" });
       t.deepEqual(txn.get(Buffer.from("x")), Buffer.from("bar"));
       txn.abort();
     }
@@ -215,20 +215,20 @@ test(
     });
 
     t.throws(() => {
-      new okra.Transaction(tree, { readOnly: false, dbi: "c" });
+      new okra.Transaction(tree, false, { dbi: "c" });
     }, { message: "DatabaseNotFound" });
   }),
 );
 
 test(
-  "try to open the default database in a named environemnt",
+  "try to open the default database in a named environment",
   tmpdir((t, directory) => {
     const tree = new okra.Tree(directory, {
       dbs: ["a", "b"],
     });
 
     t.throws(() => {
-      new okra.Transaction(tree, { readOnly: false });
+      new okra.Transaction(tree, false);
     }, { message: "DatabaseNotFound" });
   }),
 );

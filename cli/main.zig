@@ -11,6 +11,14 @@ const utils = @import("./utils.zig");
 
 const allocator = std.heap.c_allocator;
 
+var dbiOption = cli.Option{
+    .long_name = "dbi",
+    .short_alias = 'd',
+    .help = "use a named database instance",
+    .value = cli.OptionValue{ .string = null },
+    .required = false,
+};
+
 var verboseOption = cli.Option{
     .long_name = "verbose",
     .short_alias = 'v',
@@ -68,37 +76,37 @@ var app = &cli.Command{
         &cli.Command{
             .name = "cat",
             .help = "print the key/value entries to stdout",
-            .options = &.{&encodingOption},
+            .options = &.{ &dbiOption, &encodingOption },
             .action = cat,
         },
         &cli.Command{
             .name = "ls",
             .help = "print the tree structure",
-            .options = &.{ &encodingOption, &levelOption, &keyOption },
+            .options = &.{ &dbiOption, &encodingOption, &levelOption, &keyOption },
             .action = ls,
         },
         &cli.Command{
             .name = "init",
             .help = "initialize an empty database",
-            .options = &.{&iotaOption},
+            .options = &.{ &dbiOption, &iotaOption },
             .action = init,
         },
         &cli.Command{
             .name = "set",
             .help = "set a key/value entry",
-            .options = &.{ &encodingOption, &verboseOption },
+            .options = &.{ &dbiOption, &encodingOption, &verboseOption },
             .action = set,
         },
         &cli.Command{
             .name = "get",
             .help = "get a key/value entry",
-            .options = &.{&encodingOption},
+            .options = &.{ &dbiOption, &encodingOption },
             .action = get,
         },
         &cli.Command{
             .name = "delete",
             .help = "delete a key/value entry",
-            .options = &.{ &encodingOption, &verboseOption },
+            .options = &.{ &dbiOption, &encodingOption, &verboseOption },
             .action = delete,
         },
         &cli.Command{
@@ -120,7 +128,7 @@ var app = &cli.Command{
                 &cli.Command{
                     .name = "cat",
                     .help = "print the entries of the database to stdout",
-                    .options = &.{},
+                    .options = &.{&dbiOption},
                     .action = internalCat,
                 },
                 // &cli.Command{
@@ -165,24 +173,20 @@ fn cat(args: []const []const u8) !void {
 
     const encoding = parseEncoding();
 
-    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
-    defer allocator.free(path);
-
-    try std.fs.accessAbsoluteZ(path, .{ .mode = .read_only });
-
     const stdout = std.io.getStdOut().writer();
 
+    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
     var tree = try okra.Tree.open(allocator, path, .{});
     defer tree.close();
 
-    var txn = try okra.Transaction.open(allocator, &tree, .{ .read_only = true });
+    var txn = try okra.Transaction.open(allocator, &tree, .{ .mode = .ReadOnly });
     defer txn.abort();
 
     var cursor = try okra.Cursor.open(allocator, &txn);
     defer cursor.close();
 
     _ = try cursor.goToNode(0, null);
-    while (try cursor.goToNext()) |node| {
+    while (try cursor.goToNext(0)) |node| {
         switch (encoding) {
             .utf8 => try stdout.print("{s}\t{s}\n", .{ node.key.?, node.value.? }),
             .hex => try stdout.print("{s}\t{s}\n", .{ hex(node.key.?), hex(node.value.?) }),
@@ -240,17 +244,13 @@ fn ls(args: []const []const u8) !void {
         fail("level must be less than 254", .{});
     }
 
-    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
-    defer allocator.free(path);
-
-    try std.fs.accessAbsoluteZ(path, .{ .mode = .read_only });
-
     const stdout = std.io.getStdOut().writer();
 
+    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
     var tree = try okra.Tree.open(allocator, path, .{});
     defer tree.close();
 
-    var txn = try okra.Transaction.open(allocator, &tree, .{ .read_only = true });
+    var txn = try okra.Transaction.open(allocator, &tree, .{ .mode = .ReadOnly });
     defer txn.abort();
 
     var cursor = try okra.Cursor.open(allocator, &txn);
@@ -269,7 +269,8 @@ fn ls(args: []const []const u8) !void {
         try stdout.print("----- | {s:-<32} | {s:-<32}\n", .{ "", "" });
         const first_child = try cursor.goToNode(root.level - 1, root.key);
         try printNode(stdout, first_child, encoding);
-        while (try cursor.goToNext()) |next| try printNode(stdout, next, encoding);
+        while (try cursor.goToNext(root.level - 1)) |next|
+            try printNode(stdout, next, encoding);
     }
 }
 
@@ -285,11 +286,6 @@ fn set(args: []const []const u8) !void {
     }
 
     const encoding = parseEncoding();
-
-    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
-    defer allocator.free(path);
-
-    try std.fs.accessAbsoluteZ(path, .{ .mode = .read_only });
 
     var key_buffer = std.ArrayList(u8).init(allocator);
     defer key_buffer.deinit();
@@ -322,11 +318,12 @@ fn set(args: []const []const u8) !void {
         },
     }
 
+    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
     var tree = try okra.Tree.open(allocator, path, .{});
     defer tree.close();
 
     const log = if (verboseOption.value.bool) std.io.getStdOut().writer() else null;
-    var txn = try okra.Transaction.open(allocator, &tree, .{ .read_only = false, .log = log });
+    var txn = try okra.Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .log = log });
     errdefer txn.abort();
 
     try txn.set(key_buffer.items, value_buffer.items);
@@ -343,11 +340,6 @@ fn get(args: []const []const u8) !void {
     }
 
     const encoding = parseEncoding();
-
-    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
-    defer allocator.free(path);
-
-    try std.fs.accessAbsoluteZ(path, .{ .mode = .read_only });
 
     var key_buffer = std.ArrayList(u8).init(allocator);
     defer key_buffer.deinit();
@@ -367,10 +359,11 @@ fn get(args: []const []const u8) !void {
         },
     }
 
+    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
     var tree = try okra.Tree.open(allocator, path, .{});
     defer tree.close();
 
-    var txn = try okra.Transaction.open(allocator, &tree, .{ .read_only = true });
+    var txn = try okra.Transaction.open(allocator, &tree, .{ .mode = .ReadOnly });
     defer txn.abort();
 
     const value = try txn.get(key_buffer.items) orelse fail("KeyNotFound", .{});
@@ -397,11 +390,6 @@ fn delete(args: []const []const u8) !void {
 
     const encoding = parseEncoding();
 
-    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
-    defer allocator.free(path);
-
-    try std.fs.accessAbsoluteZ(path, .{ .mode = .read_only });
-
     var key_buffer = std.ArrayList(u8).init(allocator);
     defer key_buffer.deinit();
 
@@ -420,11 +408,12 @@ fn delete(args: []const []const u8) !void {
         },
     }
 
+    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
     var tree = try okra.Tree.open(allocator, path, .{});
     defer tree.close();
 
     const log = if (verboseOption.value.bool) std.io.getStdOut().writer() else null;
-    var txn = try okra.Transaction.open(allocator, &tree, .{ .read_only = false, .log = log });
+    var txn = try okra.Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .log = log });
     errdefer txn.abort();
 
     try txn.delete(key_buffer.items);
@@ -438,9 +427,6 @@ fn init(args: []const []const u8) !void {
         fail("path argument required", .{});
     }
 
-    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
-    defer allocator.free(path);
-
     const iota = iotaOption.value.int orelse unreachable;
     if (iota < 0) {
         fail("iota must be a non-negative integer", .{});
@@ -451,6 +437,7 @@ fn init(args: []const []const u8) !void {
     var key: [2]u8 = undefined;
     var value: [32]u8 = undefined;
 
+    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
     const env = try lmdb.Environment.open(path, .{});
     defer env.close();
 
@@ -552,13 +539,9 @@ fn internalCat(args: []const []const u8) !void {
         fail("path required", .{});
     }
 
-    const path = try utils.resolvePath(allocator, std.fs.cwd(), args[0]);
-    defer allocator.free(path);
-
-    try std.fs.accessAbsoluteZ(path, .{ .mode = std.fs.File.OpenMode.read_only });
-
     const stdout = std.io.getStdOut().writer();
 
+    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
     const env = try lmdb.Environment.open(path, .{});
     defer env.close();
 

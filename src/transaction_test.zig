@@ -40,7 +40,7 @@ test "Transaction.get" {
     var tree = try Tree.open(allocator, path, .{});
     defer tree.close();
 
-    var txn = try Transaction.open(allocator, &tree, .{ .read_only = false });
+    var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite });
     defer txn.abort();
 
     try txn.set("a", "foo");
@@ -62,13 +62,36 @@ test "Transaction.set" {
         defer tree.close();
 
         {
-            var txn = try Transaction.open(allocator, &tree, .{ .read_only = false });
+            var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite });
             errdefer txn.abort();
             for (t.leaves) |entry| try txn.set(entry[0], entry[1]);
             try txn.commit();
         }
 
         try lmdb.expectEqualEntries(tree.env, t.entries);
+    }
+}
+
+test "set the same entry twice" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try utils.resolvePath(tmp.dir, ".");
+    var tree = try Tree.open(allocator, path, .{});
+    defer tree.close();
+
+    {
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite });
+        errdefer txn.abort();
+        try txn.set("a", "foo");
+        try txn.set("a", "foo");
+        try txn.commit();
+    }
+
+    {
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadOnly });
+        defer txn.abort();
+        try if (try txn.get("a")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
     }
 }
 
@@ -81,7 +104,7 @@ test "delete a leaf anchor" {
     defer tree.close();
 
     {
-        var txn = try Transaction.open(allocator, &tree, .{ .read_only = false });
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite });
         errdefer txn.abort();
         for (library.tests[2].leaves) |entry| {
             try txn.set(entry[0], entry[1]);
@@ -119,7 +142,7 @@ test "overwrite a leaf anchor with another anchor" {
     defer tree.close();
 
     {
-        var txn = try Transaction.open(allocator, &tree, .{ .read_only = false });
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite });
         errdefer txn.abort();
         for (library.tests[2].leaves) |entry| {
             try txn.set(entry[0], entry[1]);
@@ -160,7 +183,7 @@ test "overwrite a leaf anchor with a non-anchor" {
     defer tree.close();
 
     {
-        var txn = try Transaction.open(allocator, &tree, .{ .read_only = false });
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite });
         errdefer txn.abort();
         for (library.tests[2].leaves) |entry| {
             try txn.set(entry[0], entry[1]);
@@ -202,34 +225,34 @@ test "open a named database" {
     defer tree.close();
 
     {
-        var txn = try Transaction.open(allocator, &tree, .{ .read_only = false, .dbi = "a" });
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .dbi = "a" });
         errdefer txn.abort();
         try txn.set("x", "foo");
         try txn.commit();
     }
 
     {
-        var txn = try Transaction.open(allocator, &tree, .{ .read_only = false, .dbi = "b" });
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .dbi = "b" });
         errdefer txn.abort();
         try txn.set("x", "bar");
         try txn.commit();
     }
 
     {
-        var txn = try Transaction.open(allocator, &tree, .{ .read_only = true, .dbi = "a" });
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadOnly, .dbi = "a" });
         defer txn.abort();
         try if (try txn.get("x")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
     }
 
     {
-        var txn = try Transaction.open(allocator, &tree, .{ .read_only = true, .dbi = "b" });
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadOnly, .dbi = "b" });
         defer txn.abort();
         try if (try txn.get("x")) |value| expectEqualSlices(u8, "bar", value) else error.KeyNotFound;
     }
 
     try expectError(
         error.DatabaseNotFound,
-        Transaction.open(allocator, &tree, .{ .read_only = true, .dbi = "c" }),
+        Transaction.open(allocator, &tree, .{ .mode = .ReadOnly, .dbi = "c" }),
     );
 }
 
@@ -293,7 +316,7 @@ fn testPseudoRandomPermutations(
         defer tree.close();
 
         {
-            var txn = try Transaction.open(allocator, &tree, .{ .read_only = false, .log = log });
+            var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .log = log });
             errdefer txn.abort();
 
             for (permutation) |i, j| {
@@ -335,6 +358,8 @@ test "1 pseudo-random permutations of 10, deleting 0" {
 }
 
 test "100 pseudo-random permutations of 50, deleting 0" {
+    // const log = std.io.getStdErr().writer();
+    // try log.print("\n", .{});
     try testPseudoRandomPermutations(100, 50, 0, null, .{});
 }
 

@@ -8,22 +8,22 @@ d88' `88b  888 .8P'   `888""8P `P  )88b
 `Y8bod8P' o888o o888o d888b    `Y888""8o  
 ```
 
-okra is a _merkle skip list_ written in Zig and built on LMDB. It can be used via C headers or the NodeJS bindings published as `node-okra` on NPM.
+okra is a _deterministic pseudo-random merkle tree_. This repo has two compatible implementations: `@canvas-js/okra-node` in Zig, built on LMDB and packaged as a native NodeJS module, and `@canvas-js/okra-browser` in pure JavaScript, built on IndexedDB and the Web Locks API.
 
-You can use okra as a persistent key/value store, with a special skip list structure and cursor interface that **enables a new class of efficient p2p syncing algorithms**. For example, if you have a peer-to-peer network in which peers publish CRDT operations but occasionally go offline and miss operations, two peers can use okra to **quickly identify missing operations** without relying on any type of consensus, ordering, vector clocks, etc. This is fast even if the database of operations is extremely large and the differences are buried deep in the past.
+You can use okra as a persistent key/value store. Internally, it has a special skip list structure that **enables a new class of efficient p2p syncing algorithms**. For example, if you have a peer-to-peer network in which peers publish CRDT operations but occasionally go offline and miss operations, two peers can use okra to **quickly identify missing operations** without relying on any type of consensus, ordering, vector clocks, etc. This is fast even if the database of operations is extremely large and the differences are buried deep in the past.
 
 ## Table of Contents
 
-- [API](#API)
+- [Usage](#Usage)
 - [Design](#design)
 - [Benchmarks](#benchmarks)
 - [References](#references)
 - [Contributing](#contributing)
 - [License](#license)
 
-## API
+## Usage
 
-The internal Zig structs are documented in [API.md](API.md). The NodeJS bindings are documented in [node-okra/README.md](./node-okra/).
+The internal Zig structs are documented in [API.md](API.md). The NodeJS bindings are documented in [okra-node/README.md](./okra-node/), and the JavaScript/IndexedDB implementation is documented in [okra-browser/README.md](./okra-browser/).
 
 ## Design
 

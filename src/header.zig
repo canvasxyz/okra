@@ -47,10 +47,12 @@ pub fn Header(comptime K: u8, comptime Q: u32) type {
             if (try txn.get(&HEADER_KEY)) |value| {
                 if (std.mem.eql(u8, value, &header)) {
                     return;
+                } else {
+                    return error.InvalidDatabase;
                 }
+            } else {
+                return error.InvalidDatabase;
             }
-
-            return error.InvalidDatabase;
         }
     };
 }

@@ -15,11 +15,6 @@ const TransactionTypeTag = c.napi_type_tag{
     .upper = 0xB5EDCA98B9F7AA6F,
 };
 
-const CursorTypeTag = c.napi_type_tag{
-    .lower = 0x7311FA8C57A94355,
-    .upper = 0x93FEEF1DF0E5C0B4,
-};
-
 export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) callconv(.C) c.napi_value {
     const treeMethods = [_]n.Method{
         comptime n.createMethod("close", 0, treeCloseMethod),
@@ -30,28 +25,18 @@ export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) callco
     const transactionMethods = [_]n.Method{
         comptime n.createMethod("abort", 0, transactionAbortMethod),
         comptime n.createMethod("commit", 0, transactionCommitMethod),
+
         comptime n.createMethod("get", 1, transactionGetMethod),
         comptime n.createMethod("set", 2, transactionSetMethod),
         comptime n.createMethod("delete", 1, transactionDeleteMethod),
-        comptime n.createMethod("getNode", 2, transactionGetNodeMethod),
+
         comptime n.createMethod("getRoot", 0, transactionGetRootMethod),
+        comptime n.createMethod("getNode", 2, transactionGetNodeMethod),
         comptime n.createMethod("getChildren", 2, transactionGetChildrenMethod),
+        comptime n.createMethod("seek", 2, transactionSeekMethod),
     };
 
-    n.defineClass("Transaction", 2, createTransaction, &transactionMethods, env, exports) catch return null;
-
-    const cursorMethods = [_]n.Method{
-        comptime n.createMethod("close", 0, cursorCloseMethod),
-        comptime n.createMethod("goToRoot", 0, cursorGoToRootMethod),
-        comptime n.createMethod("goToNode", 2, cursorGoToNodeMethod),
-        comptime n.createMethod("goToNext", 0, cursorGoToNextMethod),
-        comptime n.createMethod("goToPrevious", 0, cursorGoToPreviousMethod),
-        comptime n.createMethod("seek", 2, cursorSeekMethod),
-        comptime n.createMethod("getCurrentNode", 0, cursorGetCurrentNodeMethod),
-    };
-
-    n.defineClass("Cursor", 1, createCursor, &cursorMethods, env, exports) catch return null;
-
+    n.defineClass("Transaction", 3, createTransaction, &transactionMethods, env, exports) catch return null;
     return exports;
 }
 
@@ -90,7 +75,7 @@ pub fn createTree(env: c.napi_env, this: c.napi_value, args: *const [2]c.napi_va
     }
 
     const tree = try allocator.create(okra.Tree);
-    try tree.init(allocator, path, .{ .map_size = map_size, .dbs = dbs.items });
+    try tree.init(allocator, path, .{ .map_size = map_size, .dbs = if (dbs.items.len > 0) dbs.items else null });
     try n.wrap(okra.Tree, env, this, tree, destroyTree, &TreeTypeTag);
 
     return try n.getUndefined(env);
@@ -111,30 +96,21 @@ fn treeCloseMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_valu
 
 // Transaction
 
-pub fn createTransaction(env: c.napi_env, this: c.napi_value, args: *const [2]c.napi_value) !c.napi_value {
+pub fn createTransaction(env: c.napi_env, this: c.napi_value, args: *const [3]c.napi_value) !c.napi_value {
     const tree = try n.unwrap(okra.Tree, &TreeTypeTag, env, args[0]);
 
-    const read_only_property = try n.createString(env, "readOnly");
-    const read_only_value = try n.getProperty(env, args[1], read_only_property);
-    const read_only_value_type = try n.typeOf(env, read_only_value);
-
-    var read_only = true;
-    if (read_only_value_type != c.napi_undefined) {
-        read_only = try n.parseBoolean(env, read_only_value);
-    }
-
-    const dbi_property = try n.createString(env, "dbi");
-    const dbi_value = try n.getProperty(env, args[1], dbi_property);
-    const dbi_value_type = try n.typeOf(env, dbi_value);
-
+    const mode: okra.Transaction.Mode = if (try n.parseBoolean(env, args[1])) .ReadOnly else .ReadWrite;
     const txn = try allocator.create(okra.Transaction);
 
-    if (dbi_value_type != c.napi_undefined) {
-        const dbi = try n.parseStringAlloc(env, dbi_value, allocator);
+    const dbi_type = try n.typeOf(env, args[2]);
+    if (dbi_type == c.napi_null) {
+        try txn.init(allocator, tree, .{ .mode = mode, .dbi = null });
+    } else if (dbi_type == c.napi_string) {
+        const dbi = try n.parseStringAlloc(env, args[2], allocator);
         defer allocator.free(dbi);
-        try txn.init(allocator, tree, .{ .read_only = read_only, .dbi = dbi.ptr });
+        try txn.init(allocator, tree, .{ .mode = mode, .dbi = dbi.ptr });
     } else {
-        try txn.init(allocator, tree, .{ .read_only = read_only, .dbi = null });
+        return n.throwError(env, "invalid dbi - expected string or null");
     }
 
     try n.wrap(okra.Transaction, env, this, txn, destroyTransaction, &TransactionTypeTag);
@@ -145,6 +121,10 @@ pub fn createTransaction(env: c.napi_env, this: c.napi_value, args: *const [2]c.
 pub fn destroyTransaction(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
     if (finalize_data) |ptr| {
         const txn = @ptrCast(*okra.Transaction, @alignCast(@alignOf(okra.Transaction), ptr));
+        if (txn.is_open) {
+            txn.abort();
+        }
+
         allocator.destroy(txn);
     }
 }
@@ -199,17 +179,14 @@ fn transactionGetNodeMethod(env: c.napi_env, this: c.napi_value, args: *const [2
     const level = try parseLevel(env, args[0]);
     const key = try parseKey(env, args[1]);
 
-    if (try txn.getNode(level, key)) |node| {
-        return try createNode(env, node);
-    } else {
-        return error.KeyNotFound;
-    }
+    const node = try txn.cursor.goToNode(level, key);
+    return try createNode(env, node);
 }
 
 fn transactionGetRootMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_value) !c.napi_value {
     const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
 
-    const root = try txn.getRoot();
+    const root = try txn.cursor.goToRoot();
     return try createNode(env, root);
 }
 
@@ -226,14 +203,11 @@ fn transactionGetChildrenMethod(env: c.napi_env, this: c.napi_value, args: *cons
     var children = std.ArrayList(c.napi_value).init(allocator);
     defer children.deinit();
 
-    var cursor = try okra.Cursor.open(allocator, txn);
-    defer cursor.close();
-
-    const first_child = try cursor.goToNode(level - 1, key);
+    const first_child = try txn.cursor.goToNode(level - 1, key);
     const first_child_node = try createNode(env, first_child);
     try children.append(first_child_node);
 
-    while (try cursor.goToNext()) |next_child| {
+    while (try txn.cursor.goToNext(level - 1)) |next_child| {
         if (next_child.isSplit()) {
             break;
         } else {
@@ -245,87 +219,17 @@ fn transactionGetChildrenMethod(env: c.napi_env, this: c.napi_value, args: *cons
     return try n.wrapArray(env, children.items);
 }
 
-// Cursor
-
-pub fn createCursor(env: c.napi_env, this: c.napi_value, args: *const [1]c.napi_value) !c.napi_value {
-    const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, args[0]);
-
-    const cursor = try allocator.create(okra.Cursor);
-
-    try cursor.init(allocator, txn);
-
-    try n.wrap(okra.Cursor, env, this, cursor, destroyCursor, &CursorTypeTag);
-    return try n.getUndefined(env);
-}
-
-pub fn destroyCursor(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
-    if (finalize_data) |ptr| {
-        const cursor = @ptrCast(*okra.Cursor, @alignCast(@alignOf(okra.Cursor), ptr));
-        allocator.destroy(cursor);
-    }
-}
-
-fn cursorCloseMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_value) !c.napi_value {
-    const cursor = try n.unwrap(okra.Cursor, &CursorTypeTag, env, this);
-    cursor.close();
-
-    return try n.getUndefined(env);
-}
-
-fn cursorGoToRootMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_value) !c.napi_value {
-    const cursor = try n.unwrap(okra.Cursor, &CursorTypeTag, env, this);
-
-    const root = try cursor.goToRoot();
-
-    return try createNode(env, root);
-}
-
-fn cursorGoToNodeMethod(env: c.napi_env, this: c.napi_value, args: *const [2]c.napi_value) !c.napi_value {
-    const cursor = try n.unwrap(okra.Cursor, &CursorTypeTag, env, this);
+fn transactionSeekMethod(env: c.napi_env, this: c.napi_value, args: *const [2]c.napi_value) !c.napi_value {
+    const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
 
     const level = try parseLevel(env, args[0]);
     const key = try parseKey(env, args[1]);
 
-    const node = try cursor.goToNode(level, key);
-
-    return try createNode(env, node);
-}
-
-fn cursorGoToNextMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_value) !c.napi_value {
-    const cursor = try n.unwrap(okra.Cursor, &CursorTypeTag, env, this);
-    if (try cursor.goToNext()) |node| {
+    if (try txn.cursor.seek(level, key)) |node| {
         return try createNode(env, node);
     } else {
         return try n.getNull(env);
     }
-}
-
-fn cursorGoToPreviousMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_value) !c.napi_value {
-    const cursor = try n.unwrap(okra.Cursor, &CursorTypeTag, env, this);
-    if (try cursor.goToPrevious()) |node| {
-        return try createNode(env, node);
-    } else {
-        return try n.getNull(env);
-    }
-}
-
-fn cursorSeekMethod(env: c.napi_env, this: c.napi_value, args: *const [2]c.napi_value) !c.napi_value {
-    const cursor = try n.unwrap(okra.Cursor, &CursorTypeTag, env, this);
-
-    const level = try parseLevel(env, args[0]);
-    const key = try parseKey(env, args[1]);
-
-    if (try cursor.seek(level, key)) |node| {
-        return try createNode(env, node);
-    } else {
-        return try n.getNull(env);
-    }
-}
-
-fn cursorGetCurrentNodeMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_value) !c.napi_value {
-    const cursor = try n.unwrap(okra.Cursor, &CursorTypeTag, env, this);
-    const node = try cursor.getCurrentNode();
-    return try createNode(env, node);
 }
 
 fn createNode(env: c.napi_env, node: okra.Node) !c.napi_value {

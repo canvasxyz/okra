@@ -2,6 +2,7 @@ const std = @import("std");
 const allocator = std.heap.c_allocator;
 
 const lmdb = @import("lmdb");
+const utils = @import("utils.zig");
 
 const K = 16;
 const Q = 32;
@@ -97,14 +98,14 @@ fn ReadEntry(comptime size: u32) type {
 }
 
 fn iterateOverEntries(tree: *const Tree) !void {
-    var txn = try Transaction.open(allocator, tree, .{ .read_only = true });
+    const txn = try lmdb.Transaction.open(tree.env, .{ .read_only = true });
     defer txn.abort();
 
-    var cursor = try Cursor.open(allocator, &txn);
+    var cursor = try Cursor.open(allocator, txn);
     defer cursor.close();
 
     _ = try cursor.goToNode(0, null);
-    while (try cursor.goToNext()) |entry| {
+    while (try cursor.goToNext(0)) |entry| {
         std.debug.assert(entry.key.?.len == 16);
         std.debug.assert(entry.value.?.len == 16);
     }
@@ -143,11 +144,8 @@ fn runTests(
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const tmp_path = try tmp.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(tmp_path);
-
-    const path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
-    defer allocator.free(path);
+    try tmp.dir.makeDir("mst");
+    const path = try utils.resolvePath(tmp.dir, "mst");
 
     var tree = try initialize(initial_entries, path);
 
@@ -160,7 +158,8 @@ fn runTests(
 
         if (reset) {
             tree.close();
-            try std.fs.deleteFileAbsoluteZ(path);
+            try tmp.dir.deleteTree("mst");
+            try tmp.dir.makeDir("mst");
             tree = try initialize(initial_entries, path);
         }
     }

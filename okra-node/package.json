@@ -1,7 +1,7 @@
 {
-	"name": "node-okra",
+	"name": "@canvas-js/okra-node",
 	"description": "Native NodeJS okra bindings",
-	"version": "0.3.0",
+	"version": "0.1.0",
 	"type": "module",
 	"main": "index.js",
 	"types": "index.d.ts",
@@ -16,9 +16,9 @@
 	"author": "Joel Gustafson",
 	"license": "MIT",
 	"devDependencies": {
-		"@types/node": "^18.7.10",
-		"ava": "^5.1.1",
-		"nanoid": "^4.0.0"
+		"@types/node": "^18.14.0",
+		"ava": "^5.2.0",
+		"nanoid": "^4.0.1"
 	},
 	"dependencies": {
 		"detect-libc": "^2.0.1"

@@ -1,13 +1,9 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-const expectEqualSlices = std.testing.expectEqualSlices;
 
 const Environment = @import("environment.zig").Environment;
 const Transaction = @import("transaction.zig").Transaction;
 const Cursor = @import("cursor.zig").Cursor;
-const utils = @import("utils.zig");
 
 const Options = struct {
     log: ?std.fs.File.Writer = null,
@@ -38,10 +34,7 @@ pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) 
                     .lt => {
                         differences += 1;
                         if (options.log) |log|
-                            try log.print("{s}\n- a: {s}\n- b: null\n", .{
-                                hex(key_a_bytes),
-                                hex(value_a),
-                            });
+                            try log.print("{s}\n- a: {s}\n- b: null\n", .{ hex(key_a_bytes), hex(value_a) });
 
                         key_a = try cursor_a.goToNext();
                     },
@@ -90,53 +83,4 @@ pub fn compareEntries(env_a: Environment, env_b: Environment, options: Options) 
     if (options.log) |log| try log.print("{s:-<80}\n", .{"END DIFF "});
 
     return differences;
-}
-
-pub fn expectEqualEntries(env: Environment, entries: []const [2][]const u8) !void {
-    const txn = try Transaction.open(env, .{ .read_only = true });
-    defer txn.abort();
-
-    const cursor = try Cursor.open(txn);
-    defer cursor.close();
-
-    var i: usize = 0;
-    var key = try cursor.goToFirst();
-    while (key != null) : (key = try cursor.goToNext()) {
-        try expect(i < entries.len);
-        try expectEqualSlices(u8, entries[i][0], try cursor.getCurrentKey());
-        try expectEqualSlices(u8, entries[i][1], try cursor.getCurrentValue());
-        i += 1;
-    }
-
-    try expectEqual(entries.len, i);
-}
-
-const allocator = std.heap.c_allocator;
-
-test "expectEqualEntries" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const path = try utils.resolvePath(tmp.dir, ".");
-
-    const env = try Environment.open(path, .{});
-    defer env.close();
-
-    {
-        const txn = try Transaction.open(env, .{ .read_only = false });
-        errdefer txn.abort();
-
-        try txn.set("a", "foo");
-        try txn.set("b", "bar");
-        try txn.set("c", "baz");
-        try txn.set("d", "qux");
-        try txn.commit();
-    }
-
-    try expectEqualEntries(env, &[_][2][]const u8{
-        .{ "a", "foo" },
-        .{ "b", "bar" },
-        .{ "c", "baz" },
-        .{ "d", "qux" },
-    });
 }

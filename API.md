@@ -32,7 +32,7 @@ const Tree = struct {
 
 A `Tree` is the basic database connection handle and wraps an LMDB environment. It can be allocated on the stack or the heap, and must be closed by calling `tree.close()`.
 
-The `path` must be a an absolute path to a **directory** that already exists (LMDB will not make it for you).
+The `path` must be an absolute path to a directory. `Tree.init` / `Tree.open` will create the directory if it does not exist.
 
 ```zig
 // allocate on the stack
@@ -54,6 +54,22 @@ The `map_size` parameter is forwarded to the underlying LMDB environment. From [
 
 LMDB has optional support for multiple [named databases](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) (called "DBI handles") within a single LMDB environment. By default, okra trees interact with the single default LMDB DBI. You can opt in to using isolated named DBIs by passing a slice of `[*:0]const u8` names in `Tree.Options.dbs`, and selecting a specific DBI with `Transaction.Options.dbi` with every transaction. Note that **these two modes are exclusive**: if `Tree.Options.dbs == null`, then every `Transaction.Options.dbi` must also be null, and if `Tree.Options.dbs != null` then every `Transaction.Options.dbi` must be one of the values in `Tree.Options.dbs`.
 
+## Node
+
+```zig
+pub const Node = struct {
+    level: u8,
+    key: ?[]const u8,
+    hash: *const [K]u8,
+    value: ?[]const u8,
+
+    pub fn isSplit(self: Node) bool
+    pub fn equal(self: Node, other: Node) bool
+};
+```
+
+Some transaction and cursor methods return `Node` structs, which represent internal nodes of the merkle tree. Leaf nodes have level `0`. `node.key` is `null` for anchor nodes. `node.value` is null if `node.knodesey == null` or `node.level > 0` (anchor or non-leaf nodes), and points to the value of the leaf entry if `node.key != null` and `node.level == 0` (non-anchor leaf nodes).
+
 ## Transaction
 
 ```zig
@@ -61,16 +77,14 @@ const Transaction = struct {
     pub const Options = struct { read_only: bool, dbi: ?[*:0]const u8 = null, log: ?std.fs.File.Writer = null };
     
     // lifecycle methods
-    pub fn open(allocator: std.mem.Allocator, tree: *const Tree, options: Options) !*Transaction
+    pub fn open(allocator: std.mem.Allocator, tree: *const Tree, options: Options) !Transaction
     pub fn abort(self: *Transaction) void
     pub fn commit(self: *Transaction) !void
 
+    // get, set, and delete key/value entries
     pub fn get(self: *Transaction, key: []const u8) !?[]const u8
     pub fn set(self: *Transaction, key: []const u8, value: []const u8) !void
     pub fn delete(self: *Transaction, key: []const u8) !void
-
-    pub fn getRoot(self: *Transaction) !Node
-    pub fn getNode(self: *Transaction, level: u8, key: ?[]const u8) !Node
 }
 ```
 
@@ -129,18 +143,9 @@ If the environment was opened with a positive `options.max_dbs`, you can open a 
 ## Cursor
 
 ```zig
-pub const Node = struct {
-    level: u8,
-    key: ?[]const u8,
-    hash: *const [K]u8,
-    value: ?[]const u8,
-
-    pub fn isSplit(self: Self) bool
-};
-
 pub const Cursor = struct {
-    pub fn open(allocator: std.mem.Allocator, txn: *const Transaction) !Cursor
-    pub fn init(self: *Cursor, allocator: std.mem.Allocator, txn: *const Transaction) !void
+    pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction) !Cursor
+    pub fn init(self: *Cursor, allocator: std.mem.Allocator, txn: lmdb.Transaction) !void
     pub fn close(self: *Cursor) void
 
     pub fn goToRoot(self: *Cursor) !Node
@@ -150,8 +155,6 @@ pub const Cursor = struct {
     pub fn seek(self: *Cursor, level: u8, key: ?[]const u8) !?Node
 }
 ```
-
-Cursor methods return `Node` structs.  `node.key` is `null` for anchor nodes. `node.value` is null if `node.key == null` or `node.level > 0`, and points to the value of the leaf entry if `node.key != null` and `node.level == 0`.
 
 Just like trees and transactions, cursors can be allocated on the stack:
 

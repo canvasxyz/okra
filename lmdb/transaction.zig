@@ -7,13 +7,6 @@ const lmdb = @import("lmdb.zig");
 pub const Transaction = struct {
     pub const Options = struct { read_only: bool = true, dbi: ?[*:0]const u8 = null };
 
-    pub const Error = error{
-        LmdbTransactionError,
-        KeyNotFound,
-        InvalidKeySize,
-        InvalidValueSize,
-    };
-
     ptr: ?*lmdb.MDB_txn,
     dbi: lmdb.MDB_dbi,
 
@@ -24,7 +17,14 @@ pub const Transaction = struct {
             const flags: c_uint = if (options.read_only) lmdb.MDB_RDONLY else 0;
             try switch (lmdb.mdb_txn_begin(env.ptr, null, flags, &txn.ptr)) {
                 0 => {},
-                else => Error.LmdbTransactionError,
+                @enumToInt(std.os.E.ACCES) => error.ACCES,
+                @enumToInt(std.os.E.NOMEM) => error.NOMEM,
+                lmdb.MDB_PANIC => error.LmdbPanic,
+                lmdb.MDB_BAD_TXN => error.LmdbInvalidTransaction,
+                lmdb.MDB_MAP_RESIZED => error.LmdbMapResized,
+                lmdb.MDB_READERS_FULL => error.LmdbReadersFull,
+                lmdb.MDB_BAD_RSLOT => error.LmdbBadReaderSlot,
+                else => error.LmdbTransactionBeginError,
             };
         }
 
@@ -32,7 +32,9 @@ pub const Transaction = struct {
             const flags: c_uint = if (options.read_only) 0 else lmdb.MDB_CREATE;
             try switch (lmdb.mdb_dbi_open(txn.ptr, options.dbi, flags, &txn.dbi)) {
                 0 => {},
-                else => Error.LmdbTransactionError,
+                lmdb.MDB_NOTFOUND => error.LmdbDbiNotFound,
+                lmdb.MDB_DBS_FULL => error.LmdbDbsFull,
+                else => error.LmdbDbiOpenError,
             };
         }
 
@@ -42,7 +44,11 @@ pub const Transaction = struct {
     pub fn commit(self: Transaction) !void {
         try switch (lmdb.mdb_txn_commit(self.ptr)) {
             0 => {},
-            else => Error.LmdbTransactionError,
+            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            @enumToInt(std.os.E.NOSPC) => error.NOSPC,
+            @enumToInt(std.os.E.IO) => error.IO,
+            @enumToInt(std.os.E.NOMEM) => error.NOMEM,
+            else => error.LmdbTransactionCommitError,
         };
     }
 
@@ -53,14 +59,12 @@ pub const Transaction = struct {
     pub fn get(self: Transaction, key: []const u8) !?[]const u8 {
         var k: lmdb.MDB_val = .{ .mv_size = key.len, .mv_data = @intToPtr([*]u8, @ptrToInt(key.ptr)) };
         var v: lmdb.MDB_val = .{ .mv_size = 0, .mv_data = null };
-        const err = lmdb.mdb_get(self.ptr, self.dbi, &k, &v);
-        if (err == 0) {
-            return @ptrCast([*]u8, v.mv_data)[0..v.mv_size];
-        } else if (err == lmdb.MDB_NOTFOUND) {
-            return null;
-        } else {
-            return Error.LmdbTransactionError;
-        }
+        return switch (lmdb.mdb_get(self.ptr, self.dbi, &k, &v)) {
+            0 => @ptrCast([*]u8, v.mv_data)[0..v.mv_size],
+            lmdb.MDB_NOTFOUND => null,
+            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            else => error.LmdbTransactionGetError,
+        };
     }
 
     pub fn set(self: Transaction, key: []const u8, value: []const u8) !void {
@@ -68,8 +72,11 @@ pub const Transaction = struct {
         var v: lmdb.MDB_val = .{ .mv_size = value.len, .mv_data = @intToPtr([*]u8, @ptrToInt(value.ptr)) };
         try switch (lmdb.mdb_put(self.ptr, self.dbi, &k, &v, 0)) {
             0 => {},
-            lmdb.MDB_NOTFOUND => Error.KeyNotFound,
-            else => Error.LmdbTransactionError,
+            lmdb.MDB_MAP_FULL => error.LmdbMapFull,
+            lmdb.MDB_TXN_FULL => error.LmdbTxnFull,
+            @enumToInt(std.os.E.ACCES) => error.ACCES,
+            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            else => error.LmdbTransactionSetError,
         };
     }
 
@@ -77,8 +84,10 @@ pub const Transaction = struct {
         var k: lmdb.MDB_val = .{ .mv_size = key.len, .mv_data = @intToPtr([*]u8, @ptrToInt(key.ptr)) };
         try switch (lmdb.mdb_del(self.ptr, self.dbi, &k, null)) {
             0 => {},
-            lmdb.MDB_NOTFOUND => Error.KeyNotFound,
-            else => Error.LmdbTransactionError,
+            lmdb.MDB_NOTFOUND => error.KeyNotFound,
+            @enumToInt(std.os.E.ACCES) => error.ACCES,
+            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            else => error.LmdbTransactionDeleteError,
         };
     }
 };

@@ -1,6 +1,6 @@
-# node-okra
+# @canvas-js/okra-node
 
-NodeJS bindings for okra.
+Native NodeJS bindings for okra on LMDB.
 
 ## Table of Contents
 
@@ -8,18 +8,19 @@ NodeJS bindings for okra.
 - [API](#api)
   - [Tree](#tree)
   - [Transaction](#transaction)
-  - [Cursor](#cursor)
 
 ## Installation
 
 ```
-npm i node-okra
+npm i @canvas-js/okra-node
 ```
 
 ```ts
-import * as okra from "node-okra"
+import * as okra from "@canvas-js/okra-node"
 
-const tree = new okra.Tree("/path/to/db.okra")
+// the Tree constructor will create a directory at /path/to/db
+// if one does not already exist
+const tree = new okra.Tree("/path/to/db")
 const txn = new okra.Transaction(tree, { readOnly: false })
 txn.set(Buffer.from("foo"), Buffer.from("bar"))
 txn.commit()
@@ -28,9 +29,9 @@ txn.commit()
 
 ## API
 
-The three basic classes are `Tree`, `Transaction`, and `Cursor`. Trees and transactions form a classical key/value store interface: you can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries. A cursor can be used to move around the nodes of the tree itself, which includes the leaves, the intermediate-level nodes, and the root node.
+The two basic classes are `Tree` and `Transaction`. Trees and transactions form a classical key/value store interface: you can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries. A cursor can be used to move around the nodes of the tree itself, which includes the leaves, the intermediate-level nodes, and the root node.
 
-Cursor methods and some transaction methods return `Node` objects. `node.key === null` for anchor nodes, and `node.value === undefined` if `level > 0 || key === null`.
+Some transaction methods return `Node` objects. `node.key === null` for anchor nodes, and `node.value === undefined` if `level > 0 || key === null`.
 
 ```ts
 declare type Node = {
@@ -58,7 +59,7 @@ declare class Tree {
 }
 ```
 
-The `path` must be a an absolute path to a **directory** that already exists (LMDB will not make it for you).
+The `path` must be a path to a directory.
 
 LMDB has optional support for multiple [named databases](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) (called "DBI handles") within a single LMDB environment. By default, okra trees interact with the single default LMDB DBI. You can opt in to using isolated named DBIs by setting `Tree.Options.dbs: string[]` in the tree constructor, and selecting a specific DBI with `Transaction.Options.dbi: string` with every transaction. Note that **these two modes are exclusive**: if `Tree.Options.dbs === undefined`, then every `Transaction.Options.dbi` must also be `undefined`, and if `Tree.Options.dbs !== undefined` then every `Transaction.Options.dbi` must be one of the values in `Tree.Options.dbs`.
 
@@ -66,19 +67,19 @@ LMDB has optional support for multiple [named databases](http://www.lmdb.tech/do
 
 ```ts
 declare namespace Transaction {
-	type Options = { readOnly: boolean; dbi?: string }
+	type Options = { dbi?: string }
 }
 
 declare class Transaction {
-  /**
-   * Transactions must be opened as either read-only or read-write.
-   * Only one read-write transaction can be open at a time.
-   * Read-only transactions must be manually aborted when finished,
-   * and read-write transactions must be either aborted or committed.
-   * Failure to abort or commmit transactions will cause the database
-   * file to grow.
-   */
-  constructor(tree: Tree, options: Transaction.Options)
+	/**
+	 * Transactions are opened as either read-only or read-write.
+	 * Only one read-write transaction can be open at a time.
+	 * Read-only transactions must be manually aborted when finished,
+	 * and read-write transactions must be either aborted or committed.
+	 * Failure to abort or commmit transactions will cause the database
+	 * file to grow.
+	 */
+  constructor(tree: Tree, readOnly: boolean, options: Transaction.Options)
 
   /**
    * Abort the transaction
@@ -133,53 +134,11 @@ declare class Transaction {
    * @throws if level == 0 or if the node does not exist
    */
   getChildren(level: number, key: Buffer | null): Node[]
-}
-```
-
-### Cursor
-
-```ts
-declare class Cursor {
-  /**
-   * Cursors can be opened using read-write or read-only transactions,
-   * and must be closed before the transaction is aborted or committed.
-   */
-  constructor(txn: Transaction)
 
   /**
-   * Close the cursor and free its associated resources
-   */
-  close(): void
-
-  /**
-   * Go to the root node
-   */
-  goToRoot(): Node
-
-  /**
-   * Go to an internal skip-list node
-   * @param level node level
-   * @param key node key (null for anchor nodes)
-   */
-  goToNode(level: number, key: Buffer | null): Node
-
-  /**
-   * Go to the next sibling on the same level.
-   * goToNext() and goToPrevious() ignore parent boundaries: they can be used to traverse an entire level from beginning to end.
-   */
-  goToNext(): Node | null
-
-  /**
-   * Go to the previous sibling on the same level.
-   * goToNext() and goToPrevious() ignore parent boundaries: they can be used to traverse an entire level from beginning to end.
-   */
-  goToPrevious(): Node | null
-
-  /**
-   * Seek to the first node on the given level with a key greater than or equal to the provided search key
-   * @param level
-   * @param key
-   */
-  seek(level: number, key: Buffer | null): Node | null
+	 * Get the first node at a given level whose key is
+	 * greater than or equal to the provided needle.
+	 */
+	seek(level: number, needle: Buffer | null): Node | null
 }
 ```

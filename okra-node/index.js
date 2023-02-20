@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { resolve } from "path";
 
 import { familySync } from "detect-libc";
 
@@ -18,18 +19,13 @@ const okra = require(
 
 export class Tree extends okra.Tree {
   constructor(path, options = {}) {
-    super(path, options);
+    super(resolve(path), options);
   }
 }
 
 export class Transaction extends okra.Transaction {
-  constructor(tree, options = {}) {
-    super(tree, options);
-  }
-}
-
-export class Cursor extends okra.Cursor {
-  constructor(txn) {
-    super(txn);
+  constructor(tree, readOnly, options = {}) {
+    const dbi = options.dbi ?? null;
+    super(tree, readOnly, dbi);
   }
 }

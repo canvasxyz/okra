@@ -26,28 +26,30 @@ pub const Environment = struct {
         var env = Environment{};
         try switch (lmdb.mdb_env_create(&env.ptr)) {
             0 => {},
-            else => Error.LmdbEnvironmentError,
+            else => error.LmdbEnvironmentCreateError,
         };
 
         try switch (lmdb.mdb_env_set_mapsize(env.ptr, options.map_size)) {
             0 => {},
-            else => Error.LmdbEnvironmentError,
+            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            else => error.LmdbEnvironmentError,
         };
 
         try switch (lmdb.mdb_env_set_maxdbs(env.ptr, options.max_dbs)) {
             0 => {},
-            else => Error.LmdbEnvironmentError,
+            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            else => error.LmdbEnvironmentError,
         };
 
         errdefer lmdb.mdb_env_close(env.ptr);
         try switch (lmdb.mdb_env_open(env.ptr, path, options.flags, options.mode)) {
             0 => {},
-            lmdb.MDB_VERSION_MISMATCH => Error.LmdbVersionMismatch,
-            lmdb.MDB_INVALID => Error.LmdbCorruptDatabase,
-            @enumToInt(std.os.E.ACCES) => Error.ACCES,
-            @enumToInt(std.os.E.NOENT) => Error.NOENT,
-            @enumToInt(std.os.E.AGAIN) => Error.AGAIN,
-            else => Error.LmdbEnvironmentError,
+            lmdb.MDB_VERSION_MISMATCH => error.LmdbEnvironmentVersionMismatch,
+            lmdb.MDB_INVALID => error.LmdbCorruptDatabase,
+            @enumToInt(std.os.E.ACCES) => error.ACCES,
+            @enumToInt(std.os.E.NOENT) => error.NOENT,
+            @enumToInt(std.os.E.AGAIN) => error.AGAIN,
+            else => error.LmdbEnvironmentError,
         };
 
         return env;
@@ -60,7 +62,10 @@ pub const Environment = struct {
     pub fn flush(self: Environment) !void {
         try switch (lmdb.mdb_env_sync(self.ptr, 0)) {
             0 => {},
-            else => Error.LmdbEnvironmentError,
+            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            @enumToInt(std.os.E.ACCES) => error.ACCES,
+            @enumToInt(std.os.E.IO) => error.IO,
+            else => error.LmdbEnvironmentError,
         };
     }
 };

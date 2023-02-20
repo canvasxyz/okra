@@ -4,15 +4,14 @@ const expectEqual = std.testing.expectEqual;
 const lmdb = @import("lmdb");
 
 pub fn Cursor(comptime K: u8, comptime Q: u32) type {
-    const Transaction = @import("transaction.zig").Transaction(K, Q);
-    const Header = @import("header.zig").Header(K, Q);
     const Node = @import("node.zig").Node(K, Q);
+    const Transaction = @import("transaction.zig").Transaction(K, Q);
+    const SkipListCursor = @import("skip_list_cursor.zig").SkipListCursor(K, Q);
 
     return struct {
         allocator: std.mem.Allocator,
-        open: bool = false,
-        cursor: lmdb.Cursor,
-        key: std.ArrayList(u8),
+        is_open: bool = false,
+        skip_list_cursor: SkipListCursor,
 
         const Self = @This();
 
@@ -23,109 +22,48 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn init(self: *Self, allocator: std.mem.Allocator, txn: *const Transaction) !void {
-            const cursor = try lmdb.Cursor.open(txn.txn);
-
+            try self.skip_list_cursor.init(allocator, txn.txn);
+            self.is_open = true;
             self.allocator = allocator;
-            self.open = true;
-            self.cursor = cursor;
-            self.key = std.ArrayList(u8).init(allocator);
         }
 
         pub fn close(self: *Self) void {
-            if (self.open) {
-                self.open = false;
-                self.key.deinit();
-                self.cursor.close();
+            if (self.is_open) {
+                self.is_open = false;
+                self.skip_list_cursor.close();
             }
         }
 
         pub fn goToRoot(self: *Self) !Node {
-            try self.cursor.goToKey(&Header.HEADER_KEY);
-            if (try self.cursor.goToPrevious()) |k| {
-                if (k.len == 1) {
-                    // this is just to avoid Uninitialized errors later
-                    try self.setKey(k[0], null);
+            return try self.skip_list_cursor.goToRoot();
+        }
 
-                    return try self.getCurrentNode();
-                }
-            }
+        pub fn goToFirst(self: *Self, level: u8) !Node {
+            return try self.skip_list_cursor.goToFirst(level);
+        }
 
-            return error.InvalidDatabase;
+        pub fn goToLast(self: *Self, level: u8) !Node {
+            return try self.skip_list_cursor.goToLast(level);
         }
 
         pub fn goToNode(self: *Self, level: u8, key: ?[]const u8) !Node {
-            try self.setKey(level, key);
-            try self.cursor.goToKey(self.key.items);
-            return try self.getCurrentNode();
+            return try self.skip_list_cursor.goToNode(level, key);
         }
 
-        pub fn goToNext(self: *Self) !?Node {
-            if (self.key.items.len == 0) {
-                return error.Uninitialized;
-            }
-
-            if (try self.cursor.goToNext()) |k| {
-                if (k.len > 0 and k[0] == self.key.items[0]) {
-                    return try self.getCurrentNode();
-                }
-            }
-
-            return null;
+        pub fn goToNext(self: *Self, level: u8) !?Node {
+            return try self.skip_list_cursor.goToNext(level);
         }
 
-        pub fn goToPrevious(self: *Self) !?Node {
-            if (self.key.items.len == 0) {
-                return error.Uninitialized;
-            }
-
-            if (try self.cursor.goToPrevious()) |k| {
-                if (k.len > 0 and k[0] == self.key.items[0]) {
-                    return try self.getCurrentNode();
-                }
-            }
-
-            return null;
+        pub fn goToPrevious(self: *Self, level: u8) !?Node {
+            return try self.skip_list_cursor.goToPrevious(level);
         }
 
         pub fn seek(self: *Self, level: u8, key: ?[]const u8) !?Node {
-            try self.setKey(level, key);
-            if (try self.cursor.seek(self.key.items)) |k| {
-                if (k.len > 0 and k[0] == level) {
-                    return try self.getCurrentNode();
-                }
-            }
-
-            return null;
-        }
-
-        fn setKey(self: *Self, level: u8, key: ?[]const u8) !void {
-            if (key) |bytes| {
-                try self.key.resize(1 + bytes.len);
-                self.key.items[0] = level;
-                std.mem.copy(u8, self.key.items[1..], bytes);
-            } else {
-                try self.key.resize(1);
-                self.key.items[0] = level;
-            }
+            return try self.skip_list_cursor.seek(level, key);
         }
 
         pub fn getCurrentNode(self: Self) !Node {
-            const key = try self.cursor.getCurrentKey();
-            if (key.len == 0) {
-                return error.InvalidDatabase;
-            }
-
-            const value = try self.cursor.getCurrentValue();
-            if (value.len < K) {
-                return error.InvalidDatabase;
-            }
-
-            return Node{
-                .level = key[0],
-                .key = if (key.len > 1) key[1..] else null,
-                .hash = value[0..K],
-                .value = if (key.len > 1 and key[0] == 0) value[K..] else null,
-            };
+            return try self.skip_list_cursor.getCurrentNode();
         }
     };
 }

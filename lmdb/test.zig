@@ -37,13 +37,13 @@ test "multiple named databases" {
     {
         const txn = try Transaction.open(env, .{ .read_only = true, .dbi = "a" });
         defer txn.abort();
-        try if (try txn.get("x")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
+        try utils.expectEqualKeys(try txn.get("x"), "foo");
     }
 
     {
         const txn = try Transaction.open(env, .{ .read_only = true, .dbi = "b" });
         defer txn.abort();
-        try if (try txn.get("x")) |value| expectEqualSlices(u8, "bar", value) else error.KeyNotFound;
+        try utils.expectEqualKeys(try txn.get("x"), "bar");
     }
 }
 
@@ -114,7 +114,7 @@ test "set empty value" {
     }
 }
 
-test "delete while iterating" {
+test "Cursor.deleteCurrentKey()" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -122,21 +122,30 @@ test "delete while iterating" {
     const env = try Environment.open(path, .{});
     defer env.close();
 
-    const txn = try Transaction.open(env, .{ .read_only = false });
-    defer txn.abort();
+    {
+        const txn = try Transaction.open(env, .{ .read_only = false });
+        errdefer txn.abort();
 
-    try txn.set("a", "foo");
-    try txn.set("b", "bar");
-    try txn.set("c", "baz");
-    try txn.set("d", "qux");
+        try txn.set("a", "foo");
+        try txn.set("b", "bar");
+        try txn.set("c", "baz");
+        try txn.set("d", "qux");
 
-    const cursor = try Cursor.open(txn);
-    try cursor.goToKey("c");
-    try expectEqualSlices(u8, try cursor.getCurrentValue(), "baz");
-    try txn.delete("c");
-    try expect(try cursor.goToPrevious() != null);
-    try expectEqualSlices(u8, try cursor.getCurrentKey(), "b");
-    try expectEqualSlices(u8, try cursor.getCurrentValue(), "bar");
+        const cursor = try Cursor.open(txn);
+        try cursor.goToKey("c");
+        try expectEqualSlices(u8, try cursor.getCurrentValue(), "baz");
+        try cursor.deleteCurrentKey();
+        try expectEqualSlices(u8, try cursor.getCurrentKey(), "d");
+        try utils.expectEqualKeys(try cursor.goToPrevious(), "b");
+
+        try txn.commit();
+    }
+
+    try utils.expectEqualEntries(env, &.{
+        .{ "a", "foo" },
+        .{ "b", "bar" },
+        .{ "d", "qux" },
+    });
 }
 
 test "seek" {
@@ -147,59 +156,58 @@ test "seek" {
     const env = try Environment.open(path, .{});
     defer env.close();
 
-    const txn = try Transaction.open(env, .{ .read_only = false });
-    defer txn.abort();
+    {
+        const txn = try Transaction.open(env, .{ .read_only = false });
+        errdefer txn.abort();
 
-    try txn.set("a", "foo");
-    try txn.set("aa", "bar");
-    try txn.set("ab", "baz");
-    try txn.set("abb", "qux");
+        try txn.set("a", "foo");
+        try txn.set("aa", "bar");
+        try txn.set("ab", "baz");
+        try txn.set("abb", "qux");
 
-    const cursor = try Cursor.open(txn);
-    try expectEqualSlices(u8, (try cursor.seek("aba")).?, "abb");
-    try expect(try cursor.seek("b") == null);
+        const cursor = try Cursor.open(txn);
+        try utils.expectEqualKeys(try cursor.seek("aba"), "abb");
+        try expectEqual(try cursor.seek("b"), null);
+
+        try txn.commit();
+    }
+
+    try utils.expectEqualEntries(env, &.{
+        .{ "a", "foo" },
+        .{ "aa", "bar" },
+        .{ "ab", "baz" },
+        .{ "abb", "qux" },
+    });
 }
 
-// test "parent transactions" {
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
+test "Cursor.setCurrentValue()" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-//     var tmp_path = try tmp.dir.realpath(".", &path_buffer);
-//     var path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
-//     defer allocator.free(path);
+    const path = try utils.resolvePath(tmp.dir, ".");
+    const env = try Environment.open(path, .{});
+    defer env.close();
 
-//     const env = try Environment.open(path, .{});
-//     defer env.close();
+    {
+        const txn = try Transaction.open(env, .{ .read_only = false });
+        errdefer txn.abort();
 
-//     {
-//         const txn_a = try Transaction.open(env, .{ .read_only = false });
-//         errdefer txn_a.abort();
+        try txn.set("a", "foo");
+        try txn.set("b", "bar");
+        try txn.set("c", "baz");
+        try txn.set("d", "qux");
 
-//         try txn_a.set("a", "foo");
-//         try txn_a.set("b", "bar");
+        const cursor = try Cursor.open(txn);
+        try cursor.goToKey("b");
+        try utils.expectEqualKeys(try cursor.goToNext(), "c");
+        try cursor.setCurrentValue("ooo");
+        try txn.commit();
+    }
 
-//         {
-//             const txn_b = try Transaction.open(env, .{ .read_only = false, .parent = txn_a });
-//             defer txn_b.abort();
-//             try txn_b.set("c", "bax");
-//             try txn_b.set("d", "qux");
-//         }
-
-//         {
-//             const txn_c = try Transaction.open(env, .{ .read_only = false, .parent = txn_a });
-//             errdefer txn_c.abort();
-//             try txn_c.set("e", "wau");
-//             try txn_c.set("f", "ooo");
-//             try txn_c.commit();
-//         }
-
-//         try txn_a.commit();
-//     }
-
-//     const txn = try Transaction.open(env, .{ .read_only = true });
-//     defer txn.abort();
-//     try expectEqualSlices(u8, "foo", try txn.get("a") orelse return error.KeyNotFound);
-//     try expectEqualSlices(u8, "bar", try txn.get("b") orelse return error.KeyNotFound);
-//     try expectEqualSlices(u8, "wow", try txn.get("e") orelse return error.KeyNotFound);
-//     try expectEqualSlices(u8, "ooo", try txn.get("f") orelse return error.KeyNotFound);
-// }
+    try utils.expectEqualEntries(env, &.{
+        .{ "a", "foo" },
+        .{ "b", "bar" },
+        .{ "c", "ooo" },
+        .{ "d", "qux" },
+    });
+}

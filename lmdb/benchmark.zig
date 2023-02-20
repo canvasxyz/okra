@@ -4,6 +4,7 @@ const allocator = std.heap.c_allocator;
 const Environment = @import("environment.zig").Environment;
 const Transaction = @import("transaction.zig").Transaction;
 const Cursor = @import("cursor.zig").Cursor;
+const utils = @import("./utils.zig");
 
 fn printHeader(name: []const u8, log: std.fs.File.Writer) !void {
     try log.print("\n### {s}\n\n", .{name});
@@ -138,11 +139,8 @@ fn runTests(
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const tmp_path = try tmp.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(tmp_path);
-
-    const path = try std.fs.path.joinZ(allocator, &.{ tmp_path, "data.mdb" });
-    defer allocator.free(path);
+    try tmp.dir.makeDir("mst");
+    const path = try utils.resolvePath(tmp.dir, "mst");
 
     var env = try initialize(initial_entries, path);
 
@@ -155,7 +153,8 @@ fn runTests(
 
         if (reset) {
             env.close();
-            try std.fs.deleteFileAbsoluteZ(path);
+            try tmp.dir.deleteTree("mst");
+            try tmp.dir.makeDir("mst");
             env = try initialize(initial_entries, path);
         }
     }

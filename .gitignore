@@ -3,5 +3,6 @@ zig-out/
 node_modules/
 build/
 lib/
+dist/
 .vscode
 *.okra

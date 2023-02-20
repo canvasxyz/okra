@@ -21,19 +21,19 @@ declare class Tree {
 }
 
 declare namespace Transaction {
-	type Options = { readOnly?: boolean; dbi?: string }
+	type Options = { dbi?: string }
 }
 
 declare class Transaction {
 	/**
-	 * Transactions must be opened as either read-only or read-write.
+	 * Transactions are opened as either read-only or read-write.
 	 * Only one read-write transaction can be open at a time.
 	 * Read-only transactions must be manually aborted when finished,
 	 * and read-write transactions must be either aborted or committed.
 	 * Failure to abort or commmit transactions will cause the database
 	 * file to grow.
 	 */
-	constructor(tree: Tree, options?: Transaction.Options)
+	constructor(tree: Tree, readOnly: boolean, options?: Transaction.Options)
 
 	/**
 	 * Abort the transaction
@@ -88,6 +88,12 @@ declare class Transaction {
 	 * @throws if level == 0 or if the node does not exist
 	 */
 	getChildren(level: number, key: Buffer | null): Node[]
+
+	/**
+	 * Get the first node at a given level whose key is
+	 * greater than or equal to the provided needle.
+	 */
+	seek(level: number, needle: Buffer | null): Node | null
 }
 
 declare class Cursor {
