@@ -34,7 +34,7 @@ The two basic classes are `Tree` and `Transaction`. Trees and transactions form 
 Transactions also have `getRoot`, `getNode`, and `getChildren` methods to access the internal merkle tree. These methods return `Node` objects. `node.key === null` for anchor nodes, and `node.value === undefined` if `level > 0 || key === null`.
 
 ```ts
-declare type Node = {
+type Node = {
   level: number
   key: Buffer | null
   hash: Buffer
@@ -45,12 +45,8 @@ declare type Node = {
 ### Tree
 
 ```ts
-declare namespace Tree {
-  type Options = { mapSize?: number, dbs?: string[] }
-}
-
-declare class Tree {
-  constructor(path: string, options: Tree.Options = {})
+class Tree {
+  constructor(path: string, options?: { mapSize?: number, dbs?: string[] })
 
   /**
    * Close the tree and free its associated resources
@@ -66,11 +62,7 @@ LMDB has optional support for multiple [named databases](http://www.lmdb.tech/do
 ### Transaction
 
 ```ts
-declare namespace Transaction {
-  type Options = { dbi?: string }
-}
-
-declare class Transaction {
+class Transaction {
   /**
    * Transactions are opened as either read-only or read-write.
    * Only one read-write transaction can be open at a time.
@@ -79,7 +71,7 @@ declare class Transaction {
    * Failure to abort or commmit transactions will cause the database
    * file to grow.
    */
-  constructor(tree: Tree, readOnly: boolean, options: Transaction.Options)
+  constructor(tree: Tree, readOnly: boolean, options?: { dbi?: string })
 
   /**
    * Abort the transaction
