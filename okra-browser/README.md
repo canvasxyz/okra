@@ -43,7 +43,7 @@ await tree.write(async (txn) => {
 
 ## API
 
-The basic interfaces are `Tree`, `ReadOnlyTransaction`, and `ReadWriteTransaction`. Trees and transactions form a classical key/value store interface: you can open a tree, use the `tree.read((txn) => { ... })` and `tree.write((txn) => { ... })` callbacks to open managed transactions, and use the transaction to get, set, and delete key/value entries.
+The basic interfaces are `Tree`, `ReadOnlyTransaction`, and `ReadWriteTransaction`. Trees and transactions form a classical key/value store interface: you can open a tree, use the `tree.read((txn) => { ... })` and `tree.write((txn) => { ... })` callbacks to open managed transactions, and use the transaction to get, set, and delete key/value entries. **Don't create or close transactions directly.**
 
 Transactions also have `getRoot`, `getNode`, and `getChildren` methods to access the internal merkle tree. These methods return `Node` objects. `node.key === null` for anchor nodes, and `node.value === undefined` if `level > 0 || key === null`.
 
