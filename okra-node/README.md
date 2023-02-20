@@ -35,10 +35,10 @@ Some transaction methods return `Node` objects. `node.key === null` for anchor n
 
 ```ts
 declare type Node = {
-	level: number
-	key: Buffer | null
-	hash: Buffer
-	value?: Buffer
+  level: number
+  key: Buffer | null
+  hash: Buffer
+  value?: Buffer
 }
 ```
 
@@ -46,7 +46,7 @@ declare type Node = {
 
 ```ts
 declare namespace Tree {
-	type Options = { mapSize?: number, dbs?: string[] }
+  type Options = { mapSize?: number, dbs?: string[] }
 }
 
 declare class Tree {
@@ -67,18 +67,18 @@ LMDB has optional support for multiple [named databases](http://www.lmdb.tech/do
 
 ```ts
 declare namespace Transaction {
-	type Options = { dbi?: string }
+  type Options = { dbi?: string }
 }
 
 declare class Transaction {
-	/**
-	 * Transactions are opened as either read-only or read-write.
-	 * Only one read-write transaction can be open at a time.
-	 * Read-only transactions must be manually aborted when finished,
-	 * and read-write transactions must be either aborted or committed.
-	 * Failure to abort or commmit transactions will cause the database
-	 * file to grow.
-	 */
+  /**
+   * Transactions are opened as either read-only or read-write.
+   * Only one read-write transaction can be open at a time.
+   * Read-only transactions must be manually aborted when finished,
+   * and read-write transactions must be either aborted or committed.
+   * Failure to abort or commmit transactions will cause the database
+   * file to grow.
+   */
   constructor(tree: Tree, readOnly: boolean, options: Transaction.Options)
 
   /**
@@ -136,9 +136,9 @@ declare class Transaction {
   getChildren(level: number, key: Buffer | null): Node[]
 
   /**
-	 * Get the first node at a given level whose key is
-	 * greater than or equal to the provided needle.
-	 */
-	seek(level: number, needle: Buffer | null): Node | null
+   * Get the first node at a given level whose key is
+   * greater than or equal to the provided needle.
+   */
+  seek(level: number, needle: Buffer | null): Node | null
 }
 ```
