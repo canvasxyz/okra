@@ -28,6 +28,9 @@ txn.commit()
 // alternatively, you can use the .read and .write methods,
 // which manage commits and aborts automatically.
 await tree.write(async (txn) => {
+  // note that although the callback here can await on other 
+  // async operations, the transaction calls themselves
+  // (.get, .set, .delete, etc) are still synchronous.
   txn.set(Buffer.from("b"), Buffer.from("bar"))
 })
 
