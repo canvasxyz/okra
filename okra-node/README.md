@@ -29,9 +29,9 @@ txn.commit()
 
 ## API
 
-The two basic classes are `Tree` and `Transaction`. Trees and transactions form a classical key/value store interface: you can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries. A cursor can be used to move around the nodes of the tree itself, which includes the leaves, the intermediate-level nodes, and the root node.
+The two basic classes are `Tree` and `Transaction`. Trees and transactions form a classical key/value store interface: you can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries.
 
-Some transaction methods return `Node` objects. `node.key === null` for anchor nodes, and `node.value === undefined` if `level > 0 || key === null`.
+Transactions also have `getRoot`, `getNode`, and `getChildren` methods to access the internal merkle tree. These methods return `Node` objects. `node.key === null` for anchor nodes, and `node.value === undefined` if `level > 0 || key === null`.
 
 ```ts
 declare type Node = {
