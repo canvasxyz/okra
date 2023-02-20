@@ -229,6 +229,6 @@ test(
 
     t.throws(() => {
       new okra.Transaction(tree, false);
-    }, { message: "DatabaseNotFound" });
+    }, { message: "InvalidDatabase" });
   }),
 );
