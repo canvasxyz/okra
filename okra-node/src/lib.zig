@@ -144,11 +144,11 @@ fn transactionCommitMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.n
 fn transactionGetMethod(env: c.napi_env, this: c.napi_value, args: *const [1]c.napi_value) !c.napi_value {
     const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
 
-    const key = try n.parseBuffer(env, args[0]);
+    const key = try n.parseTypedArray(u8, env, args[0]);
     const value = try txn.get(key);
 
     if (value) |bytes| {
-        return try n.createBuffer(env, bytes);
+        return try n.createTypedArray(u8, env, bytes);
     } else {
         return try n.getNull(env);
     }
@@ -157,8 +157,8 @@ fn transactionGetMethod(env: c.napi_env, this: c.napi_value, args: *const [1]c.n
 fn transactionSetMethod(env: c.napi_env, this: c.napi_value, args: *const [2]c.napi_value) !c.napi_value {
     const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
 
-    const key = try n.parseBuffer(env, args[0]);
-    const value = try n.parseBuffer(env, args[1]);
+    const key = try n.parseTypedArray(u8, env, args[0]);
+    const value = try n.parseTypedArray(u8, env, args[1]);
     try txn.set(key, value);
 
     return try n.getUndefined(env);
@@ -167,7 +167,7 @@ fn transactionSetMethod(env: c.napi_env, this: c.napi_value, args: *const [2]c.n
 fn transactionDeleteMethod(env: c.napi_env, this: c.napi_value, args: *const [1]c.napi_value) !c.napi_value {
     const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
 
-    const key = try n.parseBuffer(env, args[0]);
+    const key = try n.parseTypedArray(u8, env, args[0]);
     try txn.delete(key);
 
     return try n.getUndefined(env);
@@ -241,18 +241,18 @@ fn createNode(env: c.napi_env, node: okra.Node) !c.napi_value {
 
     const key_property = try n.createString(env, "key");
     if (node.key) |key| {
-        try n.setProperty(env, result, key_property, try n.createBuffer(env, key));
+        try n.setProperty(env, result, key_property, try n.createTypedArray(u8, env, key));
     } else {
         try n.setProperty(env, result, key_property, try n.getNull(env));
     }
 
     const hash_property = try n.createString(env, "hash");
-    const hash = try n.createBuffer(env, node.hash);
+    const hash = try n.createTypedArray(u8, env, node.hash);
     try n.setProperty(env, result, hash_property, hash);
 
     if (node.value) |value| {
         const value_property = try n.createString(env, "value");
-        try n.setProperty(env, result, value_property, try n.createBuffer(env, value));
+        try n.setProperty(env, result, value_property, try n.createTypedArray(u8, env, value));
     }
 
     return result;
@@ -267,17 +267,9 @@ fn parseLevel(env: c.napi_env, levelValue: c.napi_value) !u8 {
     }
 }
 
-fn parseKey(env: c.napi_env, keyValue: c.napi_value) !?[]const u8 {
-    const keyType = try n.typeOf(env, keyValue);
-    switch (keyType) {
-        c.napi_null => {
-            return null;
-        },
-        c.napi_object => {
-            return try n.parseBuffer(env, keyValue);
-        },
-        else => {
-            return n.throwTypeError(env, "expected Buffer or null");
-        },
-    }
+fn parseKey(env: c.napi_env, key: c.napi_value) !?[]const u8 {
+    return switch (try n.typeOf(env, key)) {
+        c.napi_null => null,
+        else => try n.parseTypedArray(u8, env, key),
+    };
 }

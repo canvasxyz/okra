@@ -1,10 +1,8 @@
-import type { Buffer } from "node:buffer"
-
 declare type Node = {
 	level: number
-	key: Buffer | null
-	hash: Buffer
-	value?: Buffer
+	key: Uint8Array | null
+	hash: Uint8Array
+	value?: Uint8Array
 }
 
 declare namespace Tree {
@@ -58,25 +56,25 @@ declare class Transaction {
 
 	/**
 	 * Get the value of an entry
-	 * @param {Buffer} key
+	 * @param {Uint8Array} key
 	 * @returns the entry's value, or null if the entry does not exist
 	 */
-	get(key: Buffer): Buffer | null
+	get(key: Uint8Array): Uint8Array | null
 
 	/**
 	 * Set a key/value entry
-	 * @param {Buffer} key
-	 * @param {Buffer} value
+	 * @param {Uint8Array} key
+	 * @param {Uint8Array} value
 	 * @throws if the transaction is read-only
 	 */
-	set(key: Buffer, value: Buffer): void
+	set(key: Uint8Array, value: Uint8Array): void
 
 	/**
 	 * Delete an entry
-	 * @param {Buffer} key
+	 * @param {Uint8Array} key
 	 * @throws if the transaction is read-only or if the entry does not exist
 	 */
-	delete(key: Buffer): void
+	delete(key: Uint8Array): void
 
 	/**
 	 * Get an internal skip-list node
@@ -84,7 +82,7 @@ declare class Transaction {
 	 * @param key node key (null for anchor nodes)
 	 * @throws if the node does not exist
 	 */
-	getNode(level: number, key: Buffer | null): Node
+	getNode(level: number, key: Uint8Array | null): Node
 
 	/**
 	 * Get the root of the internal skip-list
@@ -97,11 +95,11 @@ declare class Transaction {
 	 * @param key node key (null for anchor nodes)
 	 * @throws if level == 0 or if the node does not exist
 	 */
-	getChildren(level: number, key: Buffer | null): Node[]
+	getChildren(level: number, key: Uint8Array | null): Node[]
 
 	/**
 	 * Get the first node at a given level whose key is
 	 * greater than or equal to the provided needle.
 	 */
-	seek(level: number, needle: Buffer | null): Node | null
+	seek(level: number, needle: Uint8Array | null): Node | null
 }

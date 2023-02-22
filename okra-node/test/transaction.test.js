@@ -9,6 +9,10 @@ import { nanoid } from "nanoid";
 import * as okra from "../index.js";
 import { openTree } from "./utils.js";
 
+const encoder = new TextEncoder();
+const encode = (value) => encoder.encode(value);
+const fromHex = (hex) => new Uint8Array(Buffer.from(hex, "hex"));
+
 test("Open and abort a read-only transaction", async (t) => {
   const directory = path.resolve(os.tmpdir(), nanoid());
   try {
@@ -38,9 +42,9 @@ test("Open and abort a read-write transaction", async (t) => {
 test("Open and commit a read-write transaction", async (t) => {
   await openTree(async (tree) => {
     const root = await tree.write((txn) => {
-      txn.set(Buffer.from("a"), Buffer.from("foo"));
-      txn.set(Buffer.from("b"), Buffer.from("bar"));
-      txn.set(Buffer.from("c"), Buffer.from("baz"));
+      txn.set(encode("a"), encode("foo"));
+      txn.set(encode("b"), encode("bar"));
+      txn.set(encode("c"), encode("baz"));
 
       return txn.getRoot();
     });
@@ -48,7 +52,7 @@ test("Open and commit a read-write transaction", async (t) => {
     t.deepEqual(root, {
       level: 1,
       key: null,
-      hash: Buffer.from("6246b94074d09feb644be1a1c12c1f50", "hex"),
+      hash: fromHex("6246b94074d09feb644be1a1c12c1f50"),
     });
   });
 });
@@ -57,7 +61,7 @@ test("Call .set in a read-only transaction", async (t) => {
   await openTree(async (tree) => {
     await t.throwsAsync(() =>
       tree.read((txn) => {
-        txn.set(Buffer.from("a"), Buffer.from("foo"));
+        txn.set(encode("a"), encode("foo"));
       }), { message: "ACCES" });
   });
 });
@@ -84,14 +88,14 @@ test("Open a transaction with an invalid readOnly value", async (t) => {
 test("Basic sets and deletes", async (t) => {
   await openTree(async (tree) => {
     await tree.write((txn) => {
-      txn.set(Buffer.from("a"), Buffer.from("foo"));
-      txn.set(Buffer.from("b"), Buffer.from("bar"));
+      txn.set(encode("a"), encode("foo"));
+      txn.set(encode("b"), encode("bar"));
     });
 
     await tree.read((txn) => {
-      t.deepEqual(txn.get(Buffer.from("a")), Buffer.from("foo"));
-      t.deepEqual(txn.get(Buffer.from("b")), Buffer.from("bar"));
-      t.deepEqual(txn.get(Buffer.from("c")), null);
+      t.deepEqual(txn.get(encode("a")), encode("foo"));
+      t.deepEqual(txn.get(encode("b")), encode("bar"));
+      t.deepEqual(txn.get(encode("c")), null);
     });
 
     await tree.write((txn) => {
@@ -99,9 +103,9 @@ test("Basic sets and deletes", async (t) => {
     });
 
     await tree.read((txn) => {
-      t.deepEqual(txn.get(Buffer.from("a")), Buffer.from("foo"));
-      t.deepEqual(txn.get(Buffer.from("b")), null);
-      t.deepEqual(txn.get(Buffer.from("c")), null);
+      t.deepEqual(txn.get(encode("a")), encode("foo"));
+      t.deepEqual(txn.get(encode("b")), null);
+      t.deepEqual(txn.get(encode("c")), null);
     });
   });
 });
@@ -110,28 +114,28 @@ test("Get internal merkle tree nodes", async (t) => {
   const anchor = {
     level: 0,
     key: null,
-    hash: Buffer.from("af1349b9f5f9a1a6a0404dea36dcc949", "hex"),
+    hash: fromHex("af1349b9f5f9a1a6a0404dea36dcc949"),
   };
 
   const a = {
     level: 0,
-    key: Buffer.from("a"),
-    hash: Buffer.from("a0568b6bb51648ab5b2df66ca897ffa4", "hex"),
-    value: Buffer.from([0]),
+    key: encode("a"),
+    hash: fromHex("a0568b6bb51648ab5b2df66ca897ffa4"),
+    value: new Uint8Array([0]),
   };
 
   const b = {
     level: 0,
-    key: Buffer.from("b"),
-    hash: Buffer.from("d21fa5d709077fd5594f180a8825852a", "hex"),
-    value: Buffer.from([1]),
+    key: encode("b"),
+    hash: fromHex("d21fa5d709077fd5594f180a8825852a"),
+    value: new Uint8Array([1]),
   };
 
   const c = {
     level: 0,
-    key: Buffer.from("c"),
-    hash: Buffer.from("690b688439b13abeb843a1d7a24d0ea7", "hex"),
-    value: Buffer.from([2]),
+    key: encode("c"),
+    hash: fromHex("690b688439b13abeb843a1d7a24d0ea7"),
+    value: new Uint8Array([2]),
   };
 
   await openTree(async (tree) => {
@@ -154,16 +158,16 @@ test("Get internal merkle tree nodes", async (t) => {
 test("Seek to needle", async (t) => {
   const a = {
     level: 0,
-    key: Buffer.from("a"),
-    hash: Buffer.from("a0568b6bb51648ab5b2df66ca897ffa4", "hex"),
-    value: Buffer.from([0]),
+    key: encode("a"),
+    hash: fromHex("a0568b6bb51648ab5b2df66ca897ffa4"),
+    value: new Uint8Array([0]),
   };
 
   const c = {
     level: 0,
-    key: Buffer.from("c"),
-    hash: Buffer.from("690b688439b13abeb843a1d7a24d0ea7", "hex"),
-    value: Buffer.from([2]),
+    key: encode("c"),
+    hash: fromHex("690b688439b13abeb843a1d7a24d0ea7"),
+    value: new Uint8Array([2]),
   };
 
   await openTree(async (tree) => {
@@ -173,32 +177,32 @@ test("Seek to needle", async (t) => {
     });
 
     await tree.read((txn) => {
-      t.deepEqual(txn.seek(0, Buffer.from("b")), c);
-      t.deepEqual(txn.seek(0, Buffer.from("d")), null);
-      t.deepEqual(txn.seek(1, Buffer.from("a")), null);
+      t.deepEqual(txn.seek(0, encode("b")), c);
+      t.deepEqual(txn.seek(0, encode("d")), null);
+      t.deepEqual(txn.seek(1, encode("a")), null);
     });
   });
 });
 
 test("Named databases", async (t) => {
   await openTree(async (tree) => {
-    const key = Buffer.from("x");
+    const key = encode("x");
     await tree.write((txn) => {
-      txn.set(key, Buffer.from("foo"));
+      txn.set(key, encode("foo"));
     }, { dbi: "a" });
 
     await tree.write((txn) => {
-      txn.set(key, Buffer.from("bar"));
+      txn.set(key, encode("bar"));
     }, { dbi: "b" });
 
     t.deepEqual(
       await tree.read((txn) => txn.get(key), { dbi: "a" }),
-      Buffer.from("foo"),
+      encode("foo"),
     );
 
     t.deepEqual(
       await tree.read((txn) => txn.get(key), { dbi: "b" }),
-      Buffer.from("bar"),
+      encode("bar"),
     );
 
     t.deepEqual(
