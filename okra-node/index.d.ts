@@ -21,12 +21,12 @@ declare module "@canvas-js/okra-node" {
 		/**
 		 * Open a manageded read-only transaction
 		 */
-		public read<R>(callback: (txn: Transaction) => Promise<R> | R): Promise<R>
+		public read<R>(callback: (txn: Transaction) => Promise<R> | R, options?: Transaction.Options): Promise<R>
 
 		/**
 		 * Open a manageded read-write transaction
 		 */
-		public write<R>(callback: (txn: Transaction) => Promise<R> | R): Promise<R>
+		public write<R>(callback: (txn: Transaction) => Promise<R> | R, options?: Transaction.Options): Promise<R>
 	}
 
 	export namespace Transaction {
