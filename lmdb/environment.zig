@@ -8,7 +8,6 @@ pub const Environment = struct {
         map_size: usize = 10485760,
         max_dbs: u32 = 0,
         mode: u16 = 0o664,
-        flags: u32 = lmdb.MDB_WRITEMAP,
     };
 
     pub const Error = error{
@@ -41,8 +40,10 @@ pub const Environment = struct {
             else => error.LmdbEnvironmentError,
         };
 
+        const flags: u32 = lmdb.MDB_WRITEMAP | lmdb.MDB_NOTLS;
+
         errdefer lmdb.mdb_env_close(env.ptr);
-        try switch (lmdb.mdb_env_open(env.ptr, path, options.flags, options.mode)) {
+        try switch (lmdb.mdb_env_open(env.ptr, path, flags, options.mode)) {
             0 => {},
             lmdb.MDB_VERSION_MISMATCH => error.LmdbEnvironmentVersionMismatch,
             lmdb.MDB_INVALID => error.LmdbCorruptDatabase,

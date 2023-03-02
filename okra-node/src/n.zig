@@ -190,15 +190,17 @@ fn getArrayType(comptime T: type) c.napi_typedarray_type {
 
 pub fn parseTypedArray(comptime T: type, env: c.napi_env, value: c.napi_value) Error![]const T {
     var length: usize = 0;
-    var ptr: ?*anyopaque = undefined;
+    var ptr: ?*anyopaque = null;
     var arrayType: c.napi_typedarray_type = undefined;
     var byteOffset: usize = 0;
     if (c.napi_get_typedarray_info(env, value, &arrayType, &length, &ptr, null, &byteOffset) != c.napi_ok) {
         return throwError(env, "failed to get typed array info");
     } else if (arrayType != getArrayType(T)) {
         return throwTypeError(env, "expected a " ++ @typeName(T) ++ " array");
+    } else if (ptr) |data| {
+        return @ptrCast([*]const T, data)[0..length];
     } else {
-        return @ptrCast([*]const T, ptr)[0..length];
+        return &.{};
     }
 }
 
@@ -229,14 +231,16 @@ pub fn createBuffer(env: c.napi_env, value: []const u8) Error!c.napi_value {
 pub fn createTypedArray(comptime T: type, env: c.napi_env, value: []const T) Error!c.napi_value {
     const arrayType = getArrayType(T);
     const size = @sizeOf(T);
-    var ptr: ?*anyopaque = undefined;
+    var ptr: ?*anyopaque = null;
     var arrayBuffer: c.napi_value = undefined;
     if (c.napi_create_arraybuffer(env, value.len * size, &ptr, &arrayBuffer) != c.napi_ok) {
         return throwError(env, "failed to create ArrayBuffer");
     }
 
-    const array = @ptrCast([*]T, ptr)[0..value.len];
-    std.mem.copy(T, array, value);
+    if (ptr) |data| {
+        const array = @ptrCast([*]T, data)[0..value.len];
+        std.mem.copy(T, array, value);
+    }
 
     var typedArray: c.napi_value = undefined;
     return switch (c.napi_create_typedarray(env, arrayType, value.len, arrayBuffer, 0, &typedArray)) {
