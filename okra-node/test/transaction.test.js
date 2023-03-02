@@ -90,12 +90,14 @@ test("Basic sets and deletes", async (t) => {
     await tree.write((txn) => {
       txn.set(encode("a"), encode("foo"));
       txn.set(encode("b"), encode("bar"));
+      txn.set(encode("c"), new Uint8Array([]));
     });
 
     await tree.read((txn) => {
       t.deepEqual(txn.get(encode("a")), encode("foo"));
       t.deepEqual(txn.get(encode("b")), encode("bar"));
-      t.deepEqual(txn.get(encode("c")), null);
+      t.deepEqual(txn.get(encode("c")), new Uint8Array([]));
+      t.deepEqual(txn.get(encode("d")), null);
     });
 
     await tree.write((txn) => {
@@ -105,7 +107,6 @@ test("Basic sets and deletes", async (t) => {
     await tree.read((txn) => {
       t.deepEqual(txn.get(encode("a")), encode("foo"));
       t.deepEqual(txn.get(encode("b")), null);
-      t.deepEqual(txn.get(encode("c")), null);
     });
   });
 });

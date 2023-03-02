@@ -98,7 +98,6 @@ fn treeCloseMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_valu
 
 pub fn createTransaction(env: c.napi_env, this: c.napi_value, args: *const [3]c.napi_value) !c.napi_value {
     const tree = try n.unwrap(okra.Tree, &TreeTypeTag, env, args[0]);
-
     const mode: okra.Transaction.Mode = if (try n.parseBoolean(env, args[1])) .ReadOnly else .ReadWrite;
     const txn = try allocator.create(okra.Transaction);
 
@@ -143,10 +142,8 @@ fn transactionCommitMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.n
 
 fn transactionGetMethod(env: c.napi_env, this: c.napi_value, args: *const [1]c.napi_value) !c.napi_value {
     const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
-
     const key = try n.parseTypedArray(u8, env, args[0]);
     const value = try txn.get(key);
-
     if (value) |bytes| {
         return try n.createTypedArray(u8, env, bytes);
     } else {
@@ -159,6 +156,7 @@ fn transactionSetMethod(env: c.napi_env, this: c.napi_value, args: *const [2]c.n
 
     const key = try n.parseTypedArray(u8, env, args[0]);
     const value = try n.parseTypedArray(u8, env, args[1]);
+
     try txn.set(key, value);
 
     return try n.getUndefined(env);
@@ -168,6 +166,7 @@ fn transactionDeleteMethod(env: c.napi_env, this: c.napi_value, args: *const [1]
     const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
 
     const key = try n.parseTypedArray(u8, env, args[0]);
+
     try txn.delete(key);
 
     return try n.getUndefined(env);
@@ -180,6 +179,7 @@ fn transactionGetNodeMethod(env: c.napi_env, this: c.napi_value, args: *const [2
     const key = try parseKey(env, args[1]);
 
     const node = try txn.cursor.goToNode(level, key);
+
     return try createNode(env, node);
 }
 
@@ -187,6 +187,7 @@ fn transactionGetRootMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.
     const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
 
     const root = try txn.cursor.goToRoot();
+
     return try createNode(env, root);
 }
 
