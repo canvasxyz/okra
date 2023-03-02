@@ -17,6 +17,8 @@ const Operation = union(OperationTag) {
     delete: []const u8,
 };
 
+const nil = [0]u8{};
+
 pub fn Transaction(comptime K: u8, comptime Q: u32) type {
     const Node = @import("node.zig").Node(K, Q);
     const Tree = @import("tree.zig").Tree(K, Q);
@@ -196,7 +198,10 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                         .level = 0,
                         .key = entry.key,
                         .hash = &self.hash_buffer,
-                        .value = entry.value,
+
+                        // some weird bug cause .value to be null if entry.value.len == 0.
+                        // setting it to another explicit empty slice seems to fix it.
+                        .value = if (entry.value.len == 0) &nil else entry.value,
                     };
 
                     try self.setNode(leaf);
