@@ -112,7 +112,7 @@ pub fn SkipListCursor(comptime K: u8, comptime Q: u32) type {
 
         pub fn getCurrentNode(self: Self) !Node {
             const entry = try self.cursor.getCurrentEntry();
-            return try Node.parse(entry);
+            return try Node.parse(entry.key, entry.value);
         }
 
         pub fn setCurrentNode(self: *Self, hash: *const [K]u8, value: ?[]const u8) !void {

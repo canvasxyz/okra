@@ -24,20 +24,21 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
                 std.mem.eql(u8, self.hash, other.hash);
         }
 
-        pub fn parse(entry: lmdb.Cursor.Entry) !Self {
-            if (entry.key.len == 0) {
+        pub fn parse(key: []const u8, value: []const u8) !Self {
+            if (key.len == 0) {
                 return error.InvalidDatabase;
             }
 
-            if (entry.value.len < K) {
+            if (value.len < K) {
                 return error.InvalidDatabase;
             }
 
-            const level = entry.key[0];
-            const key = if (entry.key.len > 1) entry.key[1..] else null;
-            const hash = entry.value[0..K];
-            const value = if (level == 0 and key != null) entry.value[K..] else null;
-            return .{ .level = level, .key = key, .hash = hash, .value = value };
+            return .{
+                .level = key[0],
+                .key = if (key.len > 1) key[1..] else null,
+                .hash = value[0..K],
+                .value = if (key[0] == 0 and key.len > 1) value[K..] else null,
+            };
         }
     };
 }
