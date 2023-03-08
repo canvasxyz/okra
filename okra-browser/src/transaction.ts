@@ -47,7 +47,7 @@ class BaseTransaction<T> {
 
   public async getNode(level: number, key: Key, options: {
     txn?: IDBPTransaction<unknown, [string], "readwrite"> | IDBPTransaction<unknown, [string], "readonly">
-  } = {}): Promise<Node> {
+  } = {}): Promise<Node<T>> {
     if (!this.open) {
       throw new Error("transaction closed")
     }
