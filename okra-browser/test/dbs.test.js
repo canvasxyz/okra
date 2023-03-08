@@ -1,6 +1,9 @@
 import test from "ava";
 import "fake-indexeddb/auto";
 
+import { locks } from "web-locks";
+globalThis.navigator = { locks };
+
 import { ReadOnlyTransaction, Tree } from "../lib/index.js";
 import { fromHex } from "../lib/utils.js";
 
