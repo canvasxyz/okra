@@ -1,11 +1,15 @@
-import { openDB, IDBPDatabase } from "idb"
+import { openDB, IDBPDatabase, IDBPObjectStore, IDBPTransaction } from "idb"
 
 import { ReadOnlyTransaction, ReadWriteTransaction } from "./transaction.js"
 import { defaultObjectStoreName, getIDRaw, leafAnchorHash } from "./utils.js"
 import { Node, Key } from "./schema.js"
 
-
-export type Options<T> = { dbs?: string[]; getID?: (value: T) => Uint8Array }
+export type Options<T> = {
+  dbs?: string[]
+  getID?: (value: T) => Uint8Array
+  initializeStore?: (dbi: string, store: IDBPObjectStore<unknown, string[], string, "versionchange">) => void
+  upgrade?: (db: IDBPDatabase, oldVersion: number, newVersion: number | null, transaction: IDBPTransaction<unknown, string[], "versionchange">) => void
+}
 
 export class Tree<T = Uint8Array> {
   public static async open<T = Uint8Array>(name: string, options: Options<T> = {}): Promise<Tree<T>> {
@@ -15,10 +19,16 @@ export class Tree<T = Uint8Array> {
         for (const dbi of dbs) {
           const store = db.createObjectStore(dbi)
           store.put({ hash: leafAnchorHash }, [0])
+          if (options.initializeStore) {
+            options.initializeStore(dbi, store)
+          }
+        }
+
+        if (options.upgrade) {
+          options.upgrade(db, oldVersion, newVersion, transaction)
         }
       }
     })
-
 
     return new Tree(db, dbs, options.getID ?? getIDRaw)
   }
