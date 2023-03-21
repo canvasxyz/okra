@@ -14,36 +14,25 @@ const encode = (value) => encoder.encode(value);
 const fromHex = (hex) => new Uint8Array(Buffer.from(hex, "hex"));
 
 test("Open and abort a read-only transaction", async (t) => {
-  const directory = path.resolve(os.tmpdir(), nanoid());
-  try {
-    const tree = new okra.Tree(directory);
+  await openTree(async (tree) => {
     const message = nanoid();
-    t.throwsAsync(async () => {
+    await t.throwsAsync(async () => {
       await tree.read(async (txn) => {
         throw new Error(message);
       });
     }, { message });
-    tree.close();
-  } finally {
-    fs.rmSync(directory, { recursive: true });
-  }
+  });
 });
 
 test("Open and abort a read-write transaction", async (t) => {
-  const directory = path.resolve(os.tmpdir(), nanoid());
-  try {
-    const tree = new okra.Tree(directory);
+  await openTree(async (tree) => {
     const message = nanoid();
-    t.throwsAsync(async () => {
+    await t.throwsAsync(async () => {
       await tree.write(async (txn) => {
         throw new Error(message);
       });
     }, { message });
-    tree.close();
-    t.pass();
-  } finally {
-    fs.rmSync(directory, { recursive: true });
-  }
+  });
 });
 
 test("Open and commit a read-write transaction", async (t) => {
@@ -66,10 +55,11 @@ test("Open and commit a read-write transaction", async (t) => {
 
 test("Call .set in a read-only transaction", async (t) => {
   await openTree(async (tree) => {
-    await t.throwsAsync(() =>
-      tree.read((txn) => {
+    await t.throwsAsync(async () => {
+      await tree.read((txn) => {
         txn.set(encode("a"), encode("foo"));
-      }), { message: "ACCES" });
+      });
+    }, { message: "ACCES" });
   });
 });
 

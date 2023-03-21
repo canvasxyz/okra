@@ -3,7 +3,7 @@ import { resolve } from "path";
 
 import { familySync } from "detect-libc";
 
-import { locks } from "web-locks";
+import PQueue from "p-queue";
 
 const family = familySync();
 
@@ -23,8 +23,8 @@ export class Tree extends okra.Tree {
   constructor(path, options = {}) {
     const absolutePath = resolve(path);
     super(absolutePath, options);
-    this.path = absolutePath;
     this.controller = new AbortController();
+    this.queue = new PQueue({ concurrency: 1 });
   }
 
   async read(callback, { dbi } = {}) {
@@ -44,33 +44,18 @@ export class Tree extends okra.Tree {
     // const abort = () => writeController.abort();
     // this.controller.signal.addEventListener("abort", abort);
 
-    let result = undefined;
-    try {
-      await locks.request(
-        `okra:${this.path}`,
-        // { mode: "exclusive", signal: writeController.signal },
-        { mode: "exclusive" },
-        async (lock) => {
-          if (lock === null) {
-            throw new Error("unable to acquire exclusive lock");
-          }
+    return await this.queue.add(async ({}) => {
+      let result = undefined;
+      const txn = new okra.Transaction(this, false, dbi ?? null);
+      try {
+        result = await callback(txn);
+      } catch (err) {
+        txn.abort();
+        throw err;
+      }
 
-          const txn = new okra.Transaction(this, false, dbi ?? null);
-
-          try {
-            result = await callback(txn);
-          } catch (err) {
-            txn.abort();
-            throw err;
-          }
-
-          txn.commit();
-        },
-      );
-    } finally {
-      // this.controller.signal.removeEventListener("abort", abort);
-    }
-
-    return result;
+      txn.commit();
+      return result;
+    }, {});
   }
 }

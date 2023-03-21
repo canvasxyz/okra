@@ -31,7 +31,7 @@ test("Open tree with an invalid path type", (t) => {
   });
 });
 
-test("Open tree an array of database names", (t) => {
+test("Open tree with an array of database names", (t) => {
   const directory = path.resolve(os.tmpdir(), nanoid());
   try {
     const tree = new okra.Tree(directory, { dbs: ["a", "b"] });

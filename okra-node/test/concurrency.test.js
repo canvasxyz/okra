@@ -1,10 +1,5 @@
-import os from "node:os";
-import fs from "node:fs";
-import path from "node:path";
-
 import test from "ava";
-import { nanoid } from "nanoid";
-import * as okra from "../index.js";
+import { openTree } from "./utils.js";
 
 const encoder = new TextEncoder();
 const encode = (value) => encoder.encode(value);
@@ -13,9 +8,7 @@ const fromHex = (hex) => new Uint8Array(Buffer.from(hex, "hex"));
 const wait = (t) => new Promise((resolve) => setTimeout(resolve, t));
 
 test("open a write txn during an open read txn", async (t) => {
-  const directory = path.resolve(os.tmpdir(), nanoid());
-  try {
-    const tree = new okra.Tree(directory);
+  await openTree(async (tree) => {
     await tree.read(async (readTxn1) => {
       await wait(100);
 
@@ -41,32 +34,23 @@ test("open a write txn during an open read txn", async (t) => {
 
       t.deepEqual(await tree.read((txn) => txn.getRoot()), root);
     });
-
-    tree.close();
-  } finally {
-    fs.rmSync(directory, { recursive: true });
-  }
+  });
 });
 
 test("open concurrent writes", async (t) => {
-  const directory = path.resolve(os.tmpdir(), nanoid());
-  try {
-    const tree = new okra.Tree(directory);
+  await openTree(async (tree) => {
     let index = 0;
     const order = await Promise.all([
       tree.write(async (txn) => {
-        await wait(1000);
+        await wait(500);
         return index++;
       }),
       tree.write(async (txn) => {
-        await wait(1000);
+        await wait(500);
         return index++;
       }),
     ]);
 
-    tree.close();
     t.deepEqual(order, [0, 1]);
-  } finally {
-    fs.rmSync(directory, { recursive: true });
-  }
+  });
 });
