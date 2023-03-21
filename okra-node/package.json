@@ -21,6 +21,7 @@
 		"nanoid": "^4.0.1"
 	},
 	"dependencies": {
-		"detect-libc": "^2.0.1"
+		"detect-libc": "^2.0.1",
+		"web-locks": "^0.0.8"
 	}
 }

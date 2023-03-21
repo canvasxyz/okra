@@ -6,12 +6,8 @@ declare module "@canvas-js/okra-node" {
 		value?: Uint8Array
 	}
 
-	export namespace Tree {
-		type Options = { mapSize?: number, dbs?: string[] }
-	}
-
 	export class Tree {
-		constructor(path: string, options?: Tree.Options)
+		constructor(path: string, options?: { mapSize?: number, dbs?: string[] })
 
 		/**
 		 * Close the tree and free its associated resources
@@ -19,63 +15,23 @@ declare module "@canvas-js/okra-node" {
 		public close(): void
 
 		/**
-		 * Open a manageded read-only transaction
+		 * Open a managed read-only transaction
 		 */
-		public read<R>(callback: (txn: Transaction) => Promise<R> | R, options?: Transaction.Options): Promise<R>
+		public read<R>(callback: (txn: ReadOnlyTransaction) => Promise<R> | R, options?: { dbi?: string }): Promise<R>
 
 		/**
-		 * Open a manageded read-write transaction
+		 * Open a managed read-write transaction
 		 */
-		public write<R>(callback: (txn: Transaction) => Promise<R> | R, options?: Transaction.Options): Promise<R>
+		public write<R>(callback: (txn: ReadWriteTransaction) => Promise<R> | R, options?: { dbi?: string }): Promise<R>
 	}
 
-	export namespace Transaction {
-		type Options = { dbi?: string }
-	}
-
-	export class Transaction {
-		/**
-		 * Transactions are opened as either read-only or read-write.
-		 * Only one read-write transaction can be open at a time.
-		 * Read-only transactions must be manually aborted when finished,
-		 * and read-write transactions must be either aborted or committed.
-		 * Failure to abort or commmit transactions will cause the database
-		 * file to grow.
-		 */
-		constructor(tree: Tree, readOnly: boolean, options?: Transaction.Options)
-
-		/**
-		 * Abort the transaction
-		 */
-		abort(): void
-
-		/**
-		 * Commit the transaction
-		 * @throws if the transaction is read-only
-		 */
-		commit(): void
-
+	export interface ReadOnlyTransaction {
 		/**
 		 * Get the value of an entry
 		 * @param {Uint8Array} key
 		 * @returns the entry's value, or null if the entry does not exist
 		 */
 		get(key: Uint8Array): Uint8Array | null
-
-		/**
-		 * Set a key/value entry
-		 * @param {Uint8Array} key
-		 * @param {Uint8Array} value
-		 * @throws if the transaction is read-only
-		 */
-		set(key: Uint8Array, value: Uint8Array): void
-
-		/**
-		 * Delete an entry
-		 * @param {Uint8Array} key
-		 * @throws if the transaction is read-only or if the entry does not exist
-		 */
-		delete(key: Uint8Array): void
 
 		/**
 		 * Get an internal skip-list node
@@ -103,5 +59,22 @@ declare module "@canvas-js/okra-node" {
 		 * greater than or equal to the provided needle.
 		 */
 		seek(level: number, needle: Uint8Array | null): Node | null
+	}
+
+	export interface ReadWriteTransaction extends ReadOnlyTransaction {
+		/**
+		 * Set a key/value entry
+		 * @param {Uint8Array} key
+		 * @param {Uint8Array} value
+		 * @throws if the transaction is read-only
+		 */
+		set(key: Uint8Array, value: Uint8Array): void
+
+		/**
+		 * Delete an entry
+		 * @param {Uint8Array} key
+		 * @throws if the transaction is read-only or if the entry does not exist
+		 */
+		delete(key: Uint8Array): void
 	}
 }

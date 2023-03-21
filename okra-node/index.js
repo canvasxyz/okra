@@ -3,6 +3,8 @@ import { resolve } from "path";
 
 import { familySync } from "detect-libc";
 
+import { locks } from "web-locks";
+
 const family = familySync();
 
 const { platform, arch } = process;
@@ -19,11 +21,14 @@ const okra = require(
 
 export class Tree extends okra.Tree {
   constructor(path, options = {}) {
-    super(resolve(path), options);
+    const absolutePath = resolve(path);
+    super(absolutePath, options);
+    this.path = absolutePath;
+    this.controller = new AbortController();
   }
 
-  async read(callback, options = {}) {
-    const txn = new Transaction(this, true, options);
+  async read(callback, { dbi } = {}) {
+    const txn = new okra.Transaction(this, true, dbi ?? null);
     let result = undefined;
     try {
       result = await callback(txn);
@@ -34,24 +39,38 @@ export class Tree extends okra.Tree {
     return result;
   }
 
-  async write(callback, options = {}) {
-    const txn = new Transaction(this, false, options);
+  async write(callback, { dbi } = {}) {
+    // const writeController = new AbortController();
+    // const abort = () => writeController.abort();
+    // this.controller.signal.addEventListener("abort", abort);
+
     let result = undefined;
     try {
-      result = await callback(txn);
-    } catch (err) {
-      txn.abort();
-      throw err;
+      await locks.request(
+        `okra:${this.path}`,
+        // { mode: "exclusive", signal: writeController.signal },
+        { mode: "exclusive" },
+        async (lock) => {
+          if (lock === null) {
+            throw new Error("unable to acquire exclusive lock");
+          }
+
+          const txn = new okra.Transaction(this, false, dbi ?? null);
+
+          try {
+            result = await callback(txn);
+          } catch (err) {
+            txn.abort();
+            throw err;
+          }
+
+          txn.commit();
+        },
+      );
+    } finally {
+      // this.controller.signal.removeEventListener("abort", abort);
     }
 
-    txn.commit();
     return result;
-  }
-}
-
-export class Transaction extends okra.Transaction {
-  constructor(tree, readOnly, options = {}) {
-    const dbi = options.dbi ?? null;
-    super(tree, readOnly, dbi);
   }
 }

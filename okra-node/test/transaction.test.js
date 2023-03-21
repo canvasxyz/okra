@@ -17,10 +17,13 @@ test("Open and abort a read-only transaction", async (t) => {
   const directory = path.resolve(os.tmpdir(), nanoid());
   try {
     const tree = new okra.Tree(directory);
-    const transaction = new okra.Transaction(tree, true);
-    transaction.abort();
+    const message = nanoid();
+    t.throwsAsync(async () => {
+      await tree.read(async (txn) => {
+        throw new Error(message);
+      });
+    }, { message });
     tree.close();
-    t.pass();
   } finally {
     fs.rmSync(directory, { recursive: true });
   }
@@ -30,8 +33,12 @@ test("Open and abort a read-write transaction", async (t) => {
   const directory = path.resolve(os.tmpdir(), nanoid());
   try {
     const tree = new okra.Tree(directory);
-    const transaction = new okra.Transaction(tree, false);
-    transaction.abort();
+    const message = nanoid();
+    t.throwsAsync(async () => {
+      await tree.write(async (txn) => {
+        throw new Error(message);
+      });
+    }, { message });
     tree.close();
     t.pass();
   } finally {
@@ -63,25 +70,6 @@ test("Call .set in a read-only transaction", async (t) => {
       tree.read((txn) => {
         txn.set(encode("a"), encode("foo"));
       }), { message: "ACCES" });
-  });
-});
-
-test(
-  "Open a transaction with an invalid tree argument",
-  (t) => {
-    class Tree {}
-    const tree = new Tree();
-    t.throws(() => {
-      const transaction = new okra.Transaction(tree, true);
-    }, { message: "invalid object type tag" });
-  },
-);
-
-test("Open a transaction with an invalid readOnly value", async (t) => {
-  await openTree((tree) => {
-    t.throws(() => {
-      const transaction = new okra.Transaction(tree, 1);
-    }, { message: "expected a boolean" });
   });
 });
 
