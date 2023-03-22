@@ -1,9 +1,8 @@
 import { IDBPDatabase, IDBPTransaction } from 'idb'
 import { blake3 } from '@noble/hashes/blake3'
-import debug from "debug"
 
 import { toIndex, Key, Node, getNode, isIndex } from "./schema.js"
-import { equalKeys, getIDRaw, hashEntry, isSplit, K, leafAnchorHash, lessThan } from './utils.js'
+import { equalKeys, hashEntry, isSplit, K, leafAnchorHash, lessThan } from './utils.js'
 
 // we have enums at home
 const Result = { Update: 0, Delete: 1 } as const
@@ -11,13 +10,18 @@ type Result = typeof Result[keyof typeof Result]
 
 type Operation<T> = { type: "set", key: Uint8Array, value: T } | { type: "delete", key: Uint8Array }
 
-class BaseTransaction<T> {
+export class ReadOnlyTransaction<T> {
   public open = true
+
   constructor(
     public readonly db: IDBPDatabase,
     public readonly dbi: string,
     public readonly getID: (value: T) => Uint8Array,
   ) { }
+
+  public close() {
+    this.open = false
+  }
 
   public async getRoot(options: {
     txn?: IDBPTransaction<unknown, [string], "readwrite"> | IDBPTransaction<unknown, [string], "readonly">
@@ -150,78 +154,8 @@ class BaseTransaction<T> {
   }
 }
 
-export class ReadOnlyTransaction<T = Uint8Array> extends BaseTransaction<T> {
-  public static open<T = Uint8Array>(db: IDBPDatabase, dbi: string, getID: (value: T) => Uint8Array = getIDRaw) {
-    const name = `okra:${db.name}:${dbi}`
-    const log = debug(`${name}:read`)
-    return new Promise<ReadOnlyTransaction<T>>((resolve, reject) => {
-      log("requesting shared lock")
-      navigator.locks.request(name, { mode: "shared" }, (lock) => {
-        if (lock === null) {
-          reject(new Error(`failed to acquire shared lock ${name}`))
-        } else {
-          log("acquired shared lock")
-          return new Promise<void>((release) => {
-            resolve(new ReadOnlyTransaction<T>(db, dbi, getID, lock, release, log))
-          })
-        }
-      })
-    })
-  }
-
-  private constructor(
-    db: IDBPDatabase,
-    dbi: string,
-    getID: (value: T) => Uint8Array,
-    private readonly lock: Lock,
-    private readonly release: () => void,
-    private readonly log: debug.Debugger,
-  ) {
-    super(db, dbi, getID)
-  }
-
-  public close() {
-    this.log("releasing shared lock")
-    this.open = false
-    this.release()
-  }
-}
-
-export class ReadWriteTransaction<T = Uint8Array> extends BaseTransaction<T> {
-  public static open<T = Uint8Array>(db: IDBPDatabase, dbi: string, getID: (value: T) => Uint8Array = getIDRaw) {
-    const name = `okra:${db.name}:${dbi}`
-    const log = debug(`${name}:write`)
-    return new Promise<ReadWriteTransaction<T>>((resolve, reject) => {
-      log("requesting exclusive lock")
-      navigator.locks.request(name, { mode: "exclusive" }, (lock) => {
-        if (lock === null) {
-          reject(new Error(`failed to acquire exclusive lock ${name}`))
-        } else {
-          log("acquired exclusive lock")
-          return new Promise<void>((release) => {
-            resolve(new ReadWriteTransaction<T>(db, dbi, getID, lock, release, log))
-          })
-        }
-      })
-    })
-  }
-
-  private constructor(
-    db: IDBPDatabase,
-    dbi: string,
-    getID: (value: T) => Uint8Array,
-    private readonly lock: Lock,
-    private readonly release: () => void,
-    private readonly log: debug.Debugger,
-  ) {
-    super(db, dbi, getID)
-  }
-
-  public close() {
-    this.log("releasing exclusive lock")
-    this.open = false
-    this.release()
-  }
+export class ReadWriteTransaction<T = Uint8Array> extends ReadOnlyTransaction<T> {
+  private newSiblings: Key[] = []
 
   public async reset() {
     if (!this.open) {
@@ -231,8 +165,6 @@ export class ReadWriteTransaction<T = Uint8Array> extends BaseTransaction<T> {
     await this.db.clear(this.dbi)
     await this.db.put(this.dbi, { hash: leafAnchorHash }, [0])
   }
-
-  private newSiblings: Key[] = []
 
   public async set(key: Uint8Array, value: T): Promise<void> {
     if (!this.open) {
@@ -254,7 +186,6 @@ export class ReadWriteTransaction<T = Uint8Array> extends BaseTransaction<T> {
     if (!this.open) {
       throw new Error("transaction closed")
     }
-
 
     const txn = this.db.transaction(this.dbi, "readwrite")
     try {
@@ -483,7 +414,6 @@ export class ReadWriteTransaction<T = Uint8Array> extends BaseTransaction<T> {
 
     throw new Error("internal error")
   }
-
 
   // Computes and sets the hash of the given node.
   // Doesn't assume anything about the current cursor position.

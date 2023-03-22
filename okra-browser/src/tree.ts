@@ -1,8 +1,9 @@
 import { openDB, IDBPDatabase, IDBPObjectStore, IDBPTransaction } from "idb"
 
+import debug from "debug"
+
 import { ReadOnlyTransaction, ReadWriteTransaction } from "./transaction.js"
 import { defaultObjectStoreName, getIDRaw, leafAnchorHash } from "./utils.js"
-import { Node, Key } from "./schema.js"
 
 export type Options<T> = {
   dbs?: string[]
@@ -12,9 +13,10 @@ export type Options<T> = {
 }
 
 export class Tree<T = Uint8Array> {
+  public static version = 1
   public static async open<T = Uint8Array>(name: string, options: Options<T> = {}): Promise<Tree<T>> {
     const dbs = options.dbs ?? [defaultObjectStoreName]
-    const db = await openDB(name, 1, {
+    const db = await openDB(name, Tree.version, {
       upgrade(db, oldVersion, newVersion, transaction) {
         for (const dbi of dbs) {
           const store = db.createObjectStore(dbi)
@@ -45,14 +47,27 @@ export class Tree<T = Uint8Array> {
       throw new Error("invalid dbi name")
     }
 
-    const txn = await ReadOnlyTransaction.open<T>(this.db, dbi, this.getID)
+    const name = `okra:${this.db.name}:${dbi}`
+    const log = debug(`${name}:read`)
+    log("requesting shared lock")
+
     let result: R
-    try {
-      result = await callback(txn)
-    } finally {
-      txn.close()
-    }
-    return result
+    await navigator.locks.request(name, { mode: "shared" }, async (lock) => {
+      if (lock === null) {
+        throw new Error(`failed to acquire shared lock ${name}`)
+      }
+
+      log("acquired shared lock")
+      const txn = new ReadOnlyTransaction<T>(this.db, dbi, this.getID)
+      try {
+        result = await callback(txn)
+      } finally {
+        txn.close()
+        log("releasing shared lock")
+      }
+    })
+
+    return result!
   }
 
   public async write<R = void>(callback: (txn: ReadWriteTransaction<T>) => Promise<R> | R, options: { dbi?: string } = {}): Promise<R> {
@@ -61,15 +76,26 @@ export class Tree<T = Uint8Array> {
       throw new Error("invalid dbi name")
     }
 
-    const txn = await ReadWriteTransaction.open<T>(this.db, dbi, this.getID)
-    let result: R
-    try {
-      result = await callback(txn)
-    } finally {
-      txn.close()
-    }
+    const name = `okra:${this.db.name}:${dbi}`
+    const log = debug(`${name}:write`)
 
-    return result
+    let result: R
+    await navigator.locks.request(name, { mode: "exclusive" }, async (lock) => {
+      if (lock === null) {
+        throw new Error(`failed to acquire exclusive lock ${name}`)
+      }
+
+      log("acquired exclusive lock")
+      const txn = new ReadWriteTransaction<T>(this.db, dbi, this.getID)
+      try {
+        result = await callback(txn)
+      } finally {
+        txn.close()
+        log("releasing exclusive lock")
+      }
+    })
+
+    return result!
   }
 
   public close() {
