@@ -12,17 +12,17 @@ declare module "@canvas-js/okra-node" {
 		/**
 		 * Close the tree and free its associated resources
 		 */
-		public close(): void
+		public close(): Promise<void>
 
 		/**
 		 * Open a managed read-only transaction
 		 */
-		public read<R>(callback: (txn: ReadOnlyTransaction) => Promise<R> | R, options?: { dbi?: string }): Promise<R>
+		public read<R>(callback: (txn: ReadOnlyTransaction, ctx: { signal: AbortSignal }) => Promise<R> | R, options?: { dbi?: string }): Promise<R>
 
 		/**
 		 * Open a managed read-write transaction
 		 */
-		public write<R>(callback: (txn: ReadWriteTransaction) => Promise<R> | R, options?: { dbi?: string }): Promise<R>
+		public write<R>(callback: (txn: ReadWriteTransaction, ctx: { signal: AbortSignal }) => Promise<R> | R, options?: { dbi?: string }): Promise<R>
 	}
 
 	export interface ReadOnlyTransaction {

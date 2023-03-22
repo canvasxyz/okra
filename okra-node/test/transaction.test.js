@@ -1,12 +1,7 @@
-import os from "node:os";
-import fs from "node:fs";
-import path from "node:path";
-
 import test from "ava";
 
 import { nanoid } from "nanoid";
 
-import * as okra from "../index.js";
 import { openTree } from "./utils.js";
 
 const encoder = new TextEncoder();

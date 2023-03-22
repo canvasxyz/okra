@@ -21,15 +21,15 @@ const okra = require(
 
 export class Tree extends okra.Tree {
   constructor(path, options = {}) {
-    const absolutePath = resolve(path);
-    super(absolutePath, options);
+    super(resolve(path), options);
     this.controller = new AbortController();
     this.queue = new PQueue({ concurrency: 1 });
   }
 
   async read(callback, { dbi } = {}) {
-    const txn = new okra.Transaction(this, true, dbi ?? null);
     let result = undefined;
+
+    const txn = new okra.Transaction(this, true, dbi ?? null);
     try {
       result = await callback(txn);
     } finally {
@@ -40,22 +40,25 @@ export class Tree extends okra.Tree {
   }
 
   async write(callback, { dbi } = {}) {
-    // const writeController = new AbortController();
-    // const abort = () => writeController.abort();
-    // this.controller.signal.addEventListener("abort", abort);
+    let result = undefined;
 
-    return await this.queue.add(async ({}) => {
-      let result = undefined;
+    await this.queue.add(async () => {
       const txn = new okra.Transaction(this, false, dbi ?? null);
       try {
         result = await callback(txn);
+        txn.commit();
       } catch (err) {
         txn.abort();
         throw err;
       }
+    }, { signal: this.controller.signal });
 
-      txn.commit();
-      return result;
-    }, {});
+    return result;
+  }
+
+  async close() {
+    this.controller.abort();
+    await this.queue.onIdle();
+    super.close();
   }
 }

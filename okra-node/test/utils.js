@@ -25,7 +25,7 @@ export async function openTree(callback, { dbs } = {}) {
   try {
     await callback(tree);
   } finally {
-    tree.close();
+    await tree.close();
     fs.rmSync(directory, { recursive: true });
   }
 }
