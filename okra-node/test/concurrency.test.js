@@ -54,3 +54,33 @@ test("open concurrent writes", async (t) => {
     t.deepEqual(order, [0, 1]);
   });
 });
+
+test("open lots of concurrent writes", async (t) => {
+  await openTree(async (tree) => {
+    let index = 0;
+    const order = await Promise.all([
+      tree.write(async (txn) => {
+        await wait(100);
+        return index++;
+      }),
+      tree.write(async (txn) => {
+        await wait(100);
+        return index++;
+      }),
+      tree.write(async (txn) => {
+        await wait(100);
+        return index++;
+      }),
+      tree.write(async (txn) => {
+        await wait(100);
+        return index++;
+      }),
+      tree.write(async (txn) => {
+        await wait(100);
+        return index++;
+      }),
+    ]);
+
+    t.deepEqual(order, [0, 1, 2, 3, 4]);
+  });
+});
