@@ -6,7 +6,6 @@ const Blake3 = std.crypto.hash.Blake3;
 const lmdb = @import("lmdb");
 
 const Logger = @import("logger.zig").Logger;
-const print = @import("print.zig");
 const utils = @import("utils.zig");
 
 /// A Builder is naive bottom-up tree builder used to construct large trees

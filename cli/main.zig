@@ -8,12 +8,13 @@ const lmdb = @import("lmdb");
 const okra = @import("okra");
 
 const utils = @import("./utils.zig");
+const Printer = @import("./printer.zig").Printer;
 
 const allocator = std.heap.c_allocator;
 
-var dbiOption = cli.Option{
-    .long_name = "dbi",
-    .short_alias = 'd',
+var nameOption = cli.Option{
+    .long_name = "name",
+    .short_alias = 'n',
     .help = "use a named database instance",
     .value = cli.OptionValue{ .string = null },
     .required = false,
@@ -56,14 +57,28 @@ var encodingOption = cli.Option{
     .required = false,
 };
 
-const Encoding = enum { utf8, hex };
+var depthOption = cli.Option{
+    .long_name = "depth",
+    .short_alias = 'd',
+    .help = "tree depth",
+    .value = cli.OptionValue{ .int = null },
+    .required = false,
+};
 
-fn parseEncoding() Encoding {
+var padOption = cli.Option{
+    .long_name = "pad",
+    .short_alias = 'p',
+    .help = "align to fixed height",
+    .value = cli.OptionValue{ .int = 0 },
+    .required = false,
+};
+
+fn parseEncoding() utils.Encoding {
     const encoding = encodingOption.value.string orelse unreachable;
     if (std.mem.eql(u8, encoding, "utf-8")) {
-        return Encoding.utf8;
+        return utils.Encoding.utf8;
     } else if (std.mem.eql(u8, encoding, "hex")) {
-        return Encoding.hex;
+        return utils.Encoding.hex;
     } else {
         fail("invalid encoding", .{});
     }
@@ -76,37 +91,43 @@ var app = &cli.Command{
         &cli.Command{
             .name = "cat",
             .help = "print the key/value entries to stdout",
-            .options = &.{ &dbiOption, &encodingOption },
+            .options = &.{ &nameOption, &encodingOption },
             .action = cat,
         },
         &cli.Command{
             .name = "ls",
-            .help = "print the tree structure",
-            .options = &.{ &dbiOption, &encodingOption, &levelOption, &keyOption },
+            .help = "list the children of an internal node",
+            .options = &.{ &nameOption, &encodingOption, &levelOption, &keyOption },
             .action = ls,
+        },
+        &cli.Command{
+            .name = "tree",
+            .help = "print the tree structure",
+            .options = &.{ &nameOption, &encodingOption, &levelOption, &keyOption, &depthOption, &padOption },
+            .action = tree,
         },
         &cli.Command{
             .name = "init",
             .help = "initialize an empty database",
-            .options = &.{ &dbiOption, &iotaOption },
+            .options = &.{ &nameOption, &iotaOption },
             .action = init,
         },
         &cli.Command{
             .name = "set",
             .help = "set a key/value entry",
-            .options = &.{ &dbiOption, &encodingOption, &verboseOption },
+            .options = &.{ &nameOption, &encodingOption, &verboseOption },
             .action = set,
         },
         &cli.Command{
             .name = "get",
             .help = "get a key/value entry",
-            .options = &.{ &dbiOption, &encodingOption },
+            .options = &.{ &nameOption, &encodingOption },
             .action = get,
         },
         &cli.Command{
             .name = "delete",
             .help = "delete a key/value entry",
-            .options = &.{ &dbiOption, &encodingOption, &verboseOption },
+            .options = &.{ &nameOption, &encodingOption, &verboseOption },
             .action = delete,
         },
         &cli.Command{
@@ -114,52 +135,6 @@ var app = &cli.Command{
             .help = "compute the hash of a key/value entry",
             .options = &.{&encodingOption},
             .action = hash,
-        },
-        // &cli.Command{
-        //   .name = "rebuild",
-        //   .help = "rebuild the tree from the leaf layer",
-        //   .options = &.{ &pathOption },
-        //   .action = rebuild,
-        // },
-        &cli.Command{
-            .name = "internal",
-            .help = "interact with the underlying LMDB database",
-            .subcommands = &.{
-                &cli.Command{
-                    .name = "cat",
-                    .help = "print the entries of the database to stdout",
-                    .options = &.{&dbiOption},
-                    .action = internalCat,
-                },
-                // &cli.Command{
-                //   .name = "get",
-                //   .help = "get the value for a key",
-                //   .description = "okra internal get [KEY]\n[KEY] - hex-encoded key",
-                //   .options = &.{ &pathOption },
-                //   .action = internalGet,
-                // },
-                // &cli.Command{
-                //   .name = "set",
-                //   .help = "set a key/value entry",
-                //   .description = "okra internal set [KEY] [VALUE]\n[KEY] - hex-encoded key\n[VALUE] - hex-encoded value",
-                //   .options = &.{ &pathOption },
-                //   .action = internalSet,
-                // },
-                // &cli.Command{
-                //   .name = "delete",
-                //   .help = "delete a key",
-                //   .description = "okra internal delete [KEY]\n[KEY] - hex-encoded key",
-                //   .options = &.{ &pathOption },
-                //   .action = internalDelete,
-                // },
-                // &cli.Command{
-                //   .name = "diff",
-                //   .help = "print the diff between two databases",
-                //   .description = "okra internal diff [A] [B]\n[A] - path to database file\n[B] - path to database file",
-                //   .options = &.{ &aOption, &bOption },
-                //   .action = internalDiff,
-                // },
-            },
         },
     },
 };
@@ -176,10 +151,10 @@ fn cat(args: []const []const u8) !void {
     const stdout = std.io.getStdOut().writer();
 
     const path = try utils.resolvePath(std.fs.cwd(), args[0]);
-    var tree = try okra.Tree.open(allocator, path, .{});
-    defer tree.close();
+    var t = try okra.Tree.open(allocator, path, .{});
+    defer t.close();
 
-    var txn = try okra.Transaction.open(allocator, &tree, .{ .mode = .ReadOnly });
+    var txn = try okra.Transaction.open(allocator, &t, .{ .mode = .ReadOnly });
     defer txn.abort();
 
     var cursor = try okra.Cursor.open(allocator, &txn);
@@ -191,17 +166,6 @@ fn cat(args: []const []const u8) !void {
             .utf8 => try stdout.print("{s}\t{s}\n", .{ node.key.?, node.value.? }),
             .hex => try stdout.print("{s}\t{s}\n", .{ hex(node.key.?), hex(node.value.?) }),
         }
-    }
-}
-
-fn printNode(writer: std.fs.File.Writer, node: okra.Node, encoding: Encoding) !void {
-    if (node.key) |key|
-        switch (encoding) {
-            .hex => try writer.print("{d: >5} | {s} | {s}\n", .{ node.level, hex(node.hash), hex(key) }),
-            .utf8 => try writer.print("{d: >5} | {s} | {s}\n", .{ node.level, hex(node.hash), key }),
-        }
-    else {
-        try writer.print("{d: >5} | {s} |\n", .{ node.level, hex(node.hash) });
     }
 }
 
@@ -247,10 +211,10 @@ fn ls(args: []const []const u8) !void {
     const stdout = std.io.getStdOut().writer();
 
     const path = try utils.resolvePath(std.fs.cwd(), args[0]);
-    var tree = try okra.Tree.open(allocator, path, .{});
-    defer tree.close();
+    var t = try okra.Tree.open(allocator, path, .{});
+    defer t.close();
 
-    var txn = try okra.Transaction.open(allocator, &tree, .{ .mode = .ReadOnly });
+    var txn = try okra.Transaction.open(allocator, &t, .{ .mode = .ReadOnly });
     defer txn.abort();
 
     var cursor = try okra.Cursor.open(allocator, &txn);
@@ -271,6 +235,166 @@ fn ls(args: []const []const u8) !void {
         try printNode(stdout, first_child, encoding);
         while (try cursor.goToNext(root.level - 1)) |next|
             try printNode(stdout, next, encoding);
+    }
+}
+
+fn printNode(writer: std.fs.File.Writer, node: okra.Node, encoding: utils.Encoding) !void {
+    if (node.key) |key|
+        switch (encoding) {
+            .hex => try writer.print("{d: >5} | {s} | {s}\n", .{ node.level, hex(node.hash), hex(key) }),
+            .utf8 => try writer.print("{d: >5} | {s} | {s}\n", .{ node.level, hex(node.hash), key }),
+        }
+    else {
+        try writer.print("{d: >5} | {s} |\n", .{ node.level, hex(node.hash) });
+    }
+}
+
+fn tree(args: []const []const u8) !void {
+    if (args.len > 1) {
+        fail("too many arguments", .{});
+    } else if (args.len == 0) {
+        fail("path argument required", .{});
+    }
+
+    const encoding = parseEncoding();
+
+    var key_buffer = std.ArrayList(u8).init(allocator);
+    defer key_buffer.deinit();
+    if (keyOption.value.string) |key| {
+        switch (encoding) {
+            .hex => {
+                if (key.len % 2 == 0) {
+                    try key_buffer.resize(key.len / 2);
+                    _ = try std.fmt.hexToBytes(key_buffer.items, key);
+                } else {
+                    fail("invalid hex input", .{});
+                }
+            },
+            .utf8 => {
+                try key_buffer.resize(key.len);
+                std.mem.copy(u8, key_buffer.items, key);
+            },
+        }
+    }
+
+    const level = levelOption.value.int orelse unreachable;
+    if (level == -1) {
+        if (key_buffer.items.len != 0) {
+            fail("the root node's key is the empty string", .{});
+        }
+    } else if (level < 0) {
+        fail("level must be -1 or a non-negative integer", .{});
+    } else if (level >= 0xFF) {
+        fail("level must be less than 255", .{});
+    }
+
+    var depth: ?u8 = null;
+    if (depthOption.value.int) |value| {
+        if (value < 0) {
+            fail("depth must be a non-negative integer", .{});
+        } else if (value > 0xFF) {
+            fail("depth must be less than 256", .{});
+        } else {
+            depth = @intCast(u8, value);
+        }
+    }
+
+    var pad: u8 = 0;
+    if (padOption.value.int) |value| {
+        if (value < 0) {
+            fail("pad must be a non-negative integer", .{});
+        } else if (value > 0xFF) {
+            fail("pad must be less than 256", .{});
+        } else {
+            pad = @intCast(u8, value);
+        }
+    }
+
+    var treeOptions = okra.Tree.Options{};
+    var txnOptions = okra.Transaction.Options{ .mode = .ReadOnly };
+
+    var dbi = std.ArrayList(u8).init(allocator);
+    defer dbi.deinit();
+    if (nameOption.value.string) |name| {
+        try dbi.resize(name.len + 1);
+        std.mem.copy(u8, dbi.items[0..name.len], name);
+        dbi.items[name.len] = 0;
+
+        treeOptions.dbs = &.{dbi.items[0..name.len :0]};
+    }
+
+    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
+    var t = try okra.Tree.open(allocator, path, treeOptions);
+    defer t.close();
+
+    var txn = try okra.Transaction.open(allocator, &t, txnOptions);
+    defer txn.abort();
+
+    var printer = try Printer.init(allocator, txn, encoding);
+    defer printer.deinit();
+    try printer.printRoot(pad, depth);
+}
+
+fn get(args: []const []const u8) !void {
+    if (args.len > 2) {
+        fail("too many arguments", .{});
+    } else if (args.len == 0) {
+        fail("path argument required", .{});
+    } else if (args.len == 1) {
+        fail("key argument required", .{});
+    }
+
+    const encoding = parseEncoding();
+
+    var key_buffer = std.ArrayList(u8).init(allocator);
+    defer key_buffer.deinit();
+
+    switch (encoding) {
+        .hex => {
+            if (args[1].len % 2 == 0) {
+                try key_buffer.resize(args[1].len / 2);
+                _ = try std.fmt.hexToBytes(key_buffer.items, args[1]);
+            } else {
+                fail("invalid hex input", .{});
+            }
+        },
+        .utf8 => {
+            try key_buffer.resize(args[1].len);
+            std.mem.copy(u8, key_buffer.items, args[1]);
+        },
+    }
+
+    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
+
+    var treeOptions = okra.Tree.Options{};
+    var txnOptions = okra.Transaction.Options{ .mode = .ReadOnly };
+
+    var dbi = std.ArrayList(u8).init(allocator);
+    defer dbi.deinit();
+    if (nameOption.value.string) |name| {
+        try dbi.resize(name.len + 1);
+        std.mem.copy(u8, dbi.items[0..name.len], name);
+        dbi.items[name.len] = 0;
+
+        treeOptions.dbs = &.{dbi.items[0..name.len :0]};
+    }
+
+    var t = try okra.Tree.open(allocator, path, treeOptions);
+    defer t.close();
+
+    var txn = try okra.Transaction.open(allocator, &t, txnOptions);
+    defer txn.abort();
+
+    const value = try txn.get(key_buffer.items) orelse fail("KeyNotFound", .{});
+
+    const stdout = std.io.getStdOut().writer();
+    switch (encoding) {
+        .hex => {
+            try stdout.print("{s}\n", .{hex(value)});
+        },
+        .utf8 => {
+            try stdout.print("{s}\n", .{value});
+        },
     }
 }
 
@@ -318,65 +442,32 @@ fn set(args: []const []const u8) !void {
         },
     }
 
-    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
-    var tree = try okra.Tree.open(allocator, path, .{});
-    defer tree.close();
+    var treeOptions = okra.Tree.Options{};
+    var txnOptions = okra.Transaction.Options{ .mode = .ReadWrite };
 
-    const log = if (verboseOption.value.bool) std.io.getStdOut().writer() else null;
-    var txn = try okra.Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .log = log });
+    var dbi = std.ArrayList(u8).init(allocator);
+    defer dbi.deinit();
+    if (nameOption.value.string) |name| {
+        try dbi.resize(name.len + 1);
+        std.mem.copy(u8, dbi.items[0..name.len], name);
+        dbi.items[name.len] = 0;
+
+        treeOptions.dbs = &.{dbi.items[0..name.len :0]};
+    }
+
+    if (verboseOption.value.bool) {
+        txnOptions.log = std.io.getStdOut().writer();
+    }
+
+    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
+    var t = try okra.Tree.open(allocator, path, treeOptions);
+    defer t.close();
+
+    var txn = try okra.Transaction.open(allocator, &t, txnOptions);
     errdefer txn.abort();
 
     try txn.set(key_buffer.items, value_buffer.items);
     try txn.commit();
-}
-
-fn get(args: []const []const u8) !void {
-    if (args.len > 2) {
-        fail("too many arguments", .{});
-    } else if (args.len == 0) {
-        fail("path argument required", .{});
-    } else if (args.len == 1) {
-        fail("key argument required", .{});
-    }
-
-    const encoding = parseEncoding();
-
-    var key_buffer = std.ArrayList(u8).init(allocator);
-    defer key_buffer.deinit();
-
-    switch (encoding) {
-        .hex => {
-            if (args[1].len % 2 == 0) {
-                try key_buffer.resize(args[1].len / 2);
-                _ = try std.fmt.hexToBytes(key_buffer.items, args[1]);
-            } else {
-                fail("invalid hex input", .{});
-            }
-        },
-        .utf8 => {
-            try key_buffer.resize(args[1].len);
-            std.mem.copy(u8, key_buffer.items, args[1]);
-        },
-    }
-
-    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
-    var tree = try okra.Tree.open(allocator, path, .{});
-    defer tree.close();
-
-    var txn = try okra.Transaction.open(allocator, &tree, .{ .mode = .ReadOnly });
-    defer txn.abort();
-
-    const value = try txn.get(key_buffer.items) orelse fail("KeyNotFound", .{});
-
-    const stdout = std.io.getStdOut().writer();
-    switch (encoding) {
-        .hex => {
-            try stdout.print("{s}\n", .{hex(value)});
-        },
-        .utf8 => {
-            try stdout.print("{s}\n", .{value});
-        },
-    }
 }
 
 fn delete(args: []const []const u8) !void {
@@ -408,12 +499,28 @@ fn delete(args: []const []const u8) !void {
         },
     }
 
-    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
-    var tree = try okra.Tree.open(allocator, path, .{});
-    defer tree.close();
+    var treeOptions = okra.Tree.Options{};
+    var txnOptions = okra.Transaction.Options{ .mode = .ReadWrite };
 
-    const log = if (verboseOption.value.bool) std.io.getStdOut().writer() else null;
-    var txn = try okra.Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .log = log });
+    var dbi = std.ArrayList(u8).init(allocator);
+    defer dbi.deinit();
+    if (nameOption.value.string) |name| {
+        try dbi.resize(name.len + 1);
+        std.mem.copy(u8, dbi.items[0..name.len], name);
+        dbi.items[name.len] = 0;
+
+        treeOptions.dbs = &.{dbi.items[0..name.len :0]};
+    }
+
+    if (verboseOption.value.bool) {
+        txnOptions.log = std.io.getStdOut().writer();
+    }
+
+    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
+    var t = try okra.Tree.open(allocator, path, treeOptions);
+    defer t.close();
+
+    var txn = try okra.Transaction.open(allocator, &t, txnOptions);
     errdefer txn.abort();
 
     try txn.delete(key_buffer.items);
@@ -481,7 +588,7 @@ fn hash(args: []const []const u8) !void {
     try stdout.print("{s}\n", .{hex(&hash_buffer)});
 }
 
-fn parseBuffer(arg: []const u8, buffer: *std.ArrayList(u8), encoding: Encoding) !void {
+fn parseBuffer(arg: []const u8, buffer: *std.ArrayList(u8), encoding: utils.Encoding) !void {
     switch (encoding) {
         .hex => {
             if (arg.len % 2 == 0) {
@@ -497,177 +604,6 @@ fn parseBuffer(arg: []const u8, buffer: *std.ArrayList(u8), encoding: Encoding) 
         },
     }
 }
-
-// fn rebuild(args: []const []const u8) !void {
-//     const path = pathOption.value.string orelse unreachable;
-//     if (args.len > 0) {
-//         fail("too many arguments", .{});
-//     }
-
-//     try razeTree(path);
-
-//     var builder = try Builder.init(getCString(path), .{});
-//     _ = try builder.finalize(null);
-//     const stdout = std.io.getStdOut().writer();
-//     try stdout.print("Successfully rebuilt {s}\n", .{ path });
-// }
-
-// fn razeTree(path: []const u8) !void {
-//     var env = try Env.open(getCString(path), .{});
-//     defer env.close();
-
-//     var txn = try Txn.open(env, false);
-//     errdefer txn.abort();
-
-//     const dbi = try txn.openDBI();
-
-//     var cursor = try Cursor.open(txn, dbi);
-
-//     const firstKey = Tree.createKey(1, null);
-//     try cursor.goToKey(&firstKey);
-//     try cursor.deleteCurrentKey();
-//     while (try cursor.goToNext()) |_| try cursor.deleteCurrentKey();
-
-//     cursor.close();
-//     try txn.commit();
-// }
-
-fn internalCat(args: []const []const u8) !void {
-    if (args.len > 1) {
-        fail("too many arguments", .{});
-    } else if (args.len == 0) {
-        fail("path required", .{});
-    }
-
-    const stdout = std.io.getStdOut().writer();
-
-    const path = try utils.resolvePath(std.fs.cwd(), args[0]);
-    const env = try lmdb.Environment.open(path, .{});
-    defer env.close();
-
-    const txn = try lmdb.Transaction.open(env, .{ .read_only = true });
-    defer txn.abort();
-
-    const cursor = try lmdb.Cursor.open(txn);
-    defer cursor.close();
-
-    var entry = try cursor.goToFirst();
-    while (entry) |key| : (entry = try cursor.goToNext()) {
-        const value = try cursor.getCurrentValue();
-        try stdout.print("{s}\t{s}\n", .{ hex(key), hex(value) });
-    }
-}
-
-// fn internalSet(args: []const []const u8) !void {
-//     const path = pathOption.value.string orelse unreachable;
-
-//     if (args.len == 0) {
-//         fail("missing key argument", .{});
-//     } else if (args.len == 1) {
-//         fail("missing value argument", .{});
-//     } else if (args.len > 2) {
-//         fail("too many arguments", .{});
-//     }
-
-//     const keyArg = args[0];
-//     const valueArg = args[1];
-
-//     if (keyArg.len != 2 * K) {
-//         fail("invalid key size - expected exactly {d} hex bytes", .{ K });
-//     } else if (valueArg.len != 2 * V) {
-//         fail("invalid value size - expected exactly {d} hex bytes", .{ V });
-//     }
-
-//     var env = try Env.open(getCString(path), .{});
-//     defer env.close();
-//     var txn = try Txn.open(env, false);
-//     errdefer txn.abort();
-//     const dbi = try txn.openDBI();
-
-//     var value = [_]u8{ 0 } ** V;
-//     _ = try std.fmt.hexToBytes(&value, valueArg);
-
-//     var key = [_]u8{ 0 } ** K;
-//     _ = try std.fmt.hexToBytes(&key, keyArg);
-
-//     try txn.set(dbi, &key, &value);
-//     try txn.commit();
-// }
-
-// fn internalGet(args: []const []const u8) !void {
-//     const path = pathOption.value.string orelse unreachable;
-
-//     if (args.len == 0) {
-//         fail("key argument required", .{});
-//     } else if (args.len > 1) {
-//         fail("too many arguments", .{});
-//     }
-
-//     const keyArg = args[0];
-//     if (keyArg.len != 2 * K) {
-//         fail("invalid key size - expected exactly {d} hex bytes", .{ K });
-//     }
-
-//     const stdout = std.io.getStdOut().writer();
-
-//     var env = try Env.open(getCString(path), .{});
-//     defer env.close();
-//     var txn = try Txn.open(env, true);
-//     defer txn.abort();
-//     const dbi = try txn.openDBI();
-
-//     var key = [_]u8{ 0 } ** K;
-//     _ = try std.fmt.hexToBytes(&key, keyArg);
-
-//     if (try txn.get(dbi, &key)) |value| {
-//         try stdout.print("{s}\n", .{ hex(value) });
-//     }
-// }
-
-// fn internalDelete(args: []const []const u8) !void {
-//     const path = pathOption.value.string orelse unreachable;
-
-//     if (args.len == 0) {
-//         fail("key argument required", .{});
-//     } else if (args.len > 1) {
-//         fail("too many arguments", .{});
-//     }
-
-//     const keyArg = args[0];
-//     if (keyArg.len != 2 * K) {
-//         fail("invalid key size - expected exactly {d} hex bytes", .{ K });
-//     }
-
-//     var env = try Env.open(getCString(path), .{});
-//     defer env.close();
-//     var txn = try Txn.open(env, false);
-//     errdefer txn.abort();
-//     const dbi = try txn.openDBI();
-
-//     var key = [_]u8{ 0 } ** K;
-//     _ = try std.fmt.hexToBytes(&key, keyArg);
-//     try txn.delete(dbi, &key);
-//     try txn.commit();
-// }
-
-// fn internalDiff(args: []const []const u8) !void {
-//     const a = aOption.value.string orelse unreachable;
-//     const b = bOption.value.string orelse unreachable;
-
-//     if (args.len > 0) {
-//         fail("too many arguments", .{});
-//     }
-
-//     const stdout = std.io.getStdOut().writer();
-
-//     const pathA = getCString(a);
-//     const envA = try Env.open(pathA, .{});
-//     defer envA.close();
-//     const pathB = getCString(b);
-//     const envB = try Env.open(pathB, .{});
-//     defer envB.close();
-//     _ = try lmdb.compareEntries(K, V, envA, envB, .{ .log = stdout });
-// }
 
 pub fn main() !void {
     return cli.run(app, allocator);

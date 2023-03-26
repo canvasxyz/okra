@@ -1,6 +1,21 @@
 const std = @import("std");
 const expectEqual = std.testing.expectEqual;
 const Blake3 = std.crypto.hash.Blake3;
+const hex = std.fmt.fmtSliceHexLower;
+
+const lmdb = @import("lmdb");
+
+pub fn printEntries(env: lmdb.Environment, writer: std.fs.File.Writer) !void {
+    const txn = try lmdb.Transaction.open(env, .{ .read_only = true });
+    defer txn.abort();
+
+    const cursor = try lmdb.Cursor.open(txn);
+    var entry = try cursor.goToFirst();
+    while (entry) |key| : (entry = try cursor.goToNext()) {
+        const value = try cursor.getCurrentValue();
+        try writer.print("{s}\t{s}\n", .{ hex(key), hex(value) });
+    }
+}
 
 pub fn hashEntry(key: []const u8, value: []const u8, result: []u8) void {
     var digest = Blake3.init(.{});

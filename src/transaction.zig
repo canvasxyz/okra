@@ -5,9 +5,7 @@ const assert = std.debug.assert;
 const Blake3 = std.crypto.hash.Blake3;
 
 const lmdb = @import("lmdb");
-
 const utils = @import("utils.zig");
-const print = @import("print.zig");
 
 const Result = enum { update, delete };
 

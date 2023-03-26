@@ -16,7 +16,6 @@ const Builder = @import("builder.zig").Builder(K, Q);
 const Transaction = @import("transaction.zig").Transaction(K, Q);
 
 const utils = @import("utils.zig");
-const print = @import("print.zig");
 const library = @import("library.zig");
 
 fn h(comptime value: *const [64]u8) [32]u8 {
@@ -339,11 +338,9 @@ fn testPseudoRandomPermutations(
         if (log) |writer| {
             try writer.print("PERMUTATION -----\n{any}\n", .{permutation});
             try writer.print("EXPECTED -----------------------------------------\n", .{});
-            try print.printEntries(reference_env, writer);
-            // try print.printTree(allocator, reference_env, writer, .{});
+            try utils.printEntries(reference_env, writer);
             try writer.print("ACTUAL -------------------------------------------\n", .{});
-            // try print.printTree(allocator, env, writer, .{});
-            try print.printEntries(tree.env, writer);
+            try utils.printEntries(tree.env, writer);
         }
 
         const delta = try lmdb.compareEntries(reference_env, tree.env, .{ .log = log });

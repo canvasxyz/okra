@@ -21,7 +21,7 @@ pub fn NodeList(comptime K: u8, comptime Q: u32) type {
                 .value = try createKey(first_child.value),
             });
 
-            while (try cursor.goToNext()) |next_child| {
+            while (try cursor.goToNext(level - 1)) |next_child| {
                 if (limit) |limit_key|
                     if (next_child.key) |next_child_key|
                         if (!std.mem.lessThan(u8, next_child_key, limit_key))

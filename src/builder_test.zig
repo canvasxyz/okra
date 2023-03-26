@@ -1,5 +1,4 @@
 const std = @import("std");
-
 const lmdb = @import("lmdb");
 
 const K = 32;
@@ -12,9 +11,6 @@ const library = @import("library.zig");
 test "Builder" {
     for (&library.tests) |t| {
         const allocator = std.heap.c_allocator;
-
-        // const log = std.io.getStdErr().writer();
-        // try log.print("\n", .{});
 
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
@@ -29,13 +25,6 @@ test "Builder" {
 
         try builder.commit();
 
-        // try log.print("----------------------------------------------------------------\n", .{});
-        // try print.printEntries(env, log);
-
         try lmdb.expectEqualEntries(env, t.entries);
-
-        // try log.print("----------------------------------------------------------------\n", .{});
-        // try printTree(allocator, env, log, .{ .compact = true });
-
     }
 }

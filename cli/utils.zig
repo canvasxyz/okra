@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const Encoding = enum { utf8, hex };
+
 var path_buffer: [4096]u8 = undefined;
 pub fn resolvePath(dir: std.fs.Dir, name: []const u8) ![*:0]const u8 {
     const path = try dir.realpath(name, &path_buffer);
