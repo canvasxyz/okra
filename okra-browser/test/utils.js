@@ -1,6 +1,19 @@
 import { sha256 } from "@noble/hashes/sha256";
 
+import "fake-indexeddb/auto";
+import { openDB } from "idb";
+
 import { equalArrays, lessThan, shuffle } from "../lib/utils.js";
+
+export function open(path, storeNames) {
+  return openDB(path, 1, {
+    upgrade(db) {
+      for (const storeName of storeNames) {
+        db.createObjectStore(storeName);
+      }
+    },
+  });
+}
 
 export const second = 1000;
 export const minute = 60 * second;

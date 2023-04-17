@@ -8,13 +8,12 @@ import { Tree } from "../lib/index.js";
 
 import { fromHex } from "../lib/utils.js";
 
-import { getEntries, minute } from "./utils.js";
+import { getEntries, minute, open } from "./utils.js";
 
 test("iota 0", async (t) => {
-  const tree = await Tree.open("i0");
-
+  const db = await open("i0", ["store"]);
+  const tree = await Tree.open(db, "store");
   const root = await tree.read((txn) => txn.getRoot());
-
   t.deepEqual(root, {
     level: 0,
     key: null,
@@ -23,7 +22,8 @@ test("iota 0", async (t) => {
 });
 
 test("iota 1", async (t) => {
-  const tree = await Tree.open("i1");
+  const db = await open("i1", ["store"]);
+  const tree = await Tree.open(db, "store");
 
   const root = await tree.write(async (txn) => {
     await txn.reset();
@@ -42,7 +42,8 @@ test("iota 1", async (t) => {
 });
 
 test("iota 10", async (t) => {
-  const tree = await Tree.open("i10");
+  const db = await open("i10", ["store"]);
+  const tree = await Tree.open(db, "store");
 
   const root = await tree.write(async (txn) => {
     await txn.reset();
@@ -61,8 +62,8 @@ test("iota 10", async (t) => {
 });
 
 test("iota 100", async (t) => {
-  const tree = await Tree.open("i100");
-  await tree.reset();
+  const db = await open("i100", ["store"]);
+  const tree = await Tree.open(db, "store");
 
   const root = await tree.write(async (txn) => {
     await txn.reset();
@@ -83,7 +84,8 @@ test("iota 100", async (t) => {
 test("iota 1000", async (t) => {
   t.timeout(1 * minute);
 
-  const tree = await Tree.open("i1000");
+  const db = await open("i1000", ["store"]);
+  const tree = await Tree.open(db, "store");
 
   const root = await tree.write(async (txn) => {
     await txn.reset();
