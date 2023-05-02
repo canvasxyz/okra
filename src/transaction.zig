@@ -6,6 +6,7 @@ const Blake3 = std.crypto.hash.Blake3;
 
 const lmdb = @import("lmdb");
 const utils = @import("utils.zig");
+const fmtKey = utils.fmtKey;
 
 const Result = enum { update, delete };
 
@@ -182,7 +183,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
 
             try self.log("new_children: {d}", .{self.new_siblings.items.len});
             for (self.new_siblings.items) |child| {
-                try self.log("- {s}", .{utils.fmtKey(child)});
+                try self.log("- {s}", .{fmtKey(child)});
             }
 
             while (self.new_siblings.items.len > 0) {
@@ -192,7 +193,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                 _ = try self.hashNode(root_level, null);
                 try self.log("new_children: {d}", .{self.new_siblings.items.len});
                 for (self.new_siblings.items) |child| {
-                    try self.log("- {s}", .{utils.fmtKey(child)});
+                    try self.log("- {s}", .{fmtKey(child)});
                 }
             }
 
@@ -227,13 +228,13 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                     try self.setNode(leaf);
 
                     if (utils.lessThan(first_child, entry.key)) {
-                        if (leaf.isSplit()) {
+                        if (leaf.isBoundary()) {
                             try self.new_siblings.append(entry.key);
                         }
 
                         return Result.update;
                     } else if (utils.equal(first_child, entry.key)) {
-                        if (first_child == null or leaf.isSplit()) {
+                        if (first_child == null or leaf.isBoundary()) {
                             return Result.update;
                         } else {
                             return Result.delete;
@@ -254,7 +255,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         }
 
         fn applyNode(self: *Self, level: u8, first_child: ?[]const u8, operation: Operation) !Result {
-            try self.log("insertNode({d}, {s})", .{ level, utils.fmtKey(first_child) });
+            try self.log("insertNode({d}, {s})", .{ level, fmtKey(first_child) });
 
             try self.logger.indent();
             defer self.logger.deindent();
@@ -269,7 +270,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             };
 
             const target = try self.findTargetKey(level, first_child, key);
-            try self.log("target: {s}", .{utils.fmtKey(target)});
+            try self.log("target: {s}", .{fmtKey(target)});
 
             const is_left_edge = first_child == null;
             try self.log("is_left_edge: {any}", .{is_left_edge});
@@ -285,7 +286,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
 
             try self.log("new siblings: {d}", .{self.new_siblings.items.len});
             for (self.new_siblings.items) |child| {
-                try self.log("- {s}", .{utils.fmtKey(child)});
+                try self.log("- {s}", .{fmtKey(child)});
             }
 
             switch (result) {
@@ -293,47 +294,47 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                     assert(!is_left_edge or !is_first_child);
 
                     // delete the entry and move to the previous child
-                    const previous_child = try self.moveToPreviousChild(level, target);
-                    try self.log("previous_child: {s}", .{utils.fmtKey(previous_child)});
+                    const previous_child_key = try self.moveToPreviousChild(level, target);
+                    try self.log("previous_child_key: {s}", .{fmtKey(previous_child_key)});
 
                     try self.promote(level);
 
-                    const is_previous_child_split = try self.hashNode(level, previous_child);
-                    if (is_first_child or utils.lessThan(previous_child, first_child)) {
-                        if (is_previous_child_split) {
-                            try self.new_siblings.append(previous_child);
+                    const is_previous_child_boundary = try self.hashNode(level, previous_child_key);
+                    if (is_first_child or utils.lessThan(previous_child_key, first_child)) {
+                        if (is_previous_child_boundary) {
+                            try self.new_siblings.append(previous_child_key);
                         }
 
                         return Result.delete;
-                    } else if (utils.equal(previous_child, first_child)) {
-                        if (is_left_edge or is_previous_child_split) {
+                    } else if (utils.equal(previous_child_key, first_child)) {
+                        if (is_left_edge or is_previous_child_boundary) {
                             return Result.update;
                         } else {
                             return Result.delete;
                         }
                     } else {
-                        if (is_previous_child_split) {
-                            try self.new_siblings.append(previous_child);
+                        if (is_previous_child_boundary) {
+                            try self.new_siblings.append(previous_child_key);
                         }
 
                         return Result.update;
                     }
                 },
                 Result.update => {
-                    const is_target_split = try self.hashNode(level, target);
-                    try self.log("is_target_split: {any}", .{is_target_split});
+                    const is_target_boundary = try self.hashNode(level, target);
+                    try self.log("is_target_boundary: {any}", .{is_target_boundary});
 
                     try self.promote(level);
 
-                    // is_first_child means either target's original value was a split, or is_left_edge is true.
+                    // is_first_child means either target's original value was a boundary, or is_left_edge is true.
                     if (is_first_child) {
-                        if (is_target_split or is_left_edge) {
+                        if (is_target_boundary or is_left_edge) {
                             return Result.update;
                         } else {
                             return Result.delete;
                         }
                     } else {
-                        if (is_target_split) {
+                        if (is_target_boundary) {
                             try self.new_siblings.append(target);
                         }
 
@@ -385,12 +386,12 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             try self.cursor.deleteCurrentNode();
             if (self.effects) |effects| effects.delete += 1;
 
-            while (try self.cursor.goToPrevious()) |previous_child| {
-                if (previous_child.key) |key| {
-                    const previous_child_key = try self.pool.copy(id, key);
-                    if (try self.getNode(level - 1, previous_child_key)) |previous_grand_child| {
-                        if (previous_grand_child.isSplit()) {
-                            return previous_child_key;
+            while (try self.cursor.goToPrevious()) |previous_node| {
+                if (previous_node.key) |key| {
+                    const previous_key = try self.pool.copy(id, key);
+                    if (try self.getNode(level - 1, previous_key)) |previous_child| {
+                        if (previous_child.isBoundary()) {
+                            return previous_key;
                         }
                     }
 
@@ -404,33 +405,33 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             return error.InternalError;
         }
 
-        /// Computes and sets the hash of the given node. Doesn't assume anything about the current cursor position.
-        /// Returns is_split for the updated hash.
+        /// Computes and sets the hash of the given node.
+        /// Doesn't assume anything about the current cursor position.
         fn hashNode(self: *Self, level: u8, key: ?[]const u8) !bool {
-            try self.log("hashNode({d}, {s})", .{ level, utils.fmtKey(key) });
+            try self.log("hashNode({d}, {s})", .{ level, fmtKey(key) });
 
             var digest = Blake3.init(.{});
 
             const first = try self.cursor.goToNode(level - 1, key);
-            try self.log("- hashing {s} <- {s}", .{ hex(first.hash), utils.fmtKey(key) });
+            try self.log("- hashing {s} <- {s}", .{ hex(first.hash), fmtKey(key) });
             digest.update(first.hash);
 
             while (try self.cursor.goToNext()) |next| {
-                if (next.isSplit()) {
+                if (next.isBoundary()) {
                     break;
                 } else {
-                    try self.log("- hashing {s} <- {s}", .{ hex(next.hash), utils.fmtKey(next.key) });
+                    try self.log("- hashing {s} <- {s}", .{ hex(next.hash), fmtKey(next.key) });
                     digest.update(next.hash);
                 }
             }
 
             digest.final(&self.hash_buffer);
             try self.log("--------- {s}", .{hex(&self.hash_buffer)});
-            try self.log("setting {s} <- ({d}) {s}", .{ hex(&self.hash_buffer), level, utils.fmtKey(key) });
+            try self.log("setting {s} <- ({d}) {s}", .{ hex(&self.hash_buffer), level, fmtKey(key) });
             const node = Node{ .level = level, .key = key, .hash = &self.hash_buffer, .value = null };
 
             try self.setNode(node);
-            return node.isSplit();
+            return node.isBoundary();
         }
 
         fn promote(self: *Self, level: u8) !void {
@@ -439,8 +440,8 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             const new_sibling_count = self.new_siblings.items.len;
             while (old_index < new_sibling_count) : (old_index += 1) {
                 const key = self.new_siblings.items[old_index];
-                const is_split = try self.hashNode(level, key);
-                if (is_split) {
+                const is_boundary = try self.hashNode(level, key);
+                if (is_boundary) {
                     self.new_siblings.items[new_index] = key;
                     new_index += 1;
                 }
@@ -449,75 +450,66 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             try self.new_siblings.resize(new_index);
         }
 
-        fn setKey(self: *Self, level: u8, key: ?[]const u8) !void {
-            if (key) |bytes| {
-                try self.key_buffer.resize(1 + bytes.len);
-                std.mem.copy(u8, self.key_buffer.items[1..], bytes);
-            } else {
-                try self.key_buffer.resize(1);
-            }
-
-            self.key_buffer.items[0] = level;
-        }
-
         pub fn getNode(self: *Self, level: u8, key: ?[]const u8) !?Node {
-            try self.setKey(level, key);
-            if (try self.txn.get(self.key_buffer.items)) |value| {
-                if (value.len < K) {
-                    return error.InvalidDatabase;
-                }
-
-                return Node{
-                    .level = level,
-                    .key = if (key != null) self.key_buffer.items[1..] else null,
-                    .hash = value[0..K],
-                    .value = if (level == 0 and key != null) value[K..] else null,
-                };
+            const k = try self.setKey(level, key);
+            if (try self.txn.get(k)) |v| {
+                return try Node.parse(k, v);
             } else {
                 return null;
             }
         }
 
         fn setNode(self: *Self, node: Node) !void {
-            try self.setKey(node.level, node.key);
+            const k = try self.setKey(node.level, node.key);
+            const v = try self.setValue(node.hash, node.value);
 
+            if (self.trace) |trace| try trace.append(node);
             if (self.effects) |effects| {
-                if (try self.txn.get(self.key_buffer.items)) |_| {
+                if (try self.txn.get(k)) |_| {
                     effects.update += 1;
                 } else {
                     effects.create += 1;
                 }
             }
 
-            if (node.value) |value| {
-                if (node.level != 0) {
-                    return error.InternalError;
-                }
-
-                try self.value_buffer.resize(K + value.len);
-                std.mem.copy(u8, self.value_buffer.items[0..K], node.hash);
-                std.mem.copy(u8, self.value_buffer.items[K..], value);
-            } else {
-                if (node.level == 0) {
-                    return error.InternalError;
-                }
-
-                try self.value_buffer.resize(K);
-                std.mem.copy(u8, self.value_buffer.items, node.hash);
-            }
-
-            if (self.trace) |trace| try trace.append(node);
-
-            try self.txn.set(self.key_buffer.items, self.value_buffer.items);
+            try self.txn.set(k, v);
         }
 
         fn deleteNode(self: *Self, level: u8, key: ?[]const u8) !void {
+            const k = try self.setKey(level, key);
+
             if (self.effects) |effects| effects.delete += 1;
-            try self.setKey(level, key);
-            try self.txn.delete(self.key_buffer.items);
+
+            try self.txn.delete(k);
         }
 
-        fn log(self: *Self, comptime format: []const u8, args: anytype) !void {
+        fn setKey(self: *Self, level: u8, key: ?[]const u8) ![]const u8 {
+            if (key) |bytes| {
+                try self.key_buffer.resize(1 + bytes.len);
+                self.key_buffer.items[0] = level;
+                std.mem.copy(u8, self.key_buffer.items[1..], bytes);
+            } else {
+                try self.key_buffer.resize(1);
+                self.key_buffer.items[0] = level;
+            }
+
+            return self.key_buffer.items;
+        }
+
+        fn setValue(self: *Self, hash: *const [K]u8, value: ?[]const u8) ![]const u8 {
+            if (value) |bytes| {
+                try self.value_buffer.resize(K + bytes.len);
+                std.mem.copy(u8, self.value_buffer.items[0..K], hash);
+                std.mem.copy(u8, self.value_buffer.items[K..], bytes);
+            } else {
+                try self.value_buffer.resize(K);
+                std.mem.copy(u8, self.value_buffer.items, hash);
+            }
+
+            return self.value_buffer.items;
+        }
+
+        inline fn log(self: *Self, comptime format: []const u8, args: anytype) !void {
             try self.logger.print(format, args);
         }
     };

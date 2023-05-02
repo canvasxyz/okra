@@ -106,8 +106,8 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
 
                 const value = try self.cursor.getCurrentValue();
                 const hash = try getNodeHash(value);
-                try self.log("key: {s}, hash: {s}, is_split: {any}", .{ hex(next_key), hex(hash), isSplit(hash) });
-                if (isSplit(hash)) {
+                try self.log("key: {s}, hash: {s}, is_boundary: {any}", .{ hex(next_key), hex(hash), isBoundary(hash) });
+                if (isBoundary(hash)) {
                     digest.final(&self.hash_buffer);
                     try self.log("digest.final() => {s}", .{hex(&self.hash_buffer)});
                     parent_count += 1;
@@ -157,7 +157,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
             try self.logger.print(format, args);
         }
 
-        fn isSplit(value: *const [K]u8) bool {
+        fn isBoundary(value: *const [K]u8) bool {
             const limit: comptime_int = (1 << 32) / @intCast(u33, Q);
             return std.mem.readIntBig(u32, value[0..4]) < limit;
         }

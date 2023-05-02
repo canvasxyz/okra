@@ -248,7 +248,7 @@ fn ls(args: []const []const u8) !void {
 
         var i: usize = 0;
         while (try iterator.next()) |node| : (i += 1) {
-            if (i > 0 and node.isSplit()) {
+            if (i > 0 and node.isBoundary()) {
                 break;
             } else {
                 try printNode(stdout, node, encoding);

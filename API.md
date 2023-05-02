@@ -63,7 +63,7 @@ pub const Node = struct {
     hash: *const [K]u8,
     value: ?[]const u8,
 
-    pub fn isSplit(self: Node) bool
+    pub fn isBoundary(self: Node) bool
     pub fn equal(self: Node, other: Node) bool
 };
 ```

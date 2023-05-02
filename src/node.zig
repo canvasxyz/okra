@@ -15,7 +15,7 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
         hash: *const [K]u8,
         value: ?[]const u8 = null,
 
-        pub fn isSplit(self: Self) bool {
+        pub fn isBoundary(self: Self) bool {
             const limit: comptime_int = (1 << 32) / @intCast(u33, Q);
             return std.mem.readIntBig(u32, self.hash[0..4]) < limit;
         }
