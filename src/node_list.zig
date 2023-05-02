@@ -1,7 +1,6 @@
 const std = @import("std");
 
 pub fn NodeList(comptime K: u8, comptime Q: u32) type {
-    // const Cursor = @import("cursor.zig").Cursor(K, Q);
     const Node = @import("node.zig").Node(K, Q);
 
     return struct {

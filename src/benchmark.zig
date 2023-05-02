@@ -10,7 +10,7 @@ const Builder = @import("builder.zig").Builder(K, Q);
 const Header = @import("header.zig").Header(K, Q);
 const Tree = @import("tree.zig").Tree(K, Q);
 const Transaction = @import("transaction.zig").Transaction(K, Q);
-const Cursor = @import("cursor.zig").Cursor(K, Q);
+const Iterator = @import("iterator.zig").Iterator(K, Q);
 
 fn printHeader(name: []const u8, log: std.fs.File.Writer) !void {
     try log.print("\n### {s}\n\n", .{name});
@@ -98,16 +98,20 @@ fn ReadEntry(comptime size: u32) type {
 }
 
 fn iterateOverEntries(tree: *const Tree) !void {
-    var txn = try Transaction.open(tree, .{ .mode = .ReadOnly });
+    var txn = try Transaction.open(allocator, tree, .{ .mode = .ReadOnly });
     defer txn.abort();
 
-    var cursor = try Cursor.open(allocator, &txn);
-    defer cursor.close();
+    const range = Iterator.Range{
+        .level = 0,
+        .lower_bound = .{ .key = null, .inclusive = false },
+    };
 
-    _ = try cursor.goToNode(0, null);
-    while (try cursor.goToNext(0)) |entry| {
-        std.debug.assert(entry.key.?.len == 8);
-        std.debug.assert(entry.value.?.len == 8);
+    var iterator = try Iterator.open(allocator, &txn, range);
+    defer iterator.close();
+
+    while (try iterator.next()) |leaf| {
+        std.debug.assert(leaf.key.?.len == 8);
+        std.debug.assert(leaf.value.?.len == 8);
     }
 }
 

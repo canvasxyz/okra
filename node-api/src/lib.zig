@@ -208,7 +208,7 @@ fn transactionGetChildrenMethod(env: c.napi_env, this: c.napi_value, args: *cons
     const first_child_node = try createNode(env, first_child);
     try children.append(first_child_node);
 
-    while (try txn.cursor.goToNext(level - 1)) |next_child| {
+    while (try txn.cursor.goToNext()) |next_child| {
         if (next_child.isSplit()) {
             break;
         } else {

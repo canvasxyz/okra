@@ -165,11 +165,15 @@ fn cat(args: []const []const u8) !void {
     var txn = try okra.Transaction.open(allocator, &t, .{ .mode = .ReadOnly });
     defer txn.abort();
 
-    var cursor = try okra.Cursor.open(allocator, &txn);
-    defer cursor.close();
+    const range = okra.Iterator.Range{
+        .level = 0,
+        .lower_bound = .{ .key = null, .inclusive = false },
+    };
 
-    _ = try cursor.goToNode(0, null);
-    while (try cursor.goToNext(0)) |node| {
+    var iterator = try okra.Iterator.open(allocator, &txn, range);
+    defer iterator.close();
+
+    while (try iterator.next()) |node| {
         switch (encoding) {
             .utf8 => try stdout.print("{s}\t{s}\n", .{ node.key.?, node.value.? }),
             .hex => try stdout.print("{s}\t{s}\n", .{ hex(node.key.?), hex(node.value.?) }),
@@ -225,13 +229,7 @@ fn ls(args: []const []const u8) !void {
     var txn = try okra.Transaction.open(allocator, &t, .{ .mode = .ReadOnly });
     defer txn.abort();
 
-    var cursor = try okra.Cursor.open(allocator, &txn);
-    defer cursor.close();
-
-    const root = if (level == -1)
-        try cursor.goToRoot()
-    else
-        try cursor.goToNode(@intCast(u8, level), key_buffer.items);
+    const root = if (level == -1) try txn.getRoot() else try getNode(&txn, @intCast(u8, level), key_buffer.items);
 
     try stdout.print("level | {s: <32} | key\n", .{"hash"});
     try stdout.print("----- | {s:-<32} | {s:-<32}\n", .{ "", "" });
@@ -239,11 +237,28 @@ fn ls(args: []const []const u8) !void {
 
     if (root.level > 0) {
         try stdout.print("----- | {s:-<32} | {s:-<32}\n", .{ "", "" });
-        const first_child = try cursor.goToNode(root.level - 1, root.key);
-        try printNode(stdout, first_child, encoding);
-        while (try cursor.goToNext(root.level - 1)) |next|
-            try printNode(stdout, next, encoding);
+
+        const range = okra.Iterator.Range{
+            .level = root.level - 1,
+            .lower_bound = .{ .key = root.key, .inclusive = true },
+        };
+
+        var iterator = try okra.Iterator.open(allocator, &txn, range);
+        defer iterator.close();
+
+        var i: usize = 0;
+        while (try iterator.next()) |node| : (i += 1) {
+            if (i > 0 and node.isSplit()) {
+                break;
+            } else {
+                try printNode(stdout, node, encoding);
+            }
+        }
     }
+}
+
+fn getNode(txn: *okra.Transaction, level: u8, key: ?[]const u8) !okra.Node {
+    return try txn.getNode(@intCast(u8, level), key) orelse fail("node not found", .{});
 }
 
 fn printNode(writer: std.fs.File.Writer, node: okra.Node, encoding: utils.Encoding) !void {
@@ -320,7 +335,7 @@ fn tree(args: []const []const u8) !void {
     var txn = try okra.Transaction.open(allocator, &t, txnOptions);
     defer txn.abort();
 
-    var printer = try Printer.init(allocator, txn, encoding, null);
+    var printer = try Printer.init(allocator, &txn, encoding, null);
     defer printer.deinit();
 
     try printer.printRoot(height, depth);
@@ -496,7 +511,7 @@ fn set(args: []const []const u8) !void {
     try txn.set(key_buffer.items, value_buffer.items);
 
     if (traceOption.value.bool) {
-        var printer = try Printer.init(allocator, txn, encoding, &trace);
+        var printer = try Printer.init(allocator, &txn, encoding, &trace);
         defer printer.deinit();
         try printer.printRoot(height, depth);
     }
@@ -568,7 +583,7 @@ fn delete(args: []const []const u8) !void {
     try txn.delete(key_buffer.items);
 
     if (traceOption.value.bool) {
-        var printer = try Printer.init(allocator, txn, encoding, &trace);
+        var printer = try Printer.init(allocator, &txn, encoding, &trace);
         defer printer.deinit();
 
         var stdin = std.io.getStdIn().writer();

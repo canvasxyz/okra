@@ -6,20 +6,21 @@ const utils = @import("utils.zig");
 
 pub const Printer = struct {
     allocator: std.mem.Allocator,
-    cursor: okra.Cursor,
+    txn: *okra.Transaction,
+    iter: okra.Iterator,
     writer: std.fs.File.Writer,
     encoding: utils.Encoding,
     prefix: std.ArrayList(u8),
     trace: ?*okra.NodeList,
     is_a_tty: bool,
 
-    pub fn init(allocator: std.mem.Allocator, txn: okra.Transaction, encoding: utils.Encoding, trace: ?*okra.NodeList) !Printer {
-        var cursor = try okra.Cursor.open(allocator, &txn);
+    pub fn init(allocator: std.mem.Allocator, txn: *okra.Transaction, encoding: utils.Encoding, trace: ?*okra.NodeList) !Printer {
         const stdout = std.io.getStdOut();
-
+        var iter = try okra.Iterator.open(allocator, txn, .{});
         return .{
             .allocator = allocator,
-            .cursor = cursor,
+            .txn = txn,
+            .iter = iter,
             .writer = stdout.writer(),
             .is_a_tty = std.os.isatty(stdout.handle),
             .encoding = encoding,
@@ -29,12 +30,12 @@ pub const Printer = struct {
     }
 
     pub fn deinit(self: *Printer) void {
-        self.cursor.close();
+        self.iter.close();
         self.prefix.deinit();
     }
 
     pub fn printRoot(self: *Printer, height: ?u8, depth: ?u8) !void {
-        const root = try self.cursor.goToRoot();
+        const root = try self.txn.getRoot();
 
         var pad: u8 = 0;
         if (height) |h| {
@@ -87,17 +88,14 @@ pub const Printer = struct {
             var children = okra.NodeList.init(self.allocator);
             defer children.deinit();
 
-            {
-                const first_child = try self.cursor.goToNode(node.level - 1, node.key);
-                try children.append(first_child);
-                while (try self.cursor.goToNext(node.level - 1)) |next_child| {
-                    if (limit) |limit_key|
-                        if (next_child.key) |next_child_key|
-                            if (!std.mem.lessThan(u8, next_child_key, limit_key))
-                                break;
+            try self.iter.reset(.{
+                .level = node.level - 1,
+                .lower_bound = .{ .key = node.key, .inclusive = true },
+                .upper_bound = if (limit) |key| .{ .key = key, .inclusive = false } else null,
+            });
 
-                    try children.append(next_child);
-                }
+            while (try self.iter.next()) |child| {
+                try children.append(child);
             }
 
             const last_index = children.nodes.items.len - 1;

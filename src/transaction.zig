@@ -20,7 +20,7 @@ const nil = [0]u8{};
 pub fn Transaction(comptime K: u8, comptime Q: u32) type {
     const Node = @import("node.zig").Node(K, Q);
     const Tree = @import("tree.zig").Tree(K, Q);
-    const SkipListCursor = @import("skip_list_cursor.zig").SkipListCursor(K, Q);
+    const Cursor = @import("cursor.zig").Cursor(K, Q);
     const Header = @import("header.zig").Header(K, Q);
     const Logger = @import("logger.zig").Logger;
     const NodeList = @import("node_list.zig").NodeList(K, Q);
@@ -41,7 +41,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         allocator: std.mem.Allocator,
         is_open: bool = false,
         txn: lmdb.Transaction,
-        cursor: SkipListCursor,
+        cursor: Cursor,
 
         value_buffer: std.ArrayList(u8),
         key_buffer: std.ArrayList(u8),
@@ -151,11 +151,15 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             try self.apply(Operation{ .delete = key });
         }
 
+        pub fn getRoot(self: *Self) !Node {
+            return try self.cursor.goToRoot();
+        }
+
         fn apply(self: *Self, operation: Operation) !void {
             if (self.trace) |trace| trace.reset();
             if (self.effects) |effects| effects.* = Effects{};
 
-            const root = try self.cursor.goToRoot();
+            const root = try self.getRoot();
             try self.log("height: {d}", .{root.level});
 
             var root_level = if (root.level == 0) 1 else root.level;
@@ -193,8 +197,8 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             }
 
             while (root_level > 0) : (root_level -= 1) {
-                const last = try self.cursor.goToLast(root_level - 1);
-                if (last.key != null) {
+                _ = try self.cursor.goToNode(root_level - 1, null);
+                if (try self.cursor.goToNext()) |_| {
                     break;
                 } else {
                     try self.log("trim root from {d} to {d}", .{ root_level, root_level - 1 });
@@ -214,7 +218,8 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                         .key = entry.key,
                         .hash = &self.hash_buffer,
 
-                        // some weird bug cause .value to be null if entry.value.len == 0.
+                        // TODO: wtf?
+                        // some weird bug causes .value to be null if entry.value.len == 0.
                         // setting it to another explicit empty slice seems to fix it.
                         .value = if (entry.value.len == 0) &nil else entry.value,
                     };
@@ -347,7 +352,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             }
 
             _ = try self.cursor.goToNode(level, first_child);
-            while (try self.cursor.goToNext(level)) |next_child_node| {
+            while (try self.cursor.goToNext()) |next_child_node| {
                 if (next_child_node.key) |next_child_key| {
                     if (utils.lessThan(key, next_child_key)) {
                         break;
@@ -362,20 +367,30 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             return target;
         }
 
+        inline fn copyKey(self: *Self, id: usize, key: ?[]const u8) !?[]const u8 {
+            if (key) |bytes| {
+                return try self.pool.copy(id, bytes);
+            } else {
+                return null;
+            }
+        }
+
         fn moveToPreviousChild(self: *Self, level: u8, target: ?[]const u8) !?[]const u8 {
             assert(level > 0);
             const id = level - 1;
 
             // delete the entry and move to the previous child
+
             _ = try self.cursor.goToNode(level, target);
             try self.cursor.deleteCurrentNode();
             if (self.effects) |effects| effects.delete += 1;
 
-            while (try self.cursor.goToPrevious(level)) |previous_child| {
-                if (previous_child.key) |previous_child_key| {
+            while (try self.cursor.goToPrevious()) |previous_child| {
+                if (previous_child.key) |key| {
+                    const previous_child_key = try self.pool.copy(id, key);
                     if (try self.getNode(level - 1, previous_child_key)) |previous_grand_child| {
                         if (previous_grand_child.isSplit()) {
-                            return try self.pool.copy(id, previous_child_key);
+                            return previous_child_key;
                         }
                     }
 
@@ -396,18 +411,16 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
 
             var digest = Blake3.init(.{});
 
-            {
-                const node = try self.cursor.goToNode(level - 1, key);
-                try self.log("- hashing {s} <- {s}", .{ hex(node.hash), utils.fmtKey(key) });
-                digest.update(node.hash);
-            }
+            const first = try self.cursor.goToNode(level - 1, key);
+            try self.log("- hashing {s} <- {s}", .{ hex(first.hash), utils.fmtKey(key) });
+            digest.update(first.hash);
 
-            while (try self.cursor.goToNext(level - 1)) |node| {
-                if (node.isSplit()) {
+            while (try self.cursor.goToNext()) |next| {
+                if (next.isSplit()) {
                     break;
                 } else {
-                    try self.log("- hashing {s} <- {s}", .{ hex(node.hash), utils.fmtKey(node.key) });
-                    digest.update(node.hash);
+                    try self.log("- hashing {s} <- {s}", .{ hex(next.hash), utils.fmtKey(next.key) });
+                    digest.update(next.hash);
                 }
             }
 
@@ -447,7 +460,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             self.key_buffer.items[0] = level;
         }
 
-        fn getNode(self: *Self, level: u8, key: ?[]const u8) !?Node {
+        pub fn getNode(self: *Self, level: u8, key: ?[]const u8) !?Node {
             try self.setKey(level, key);
             if (try self.txn.get(self.key_buffer.items)) |value| {
                 if (value.len < K) {

@@ -4,66 +4,140 @@ const expectEqual = std.testing.expectEqual;
 const lmdb = @import("lmdb");
 
 pub fn Cursor(comptime K: u8, comptime Q: u32) type {
+    const Header = @import("header.zig").Header(K, Q);
     const Node = @import("node.zig").Node(K, Q);
-    const Transaction = @import("transaction.zig").Transaction(K, Q);
-    const SkipListCursor = @import("skip_list_cursor.zig").SkipListCursor(K, Q);
 
     return struct {
-        allocator: std.mem.Allocator,
         is_open: bool = false,
-        skip_list_cursor: SkipListCursor,
+        level: u8 = 0xFF,
+        cursor: lmdb.Cursor,
+        buffer: std.ArrayList(u8),
 
         const Self = @This();
 
-        pub fn open(allocator: std.mem.Allocator, txn: *const Transaction) !Self {
-            var cursor: Self = undefined;
-            try cursor.init(allocator, txn);
-            return cursor;
-        }
-
-        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: *const Transaction) !void {
-            try self.skip_list_cursor.init(allocator, txn.txn);
+        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction) !void {
+            const cursor = try lmdb.Cursor.open(txn);
             self.is_open = true;
-            self.allocator = allocator;
+            self.level = 0xFF;
+            self.cursor = cursor;
+            self.buffer = std.ArrayList(u8).init(allocator);
         }
 
         pub fn close(self: *Self) void {
             if (self.is_open) {
                 self.is_open = false;
-                self.skip_list_cursor.close();
+                self.buffer.deinit();
+                self.cursor.close();
             }
         }
 
         pub fn goToRoot(self: *Self) !Node {
-            return try self.skip_list_cursor.goToRoot();
-        }
+            try self.cursor.goToKey(&Header.HEADER_KEY);
+            if (try self.cursor.goToPrevious()) |k| {
+                if (k.len == 1) {
+                    self.level = k[0];
+                    return try self.getCurrentNode();
+                }
+            }
 
-        pub fn goToFirst(self: *Self, level: u8) !Node {
-            return try self.skip_list_cursor.goToFirst(level);
-        }
-
-        pub fn goToLast(self: *Self, level: u8) !Node {
-            return try self.skip_list_cursor.goToLast(level);
+            return error.InvalidDatabase;
         }
 
         pub fn goToNode(self: *Self, level: u8, key: ?[]const u8) !Node {
-            return try self.skip_list_cursor.goToNode(level, key);
+            errdefer self.level = 0xFF;
+            self.level = level;
+
+            try self.copyKey(level, key);
+            try self.cursor.goToKey(self.buffer.items);
+            return try self.getCurrentNode();
         }
 
-        pub fn goToNext(self: *Self, level: u8) !?Node {
-            return try self.skip_list_cursor.goToNext(level);
+        pub fn goToNext(self: *Self) !?Node {
+            if (self.level == 0xFF) {
+                return error.Uninitialized;
+            }
+
+            if (try self.cursor.goToNext()) |k| {
+                if (k.len == 0) {
+                    return error.InvalidDatabase;
+                } else if (k[0] == self.level) {
+                    return try self.getCurrentNode();
+                } else {
+                    self.level = 0xFF;
+                }
+            }
+
+            return null;
         }
 
-        pub fn goToPrevious(self: *Self, level: u8) !?Node {
-            return try self.skip_list_cursor.goToPrevious(level);
+        pub fn goToPrevious(self: *Self) !?Node {
+            if (self.level == 0xFF) {
+                return error.Uninitialized;
+            }
+
+            if (try self.cursor.goToPrevious()) |k| {
+                if (k.len == 0) {
+                    return error.InvalidDatabase;
+                } else if (k[0] == self.level) {
+                    return try self.getCurrentNode();
+                } else {
+                    self.level = 0xFF;
+                }
+            }
+
+            return null;
         }
 
         pub fn seek(self: *Self, level: u8, key: ?[]const u8) !?Node {
-            return try self.skip_list_cursor.seek(level, key);
+            try self.copyKey(level, key);
+            if (try self.cursor.seek(self.buffer.items)) |k| {
+                if (k.len == 0) {
+                    return error.InvalidDatabase;
+                } else if (k[0] == level) {
+                    self.level = level;
+                    return try self.getCurrentNode();
+                } else {
+                    self.level = 0xFF;
+                }
+            }
+
+            return null;
         }
 
         pub fn getCurrentNode(self: Self) !Node {
-            return try self.skip_list_cursor.getCurrentNode();
+            const entry = try self.cursor.getCurrentEntry();
+            return try Node.parse(entry.key, entry.value);
+        }
+
+        pub fn setCurrentNode(self: Self, hash: *const [K]u8, value: ?[]const u8) !void {
+            try self.copyValue(hash, value);
+            try self.cursor.setCurrentValue(self.buffer.items);
+        }
+
+        pub fn deleteCurrentNode(self: *Self) !void {
+            try self.cursor.deleteCurrentKey();
+        }
+
+        inline fn copyKey(self: *Self, level: u8, key: ?[]const u8) !void {
+            if (key) |bytes| {
+                try self.buffer.resize(1 + bytes.len);
+                self.buffer.items[0] = level;
+                std.mem.copy(u8, self.buffer.items[1..], bytes);
+            } else {
+                try self.buffer.resize(1);
+                self.buffer.items[0] = level;
+            }
+        }
+
+        inline fn copyValue(self: *Self, hash: *const [K]u8, value: ?[]const u8) !void {
+            if (value) |bytes| {
+                try self.buffer.resize(K + bytes.len);
+                std.mem.copy(u8, self.buffer.items[0..K], hash);
+                std.mem.copy(u8, self.buffer.items[K..], bytes);
+            } else {
+                try self.buffer.resize(K);
+                std.mem.copy(u8, self.buffer.items, hash);
+            }
         }
     };
 }

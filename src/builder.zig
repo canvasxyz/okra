@@ -8,11 +8,10 @@ const lmdb = @import("lmdb");
 const Logger = @import("logger.zig").Logger;
 const utils = @import("utils.zig");
 
-/// A Builder is naive bottom-up tree builder used to construct large trees
-/// at once and for reference when unit testing SkipList.
-/// Create a builder with Builder.init(env, options), insert as many leaves
-/// as you want using .set(key, value), and then call .commit().
-/// Builder is also used in the rebuild cli command.
+/// Builder is naive bottom-up tree builder used for unit testing.
+/// It's is also used in the `okra rebuild` cli command.
+/// Create a builder with Builder.open(allocator, env, options),
+/// insert as many leaves as you want, and then commit.
 pub fn Builder(comptime K: u8, comptime Q: u32) type {
     const Header = @import("header.zig").Header(K, Q);
 
