@@ -120,12 +120,6 @@ var app = &cli.Command{
             .options = &.{ &nameOption, &iotaOption },
             .action = init,
         },
-        // &cli.Command{
-        //     .name = "stat",
-        //     .help = "print statistics for a tree",
-        //     .options = &.{&nameOption},
-        //     .action = stat,
-        // },
         &cli.Command{
             .name = "get",
             .help = "get a key/value entry",
@@ -618,41 +612,6 @@ fn init(args: []const []const u8) !void {
         try builder.commit();
     }
 }
-
-// fn stat(args: []const []const u8) !void {
-//     if (args.len > 1) {
-//         fail("too many arguments", .{});
-//     } else if (args.len == 0) {
-//         fail("path argument required", .{});
-//     }
-
-//     const path = try utils.resolvePath(std.fs.cwd(), args[0]);
-
-//     var treeOptions = okra.Tree.Options{};
-//     var txnOptions = okra.Transaction.Options{ .mode = .ReadOnly };
-
-//     var dbi = std.ArrayList(u8).init(allocator);
-//     defer dbi.deinit();
-//     if (nameOption.value.string) |name| {
-//         try dbi.resize(name.len + 1);
-//         std.mem.copy(u8, dbi.items[0..name.len], name);
-//         dbi.items[name.len] = 0;
-//         treeOptions.dbs = &.{dbi.items[0..name.len :0]};
-//     }
-
-//     var t = try okra.Tree.open(allocator, path, treeOptions);
-//     defer t.close();
-
-//     var txn = try okra.Transaction.open(allocator, &t, txnOptions);
-//     defer txn.abort();
-
-//     const stdout = std.io.getStdOut().writer();
-//     const result = try txn.stat();
-//     try stdout.print("height:     {d}\n", .{result.height});
-//     try stdout.print("node count: {d}\n", .{result.node_count});
-//     try stdout.print("leaf count: {d}\n", .{result.leaf_count});
-//     try stdout.print("avg degree: {d:.5}\n", .{result.degree});
-// }
 
 fn hash(args: []const []const u8) !void {
     if (args.len > 2) {

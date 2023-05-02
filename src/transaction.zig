@@ -507,54 +507,5 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         fn log(self: *Self, comptime format: []const u8, args: anytype) !void {
             try self.logger.print(format, args);
         }
-
-        // pub const Stat = struct { height: u8, node_count: usize, leaf_count: usize, degree: f32 };
-        // pub fn stat(self: *Self) !Stat {
-        //     const root = try self.cursor.goToRoot();
-        //     if (root.level == 0) {
-        //         return .{ .height = 1, .node_count = 1, .leaf_count = 1, .degree = 0 };
-        //     }
-
-        //     var result = Stat{ .height = root.level + 1, .node_count = 1, .leaf_count = 0, .degree = 0 };
-        //     try self.statNode(root, &result);
-        //     result.degree = @intToFloat(f32, result.node_count - 1) / @intToFloat(f32, result.node_count - result.leaf_count);
-        //     return result;
-        // }
-
-        // fn statNode(self: *Self, node: Node, result: *Stat) !void {
-        //     assert(node.level > 0);
-        //     if (node.level == 1) {
-        //         var i: usize = 1;
-        //         _ = try self.cursor.goToNode(0, node.key);
-        //         while (try self.cursor.goToNext(0)) |next_leaf| {
-        //             if (next_leaf.isSplit()) {
-        //                 break;
-        //             } else {
-        //                 i += 1;
-        //             }
-        //         }
-
-        //         result.node_count += i;
-        //         result.leaf_count += i;
-        //     } else {
-        //         var node_list = NodeList.init(self.allocator);
-        //         defer node_list.deinit();
-
-        //         const first_child = try self.cursor.goToNode(node.level - 1, node.key);
-        //         try node_list.append(first_child);
-
-        //         while (try self.cursor.goToNext(node.level - 1)) |next_child| {
-        //             if (next_child.isSplit()) {
-        //                 break;
-        //             } else {
-        //                 try node_list.append(next_child);
-        //             }
-        //         }
-
-        //         result.node_count += node_list.nodes.items.len;
-
-        //         for (node_list.nodes.items) |child| try self.statNode(child, result);
-        //     }
-        // }
     };
 }
