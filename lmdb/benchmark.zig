@@ -76,8 +76,8 @@ var random = prng.random();
 
 fn ReadEntry(comptime size: u32) type {
     return struct {
-        pub fn run(env: Environment) !void {
-            const txn = try Transaction.open(env, .{ .read_only = true });
+        pub fn run(tree: *const Tree) !void {
+            var txn = try Transaction.open(tree, .{ .read_only = true });
             defer txn.abort();
 
             var i_buffer: [4]u8 = undefined;
@@ -108,21 +108,21 @@ fn iterateOverEntries(env: Environment) !void {
 
 fn SetEntries(comptime initial_size: u32, comptime count: u32) type {
     return struct {
-        pub fn run(env: Environment) !void {
-            const txn = try Transaction.open(env, .{ .read_only = false });
+        pub fn run(tree: *const Tree) !void {
+            var txn = try Transaction.open(tree, .{ .read_only = false });
             errdefer txn.abort();
 
             var i: u32 = initial_size;
-            var i_buffer: [4]u8 = undefined;
-            var hash_buffer: [32]u8 = undefined;
+            var seed: [4]u8 = undefined;
+            var hash_buffer: [16]u8 = undefined;
             while (i < initial_size + count) : (i += 1) {
-                std.mem.writeIntBig(u32, &i_buffer, i);
-                std.crypto.hash.Blake3.hash(&i_buffer, &hash_buffer, .{});
-                try txn.set(hash_buffer[0..16], hash_buffer[16..32]);
+                std.mem.writeIntBig(u32, &seed, i);
+                std.crypto.hash.Blake3.hash(&seed, &hash_buffer, .{});
+                try txn.set(hash_buffer[0..8], hash_buffer[8..16]);
             }
 
             try txn.commit();
-            try env.flush();
+            try tree.env.flush();
         }
     };
 }
@@ -142,7 +142,9 @@ fn runTests(
     try tmp.dir.makeDir("mst");
     const path = try utils.resolvePath(tmp.dir, "mst");
 
-    var env = try initialize(initial_entries, path);
+    var tree = try Tree.open(path, .{ .map_size = 2 * 1024 * 1024 * 1024 });
+    defer tree.close();
+    try initialize(initial_entries, &tree);
 
     var runtimes: [iterations]u64 = undefined;
     var timer = try std.time.Timer.start();
@@ -159,30 +161,25 @@ fn runTests(
         }
     }
 
-    env.close();
-
     try printRow(name, &runtimes, operations, log);
 }
 
-fn initialize(comptime initial_entries: usize, path: [*:0]const u8) !Environment {
-    const env = try Environment.open(path, .{ .map_size = 2 * 1024 * 1024 * 1024 });
-
+fn initialize(comptime initial_entries: usize, tree: *const Tree) !void {
     if (initial_entries > 0) {
-        const txn = try Transaction.open(env, .{ .read_only = false });
+        const txn = try Transaction.open(tree, .{ .read_only = false });
         errdefer txn.abort();
 
         var i: u32 = 0;
-        var i_buffer: [4]u8 = undefined;
-        var hash_buffer: [32]u8 = undefined;
+        var seed: [4]u8 = undefined;
+        var hash_buffer: [16]u8 = undefined;
         while (i < initial_entries) : (i += 1) {
-            std.mem.writeIntBig(u32, &i_buffer, i);
-            std.crypto.hash.Blake3.hash(&i_buffer, &hash_buffer, .{});
-            try txn.set(hash_buffer[0..16], hash_buffer[16..32]);
+            std.mem.writeIntBig(u32, &seed, i);
+            std.crypto.hash.Blake3.hash(&seed, &hash_buffer, .{});
+            try txn.set(hash_buffer[0..8], hash_buffer[8..16]);
         }
 
         try txn.commit();
     }
 
-    try env.flush();
-    return env;
+    try tree.env.flush();
 }

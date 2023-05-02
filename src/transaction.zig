@@ -23,12 +23,20 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
     const SkipListCursor = @import("skip_list_cursor.zig").SkipListCursor(K, Q);
     const Header = @import("header.zig").Header(K, Q);
     const Logger = @import("logger.zig").Logger;
+    const NodeList = @import("node_list.zig").NodeList(K, Q);
     const BufferPool = @import("buffer_pool.zig").BufferPool;
 
     return struct {
         const Self = @This();
         pub const Mode = enum { ReadOnly, ReadWrite };
-        pub const Options = struct { mode: Mode, dbi: ?[*:0]const u8 = null, log: ?std.fs.File.Writer = null };
+        pub const Effects = struct { create: usize = 0, update: usize = 0, delete: usize = 0, height: u8 = 0 };
+        pub const Options = struct {
+            mode: Mode,
+            dbi: ?[*:0]const u8 = null,
+            log: ?std.fs.File.Writer = null,
+            trace: ?*NodeList = null,
+            effects: ?*Effects = null,
+        };
 
         allocator: std.mem.Allocator,
         is_open: bool = false,
@@ -41,6 +49,8 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         pool: BufferPool,
         new_siblings: std.ArrayList(?[]const u8),
         logger: Logger,
+        trace: ?*NodeList,
+        effects: ?*Effects,
 
         pub fn open(allocator: std.mem.Allocator, tree: *const Tree, options: Options) !Self {
             var transaction: Self = undefined;
@@ -70,14 +80,16 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
 
                 try self.cursor.init(allocator, txn);
 
-                self.is_open = true;
                 self.allocator = allocator;
+                self.is_open = true;
                 self.txn = txn;
                 self.pool = BufferPool.init(allocator);
                 self.key_buffer = std.ArrayList(u8).init(allocator);
                 self.value_buffer = std.ArrayList(u8).init(allocator);
                 self.new_siblings = std.ArrayList(?[]const u8).init(allocator);
                 self.logger = Logger.init(allocator, options.log);
+                self.trace = options.trace;
+                self.effects = options.effects;
             }
         }
 
@@ -140,6 +152,9 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         }
 
         fn apply(self: *Self, operation: Operation) !void {
+            if (self.trace) |trace| trace.reset();
+            if (self.effects) |effects| effects.* = Effects{};
+
             const root = try self.cursor.goToRoot();
             try self.log("height: {d}", .{root.level});
 
@@ -186,6 +201,8 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                     try self.deleteNode(root_level, null);
                 }
             }
+
+            if (self.effects) |effects| effects.height = root_level + 1;
         }
 
         fn applyLeaf(self: *Self, first_child: ?[]const u8, operation: Operation) !Result {
@@ -352,6 +369,8 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
             // delete the entry and move to the previous child
             _ = try self.cursor.goToNode(level, target);
             try self.cursor.deleteCurrentNode();
+            if (self.effects) |effects| effects.delete += 1;
+
             while (try self.cursor.goToPrevious(level)) |previous_child| {
                 if (previous_child.key) |previous_child_key| {
                     if (try self.getNode(level - 1, previous_child_key)) |previous_grand_child| {
@@ -361,6 +380,7 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                     }
 
                     try self.cursor.deleteCurrentNode();
+                    if (self.effects) |effects| effects.delete += 1;
                 } else {
                     return null;
                 }
@@ -447,6 +467,15 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
 
         fn setNode(self: *Self, node: Node) !void {
             try self.setKey(node.level, node.key);
+
+            if (self.effects) |effects| {
+                if (try self.txn.get(self.key_buffer.items)) |_| {
+                    effects.update += 1;
+                } else {
+                    effects.create += 1;
+                }
+            }
+
             if (node.value) |value| {
                 if (node.level != 0) {
                     return error.InternalError;
@@ -464,10 +493,13 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                 std.mem.copy(u8, self.value_buffer.items, node.hash);
             }
 
+            if (self.trace) |trace| try trace.append(node);
+
             try self.txn.set(self.key_buffer.items, self.value_buffer.items);
         }
 
         fn deleteNode(self: *Self, level: u8, key: ?[]const u8) !void {
+            if (self.effects) |effects| effects.delete += 1;
             try self.setKey(level, key);
             try self.txn.delete(self.key_buffer.items);
         }
@@ -475,5 +507,54 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
         fn log(self: *Self, comptime format: []const u8, args: anytype) !void {
             try self.logger.print(format, args);
         }
+
+        // pub const Stat = struct { height: u8, node_count: usize, leaf_count: usize, degree: f32 };
+        // pub fn stat(self: *Self) !Stat {
+        //     const root = try self.cursor.goToRoot();
+        //     if (root.level == 0) {
+        //         return .{ .height = 1, .node_count = 1, .leaf_count = 1, .degree = 0 };
+        //     }
+
+        //     var result = Stat{ .height = root.level + 1, .node_count = 1, .leaf_count = 0, .degree = 0 };
+        //     try self.statNode(root, &result);
+        //     result.degree = @intToFloat(f32, result.node_count - 1) / @intToFloat(f32, result.node_count - result.leaf_count);
+        //     return result;
+        // }
+
+        // fn statNode(self: *Self, node: Node, result: *Stat) !void {
+        //     assert(node.level > 0);
+        //     if (node.level == 1) {
+        //         var i: usize = 1;
+        //         _ = try self.cursor.goToNode(0, node.key);
+        //         while (try self.cursor.goToNext(0)) |next_leaf| {
+        //             if (next_leaf.isSplit()) {
+        //                 break;
+        //             } else {
+        //                 i += 1;
+        //             }
+        //         }
+
+        //         result.node_count += i;
+        //         result.leaf_count += i;
+        //     } else {
+        //         var node_list = NodeList.init(self.allocator);
+        //         defer node_list.deinit();
+
+        //         const first_child = try self.cursor.goToNode(node.level - 1, node.key);
+        //         try node_list.append(first_child);
+
+        //         while (try self.cursor.goToNext(node.level - 1)) |next_child| {
+        //             if (next_child.isSplit()) {
+        //                 break;
+        //             } else {
+        //                 try node_list.append(next_child);
+        //             }
+        //         }
+
+        //         result.node_count += node_list.nodes.items.len;
+
+        //         for (node_list.nodes.items) |child| try self.statNode(child, result);
+        //     }
+        // }
     };
 }

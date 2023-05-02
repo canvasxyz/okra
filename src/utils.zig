@@ -1,5 +1,6 @@
 const std = @import("std");
 const expectEqual = std.testing.expectEqual;
+const expectEqualSlices = std.testing.expectEqualSlices;
 const Blake3 = std.crypto.hash.Blake3;
 const hex = std.fmt.fmtSliceHexLower;
 
@@ -69,12 +70,7 @@ test "key equality" {
     try expectEqual(equal(null, null), true);
 }
 
-fn formatKey(
-    key: ?[]const u8,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn formatKey(key: ?[]const u8, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     const charset = "0123456789abcdef";
 
     _ = fmt;
@@ -95,34 +91,14 @@ pub fn fmtKey(key: ?[]const u8) std.fmt.Formatter(formatKey) {
     return .{ .data = key };
 }
 
-// fn formatSliceHexImpl(comptime case: Case) type {
-//     const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
-
-//     return struct {
-//         pub fn formatSliceHexImpl(
-//             bytes: []const u8,
-//             comptime fmt: []const u8,
-//             options: std.fmt.FormatOptions,
-//             writer: anytype,
-//         ) !void {
-//             _ = fmt;
-//             _ = options;
-//             var buf: [2]u8 = undefined;
-
-//             for (bytes) |c| {
-//                 buf[0] = charset[c >> 4];
-//                 buf[1] = charset[c & 15];
-//                 try writer.writeAll(&buf);
-//             }
-//         }
-//     };
-// }
-
-// const formatSliceHexLower = formatSliceHexImpl(.lower).formatSliceHexImpl;
-// const formatSliceHexUpper = formatSliceHexImpl(.upper).formatSliceHexImpl;
-
-// /// Return a Formatter for a []const u8 where every byte is formatted as a pair
-// /// of lowercase hexadecimal digits.
-// pub fn fmtSliceHexLower(bytes: []const u8) std.fmt.Formatter(formatSliceHexLower) {
-//     return .{ .data = bytes };
-// }
+pub fn expectEqualKeys(actual: ?[]const u8, expected: ?[]const u8) !void {
+    if (actual) |actual_bytes| {
+        if (expected) |expected_bytes| {
+            try expectEqualSlices(u8, actual_bytes, expected_bytes);
+        } else {
+            return error.TestExpectedEqualKeys;
+        }
+    } else if (expected != null) {
+        return error.TestExpectedEqualKeys;
+    }
+}

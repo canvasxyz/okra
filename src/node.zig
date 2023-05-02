@@ -1,8 +1,10 @@
 const std = @import("std");
 const expectEqual = std.testing.expectEqual;
+const expectEqualSlices = std.testing.expectEqualSlices;
 
 const lmdb = @import("lmdb");
 const utils = @import("utils.zig");
+const expectEqualKeys = utils.expectEqualKeys;
 
 pub fn Node(comptime K: u32, comptime Q: u8) type {
     return struct {
@@ -11,7 +13,7 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
         level: u8,
         key: ?[]const u8,
         hash: *const [K]u8,
-        value: ?[]const u8,
+        value: ?[]const u8 = null,
 
         pub fn isSplit(self: Self) bool {
             const limit: comptime_int = (1 << 32) / @intCast(u33, Q);
@@ -22,6 +24,22 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
             return self.level == other.level and
                 utils.equal(self.key, other.key) and
                 std.mem.eql(u8, self.hash, other.hash);
+        }
+
+        pub fn expectEqualNodes(actual: ?Self, expected: ?Self) !void {
+            if (actual) |actual_node| {
+                if (expected) |expected_node| {
+                    try expectEqual(actual_node.level, expected_node.level);
+                    try expectEqualKeys(actual_node.key, expected_node.key);
+                    try expectEqualSlices(u8, actual_node.hash, expected_node.hash);
+                } else {
+                    return error.UnexpectedNode;
+                }
+            } else {
+                if (expected != null) {
+                    return error.ExpectedNode;
+                }
+            }
         }
 
         pub fn parse(key: []const u8, value: []const u8) !Self {

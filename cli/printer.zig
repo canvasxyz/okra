@@ -1,23 +1,30 @@
 const std = @import("std");
-const okra = @import("okra");
 const hex = std.fmt.fmtSliceHexLower;
 
+const okra = @import("okra");
 const utils = @import("utils.zig");
 
 pub const Printer = struct {
+    allocator: std.mem.Allocator,
     cursor: okra.Cursor,
     writer: std.fs.File.Writer,
     encoding: utils.Encoding,
     prefix: std.ArrayList(u8),
+    trace: ?*okra.NodeList,
+    is_a_tty: bool,
 
-    pub fn init(allocator: std.mem.Allocator, txn: okra.Transaction, encoding: utils.Encoding) !Printer {
+    pub fn init(allocator: std.mem.Allocator, txn: okra.Transaction, encoding: utils.Encoding, trace: ?*okra.NodeList) !Printer {
         var cursor = try okra.Cursor.open(allocator, &txn);
-        const writer = std.io.getStdOut().writer();
+        const stdout = std.io.getStdOut();
+
         return .{
+            .allocator = allocator,
             .cursor = cursor,
-            .writer = writer,
+            .writer = stdout.writer(),
+            .is_a_tty = std.os.isatty(stdout.handle),
             .encoding = encoding,
             .prefix = std.ArrayList(u8).init(allocator),
+            .trace = trace,
         };
     }
 
@@ -26,58 +33,91 @@ pub const Printer = struct {
         self.prefix.deinit();
     }
 
-    pub fn printRoot(self: *Printer, pad: u8, depth: ?u8) !void {
+    pub fn printRoot(self: *Printer, height: ?u8, depth: ?u8) !void {
+        const root = try self.cursor.goToRoot();
+
+        var pad: u8 = 0;
+        if (height) |h| {
+            if (root.level < h) {
+                pad = h - root.level;
+            }
+        }
+
         try self.prefix.resize(0);
+
         var i: u8 = 0;
         while (i < pad) : (i += 1) {
             try self.prefix.appendSlice(last_indentation_unit);
         }
 
-        try self.writer.print("{s}", .{self.prefix.items});
+        _ = try self.writer.write("\n");
+        _ = try self.writer.write(self.prefix.items);
 
-        const root = try self.cursor.goToRoot();
+        const len = if (depth) |d| d else root.level;
+
+        // var len: u8 = root.level;
+        // if (depth) |d| d else root.level
+
+        i = 0;
+        while (i < len + 1) : (i += 1) {
+            try self.writer.print("│  level {d: <3}", .{root.level - i});
+        }
+
+        _ = try self.writer.write("│ key\n");
+        _ = try self.writer.write(self.prefix.items);
+
+        i = 0;
+        while (i < len + 1) : (i += 1) {
+            try self.writer.print("{s}", .{header_indentation_unit});
+        }
+
+        _ = try self.writer.write("┼──────\n");
+        _ = try self.writer.write(self.prefix.items);
+
         try self.indentLast();
-        try self.printTree(root, null, if (depth) |value| value else root.level, "──");
+        try self.printTree(root, null, len, "──");
     }
 
     fn printTree(self: *Printer, node: okra.Node, limit: ?[]const u8, depth: u8, bullet: []const u8) !void {
+        try self.writer.print("{s}", .{bullet});
+        try self.printHash(node.hash);
         if (node.level == 0 or depth == 0) {
-            try self.writer.print("{s} {s} │ ", .{ bullet, hex(node.hash[0..hash_size]) });
             try self.printKey(node.key);
         } else {
-            try self.writer.print("{s} {s} ", .{ bullet, hex(node.hash[0..hash_size]) });
-
-            const children = try okra.NodeList.init(&self.cursor, node.level, node.key, limit);
+            var children = okra.NodeList.init(self.allocator);
             defer children.deinit();
+
+            {
+                const first_child = try self.cursor.goToNode(node.level - 1, node.key);
+                try children.append(first_child);
+                while (try self.cursor.goToNext(node.level - 1)) |next_child| {
+                    if (limit) |limit_key|
+                        if (next_child.key) |next_child_key|
+                            if (!std.mem.lessThan(u8, next_child_key, limit_key))
+                                break;
+
+                    try children.append(next_child);
+                }
+            }
+
             const last_index = children.nodes.items.len - 1;
 
             for (children.nodes.items) |child, i| {
-                if (i == last_index) {
-                    if (i > 0) {
-                        try self.writer.print("{s}", .{self.prefix.items});
-                    }
+                if (i > 0) {
+                    try self.writer.print("{s}", .{self.prefix.items});
+                }
 
+                if (i == last_index) {
                     try self.indentLast();
                     defer self.dedentLast();
-                    try self.printTree(
-                        child,
-                        children.getLimit(i, limit),
-                        depth - 1,
-                        if (i == 0) "──" else "└─",
-                    );
-                } else {
-                    if (i > 0) {
-                        try self.writer.print("{s}", .{self.prefix.items});
-                    }
 
+                    try self.printTree(child, limit, depth - 1, if (i == 0) "──" else "└─");
+                } else {
                     try self.indent();
                     defer self.dedent();
-                    try self.printTree(
-                        child,
-                        children.getLimit(i, limit),
-                        depth - 1,
-                        if (i == 0) "┬─" else "├─",
-                    );
+
+                    const next_limit = children.nodes.items[i + 1].key;
+                    try self.printTree(child, next_limit, depth - 1, if (i == 0) "┬─" else "├─");
                 }
             }
         }
@@ -86,6 +126,7 @@ pub const Printer = struct {
     const hash_size = 4;
     const indentation_unit = "│   " ++ "  " ** hash_size;
     const last_indentation_unit = "    " ++ "  " ** hash_size;
+    const header_indentation_unit = "┴───" ++ "──" ** hash_size;
 
     fn indent(self: *Printer) !void {
         try self.prefix.appendSlice(indentation_unit);
@@ -110,11 +151,36 @@ pub const Printer = struct {
     fn printKey(self: *const Printer, key: ?[]const u8) !void {
         if (key) |bytes| {
             switch (self.encoding) {
-                .hex => try self.writer.print("{s}\n", .{hex(bytes)}),
-                .utf8 => try self.writer.print("{s}\n", .{bytes}),
+                .hex => try self.writer.print("│ {s}\n", .{hex(bytes)}),
+                .utf8 => try self.writer.print("│ {s}\n", .{bytes}),
             }
         } else {
-            try self.writer.print("\n", .{});
+            try self.writer.print("│\n", .{});
+        }
+    }
+
+    fn printHash(self: *const Printer, hash: *const [okra.K]u8) !void {
+        if (self.trace) |trace| {
+            for (trace.nodes.items) |node| {
+                if (std.mem.eql(u8, node.hash, hash)) {
+                    try self.printColor(color_highlight);
+                    try self.writer.print(" {s} ", .{hex(hash[0..hash_size])});
+                    try self.printColor(color_clear);
+                    return;
+                }
+            }
+        }
+
+        try self.writer.print(" {s} ", .{hex(hash[0..hash_size])});
+    }
+
+    const color_clear = "0";
+    const color_highlight = "33;1";
+
+    fn printColor(self: *const Printer, color: []const u8) !void {
+        if (self.is_a_tty) {
+            // try std.fmt.format(self.writer, )
+            try self.writer.print("{c}[{s}m", .{ 0x1b, color });
         }
     }
 };

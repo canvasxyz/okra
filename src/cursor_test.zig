@@ -19,22 +19,6 @@ fn h(value: *const [32]u8) [16]u8 {
     return buffer;
 }
 
-fn expectEqualKeys(expected: ?[]const u8, actual: ?[]const u8) !void {
-    if (expected == null) {
-        try expectEqual(expected, actual);
-    } else {
-        try expect(actual != null);
-        try expectEqualSlices(u8, expected.?, actual.?);
-    }
-}
-
-fn expectEqualNode(level: u8, key: ?[]const u8, hash: *const [32]u8, value: ?[]const u8, node: Node) !void {
-    try expectEqual(level, node.level);
-    try expectEqualKeys(key, node.key);
-    try expectEqualSlices(u8, &h(hash), node.hash);
-    try expectEqualKeys(value, node.value);
-}
-
 test "Cursor(a, b, c)" {
     const allocator = std.heap.c_allocator;
 
@@ -68,14 +52,25 @@ test "Cursor(a, b, c)" {
     var cursor = try Cursor.open(allocator, &txn);
     defer cursor.close();
 
-    const root = try cursor.goToRoot();
-    try expectEqualNode(2, null, "2453a3811e50851b4fc0bb95e1415b07", null, root);
-    try expectEqual(@as(?Node, null), try cursor.goToNext(2));
+    try Node.expectEqualNodes(.{
+        .level = 2,
+        .key = null,
+        .hash = &h("2453a3811e50851b4fc0bb95e1415b07"),
+    }, try cursor.goToRoot());
+    try Node.expectEqualNodes(null, try cursor.goToNext(2));
 
-    try expectEqualNode(1, null, "6c5483c477697c881f6b03dc23a52c7f", null, try cursor.goToNode(1, null));
+    try Node.expectEqualNodes(.{
+        .level = 1,
+        .key = null,
+        .hash = &h("6c5483c477697c881f6b03dc23a52c7f"),
+    }, try cursor.goToNode(1, null));
 
     try if (try cursor.goToNext(1)) |node| {
-        try expectEqualNode(1, "a", "d139f1b3444bc84fd46cbd56f7fe2fb5", null, node);
+        try Node.expectEqualNodes(.{
+            .level = 1,
+            .key = "a",
+            .hash = &h("d139f1b3444bc84fd46cbd56f7fe2fb5"),
+        }, node);
     } else error.NotFound;
 
     try expectEqual(@as(?Node, null), try cursor.goToNext(1));

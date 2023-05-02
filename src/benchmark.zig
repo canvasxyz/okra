@@ -83,47 +83,47 @@ var random = prng.random();
 fn ReadEntry(comptime size: u32) type {
     return struct {
         pub fn run(tree: *const Tree) !void {
-            var txn = try Transaction.open(allocator, tree, .{ .read_only = true });
+            var txn = try Transaction.open(allocator, tree, .{ .mode = .ReadOnly });
             defer txn.abort();
 
-            var i_buffer: [4]u8 = undefined;
-            var hash_buffer: [32]u8 = undefined;
-            std.mem.writeIntBig(u32, &i_buffer, random.uintLessThan(u32, size));
-            std.crypto.hash.Blake3.hash(&i_buffer, &hash_buffer, .{});
-            if (try txn.get(hash_buffer[0..16])) |value| {
-                std.debug.assert(std.mem.eql(u8, value, hash_buffer[16..32]));
+            var seed: [4]u8 = undefined;
+            var hash_buffer: [16]u8 = undefined;
+            std.mem.writeIntBig(u32, &seed, random.uintLessThan(u32, size));
+            std.crypto.hash.Blake3.hash(&seed, &hash_buffer, .{});
+            if (try txn.get(hash_buffer[0..8])) |value| {
+                std.debug.assert(std.mem.eql(u8, value, hash_buffer[8..16]));
             }
         }
     };
 }
 
 fn iterateOverEntries(tree: *const Tree) !void {
-    const txn = try lmdb.Transaction.open(tree.env, .{ .read_only = true });
+    var txn = try Transaction.open(tree, .{ .mode = .ReadOnly });
     defer txn.abort();
 
-    var cursor = try Cursor.open(allocator, txn);
+    var cursor = try Cursor.open(allocator, &txn);
     defer cursor.close();
 
     _ = try cursor.goToNode(0, null);
     while (try cursor.goToNext(0)) |entry| {
-        std.debug.assert(entry.key.?.len == 16);
-        std.debug.assert(entry.value.?.len == 16);
+        std.debug.assert(entry.key.?.len == 8);
+        std.debug.assert(entry.value.?.len == 8);
     }
 }
 
 fn SetEntries(comptime initial_size: u32, comptime count: u32) type {
     return struct {
         pub fn run(tree: *const Tree) !void {
-            var txn = try Transaction.open(allocator, tree, .{ .read_only = false });
+            var txn = try Transaction.open(allocator, tree, .{ .mode = .ReadWrite });
             errdefer txn.abort();
 
             var i: u32 = initial_size;
-            var i_buffer: [4]u8 = undefined;
-            var hash_buffer: [32]u8 = undefined;
+            var seed: [4]u8 = undefined;
+            var hash_buffer: [16]u8 = undefined;
             while (i < initial_size + count) : (i += 1) {
-                std.mem.writeIntBig(u32, &i_buffer, i);
-                std.crypto.hash.Blake3.hash(&i_buffer, &hash_buffer, .{});
-                try txn.set(hash_buffer[0..16], hash_buffer[16..32]);
+                std.mem.writeIntBig(u32, &seed, i);
+                std.crypto.hash.Blake3.hash(&seed, &hash_buffer, .{});
+                try txn.set(hash_buffer[0..8], hash_buffer[8..16]);
             }
 
             try txn.commit();
@@ -177,12 +177,12 @@ fn initialize(comptime initial_entries: usize, path: [*:0]const u8) !Tree {
         errdefer builder.abort();
 
         var i: u32 = 0;
-        var i_buffer: [4]u8 = undefined;
-        var hash_buffer: [32]u8 = undefined;
+        var seed: [4]u8 = undefined;
+        var hash_buffer: [16]u8 = undefined;
         while (i < initial_entries) : (i += 1) {
-            std.mem.writeIntBig(u32, &i_buffer, i);
-            std.crypto.hash.Blake3.hash(&i_buffer, &hash_buffer, .{});
-            try builder.set(hash_buffer[0..16], hash_buffer[16..32]);
+            std.mem.writeIntBig(u32, &seed, i);
+            std.crypto.hash.Blake3.hash(&seed, &hash_buffer, .{});
+            try builder.set(hash_buffer[0..8], hash_buffer[8..16]);
         }
 
         try builder.commit();

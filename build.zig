@@ -56,12 +56,19 @@ pub fn build(b: *std.build.Builder) void {
     var transaction_test_step = b.step("test-transaction", "Run Transaction tests");
     transaction_test_step.dependOn(&transaction_tests.step);
 
-    const cursor_tests = b.addTest("src/cursor_test.zig");
-    cursor_tests.addPackage(lmdb);
-    cursor_tests.addIncludePath("libs/openldap/libraries/liblmdb");
-    cursor_tests.addCSourceFiles(lmdbSources, &.{});
-    var cursor_test_step = b.step("test-cursor", "Run cursor tests");
-    cursor_test_step.dependOn(&cursor_tests.step);
+    const iterator_tests = b.addTest("src/iterator_test.zig");
+    iterator_tests.addPackage(lmdb);
+    iterator_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    iterator_tests.addCSourceFiles(lmdbSources, &.{});
+    var iterator_test_step = b.step("test-iterator", "Run cursor tests");
+    iterator_test_step.dependOn(&iterator_tests.step);
+
+    const effects_tests = b.addTest("src/effects_test.zig");
+    effects_tests.addPackage(lmdb);
+    effects_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    effects_tests.addCSourceFiles(lmdbSources, &.{});
+    var effects_test_step = b.step("test-effects", "Run effects tests");
+    effects_test_step.dependOn(&effects_tests.step);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(lmdb_test_step);
@@ -69,7 +76,7 @@ pub fn build(b: *std.build.Builder) void {
     test_step.dependOn(header_test_step);
     test_step.dependOn(tree_test_step);
     test_step.dependOn(transaction_test_step);
-    test_step.dependOn(cursor_test_step);
+    test_step.dependOn(iterator_test_step);
 
     const lmdb_bench = b.addTest("lmdb/benchmark.zig");
     lmdb_bench.setBuildMode(std.builtin.Mode.ReleaseFast);

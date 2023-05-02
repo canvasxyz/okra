@@ -69,4 +69,16 @@ pub const Environment = struct {
             else => error.LmdbEnvironmentError,
         };
     }
+
+    pub const Stat = struct { entries: usize };
+
+    pub fn stat(self: Environment) !Stat {
+        var result: lmdb.MDB_stat = undefined;
+        try switch (lmdb.mdb_env_stat(self.ptr, &result)) {
+            0 => {},
+            else => error.LmdbEnvironmentError,
+        };
+
+        return .{ .entries = result.ms_entries };
+    }
 };

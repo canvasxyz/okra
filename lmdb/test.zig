@@ -114,6 +114,39 @@ test "set empty value" {
     }
 }
 
+test "stat" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try utils.resolvePath(tmp.dir, ".");
+
+    const env = try Environment.open(path, .{});
+    defer env.close();
+
+    {
+        const txn = try Transaction.open(env, .{ .read_only = false });
+        errdefer txn.abort();
+
+        try txn.set("a", "foo");
+        try txn.set("b", "bar");
+        try txn.set("c", "baz");
+        try txn.set("a", "aaa");
+
+        try txn.commit();
+    }
+
+    try expectEqual(Environment.Stat{ .entries = 3 }, try env.stat());
+
+    {
+        const txn = try Transaction.open(env, .{ .read_only = false });
+        errdefer txn.abort();
+        try txn.delete("c");
+        try txn.commit();
+    }
+
+    try expectEqual(Environment.Stat{ .entries = 2 }, try env.stat());
+}
+
 test "Cursor.deleteCurrentKey()" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -177,37 +210,5 @@ test "seek" {
         .{ "aa", "bar" },
         .{ "ab", "baz" },
         .{ "abb", "qux" },
-    });
-}
-
-test "Cursor.setCurrentValue()" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const path = try utils.resolvePath(tmp.dir, ".");
-    const env = try Environment.open(path, .{});
-    defer env.close();
-
-    {
-        const txn = try Transaction.open(env, .{ .read_only = false });
-        errdefer txn.abort();
-
-        try txn.set("a", "foo");
-        try txn.set("b", "bar");
-        try txn.set("c", "baz");
-        try txn.set("d", "qux");
-
-        const cursor = try Cursor.open(txn);
-        try cursor.goToKey("b");
-        try utils.expectEqualKeys(try cursor.goToNext(), "c");
-        try cursor.setCurrentValue("ooo");
-        try txn.commit();
-    }
-
-    try utils.expectEqualEntries(env, &.{
-        .{ "a", "foo" },
-        .{ "b", "bar" },
-        .{ "c", "ooo" },
-        .{ "d", "qux" },
     });
 }

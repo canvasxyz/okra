@@ -115,31 +115,6 @@ pub fn SkipListCursor(comptime K: u8, comptime Q: u32) type {
             return try Node.parse(entry.key, entry.value);
         }
 
-        pub fn setCurrentNode(self: *Self, hash: *const [K]u8, value: ?[]const u8) !void {
-            const key = try self.cursor.getCurrentKey();
-            if (key.len == 0) {
-                return error.InvalidDatabase;
-            }
-
-            if (value) |bytes| {
-                if (key[0] > 0 or key.len == 1) {
-                    return error.InvalidValue;
-                }
-
-                try self.buffer.resize(K + bytes.len);
-                std.mem.copy(u8, self.buffer.items[0..K], hash);
-                std.mem.copy(u8, self.buffer.items[K..], bytes);
-
-                try self.cursor.setCurrentValue(self.buffer.items);
-            } else {
-                if (key[0] == 0 and key.len > 1) {
-                    return error.InvalidValue;
-                }
-
-                try self.cursor.setCurrentValue(hash);
-            }
-        }
-
         pub fn deleteCurrentNode(self: *Self) !void {
             try self.cursor.deleteCurrentKey();
         }

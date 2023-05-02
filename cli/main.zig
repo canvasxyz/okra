@@ -53,7 +53,7 @@ var encodingOption = cli.Option{
     .long_name = "encoding",
     .short_alias = 'e',
     .help = "\"utf-8\" or \"hex\" (default \"utf-8\")",
-    .value = cli.OptionValue{ .string = "utf-8" },
+    .value = cli.OptionValue{ .string = "hex" },
     .required = false,
 };
 
@@ -65,11 +65,19 @@ var depthOption = cli.Option{
     .required = false,
 };
 
-var padOption = cli.Option{
-    .long_name = "pad",
-    .short_alias = 'p',
+var heightOption = cli.Option{
+    .long_name = "height",
+    .short_alias = 'h',
     .help = "align to fixed height",
-    .value = cli.OptionValue{ .int = 0 },
+    .value = cli.OptionValue{ .int = null },
+    .required = false,
+};
+
+var traceOption = cli.Option{
+    .long_name = "trace",
+    .short_alias = 't',
+    .help = "trace the updated hashes",
+    .value = cli.OptionValue{ .bool = false },
     .required = false,
 };
 
@@ -103,7 +111,7 @@ var app = &cli.Command{
         &cli.Command{
             .name = "tree",
             .help = "print the tree structure",
-            .options = &.{ &nameOption, &encodingOption, &levelOption, &keyOption, &depthOption, &padOption },
+            .options = &.{ &nameOption, &encodingOption, &levelOption, &keyOption, &depthOption, &heightOption },
             .action = tree,
         },
         &cli.Command{
@@ -112,12 +120,12 @@ var app = &cli.Command{
             .options = &.{ &nameOption, &iotaOption },
             .action = init,
         },
-        &cli.Command{
-            .name = "set",
-            .help = "set a key/value entry",
-            .options = &.{ &nameOption, &encodingOption, &verboseOption },
-            .action = set,
-        },
+        // &cli.Command{
+        //     .name = "stat",
+        //     .help = "print statistics for a tree",
+        //     .options = &.{&nameOption},
+        //     .action = stat,
+        // },
         &cli.Command{
             .name = "get",
             .help = "get a key/value entry",
@@ -125,9 +133,15 @@ var app = &cli.Command{
             .action = get,
         },
         &cli.Command{
+            .name = "set",
+            .help = "set a key/value entry",
+            .options = &.{ &nameOption, &encodingOption, &verboseOption, &traceOption, &depthOption, &heightOption },
+            .action = set,
+        },
+        &cli.Command{
             .name = "delete",
             .help = "delete a key/value entry",
-            .options = &.{ &nameOption, &encodingOption, &verboseOption },
+            .options = &.{ &nameOption, &encodingOption, &verboseOption, &traceOption, &depthOption, &heightOption },
             .action = delete,
         },
         &cli.Command{
@@ -288,27 +302,8 @@ fn tree(args: []const []const u8) !void {
         fail("level must be less than 255", .{});
     }
 
-    var depth: ?u8 = null;
-    if (depthOption.value.int) |value| {
-        if (value < 0) {
-            fail("depth must be a non-negative integer", .{});
-        } else if (value > 0xFF) {
-            fail("depth must be less than 256", .{});
-        } else {
-            depth = @intCast(u8, value);
-        }
-    }
-
-    var pad: u8 = 0;
-    if (padOption.value.int) |value| {
-        if (value < 0) {
-            fail("pad must be a non-negative integer", .{});
-        } else if (value > 0xFF) {
-            fail("pad must be less than 256", .{});
-        } else {
-            pad = @intCast(u8, value);
-        }
-    }
+    const height = parseHeight();
+    const depth = parseDepth();
 
     var treeOptions = okra.Tree.Options{};
     var txnOptions = okra.Transaction.Options{ .mode = .ReadOnly };
@@ -324,15 +319,45 @@ fn tree(args: []const []const u8) !void {
     }
 
     const path = try utils.resolvePath(std.fs.cwd(), args[0]);
+
     var t = try okra.Tree.open(allocator, path, treeOptions);
     defer t.close();
 
     var txn = try okra.Transaction.open(allocator, &t, txnOptions);
     defer txn.abort();
 
-    var printer = try Printer.init(allocator, txn, encoding);
+    var printer = try Printer.init(allocator, txn, encoding, null);
     defer printer.deinit();
-    try printer.printRoot(pad, depth);
+
+    try printer.printRoot(height, depth);
+}
+
+fn parseDepth() ?u8 {
+    if (depthOption.value.int) |depth| {
+        if (depth < 0) {
+            fail("depth must be a non-negative integer", .{});
+        } else if (depth > 0xFF) {
+            fail("depth must be less than 256", .{});
+        } else {
+            return @intCast(u8, depth);
+        }
+    } else {
+        return null;
+    }
+}
+
+fn parseHeight() ?u8 {
+    if (heightOption.value.int) |height| {
+        if (height < 0) {
+            fail("height must be a non-negative integer", .{});
+        } else if (height > 0xFF) {
+            fail("height must be less than 256", .{});
+        } else {
+            return @intCast(u8, height);
+        }
+    } else {
+        return null;
+    }
 }
 
 fn get(args: []const []const u8) !void {
@@ -442,8 +467,16 @@ fn set(args: []const []const u8) !void {
         },
     }
 
+    const height = parseHeight();
+    const depth = parseDepth();
+
+    var trace = okra.NodeList.init(allocator);
+
     var treeOptions = okra.Tree.Options{};
-    var txnOptions = okra.Transaction.Options{ .mode = .ReadWrite };
+    var txnOptions = okra.Transaction.Options{ .mode = .ReadWrite, .trace = null };
+    if (traceOption.value.bool) {
+        txnOptions.trace = &trace;
+    }
 
     var dbi = std.ArrayList(u8).init(allocator);
     defer dbi.deinit();
@@ -467,6 +500,13 @@ fn set(args: []const []const u8) !void {
     errdefer txn.abort();
 
     try txn.set(key_buffer.items, value_buffer.items);
+
+    if (traceOption.value.bool) {
+        var printer = try Printer.init(allocator, txn, encoding, &trace);
+        defer printer.deinit();
+        try printer.printRoot(height, depth);
+    }
+
     try txn.commit();
 }
 
@@ -499,8 +539,16 @@ fn delete(args: []const []const u8) !void {
         },
     }
 
+    const height = parseHeight();
+    const depth = parseDepth();
+
+    var trace = okra.NodeList.init(allocator);
+
     var treeOptions = okra.Tree.Options{};
-    var txnOptions = okra.Transaction.Options{ .mode = .ReadWrite };
+    var txnOptions = okra.Transaction.Options{ .mode = .ReadWrite, .trace = null };
+    if (traceOption.value.bool) {
+        txnOptions.trace = &trace;
+    }
 
     var dbi = std.ArrayList(u8).init(allocator);
     defer dbi.deinit();
@@ -524,6 +572,17 @@ fn delete(args: []const []const u8) !void {
     errdefer txn.abort();
 
     try txn.delete(key_buffer.items);
+
+    if (traceOption.value.bool) {
+        var printer = try Printer.init(allocator, txn, encoding, &trace);
+        defer printer.deinit();
+
+        var stdin = std.io.getStdIn().writer();
+        _ = try stdin.write(&.{12});
+
+        try printer.printRoot(height, depth);
+    }
+
     try txn.commit();
 }
 
@@ -537,12 +596,10 @@ fn init(args: []const []const u8) !void {
     const iota = iotaOption.value.int orelse unreachable;
     if (iota < 0) {
         fail("iota must be a non-negative integer", .{});
-    } else if (iota > 0xFFFF) {
-        fail("iota must be less than 65536", .{});
     }
 
-    var key: [2]u8 = undefined;
-    var value: [32]u8 = undefined;
+    var key: [4]u8 = undefined;
+    var value = [4]u8{ 0xff, 0xff, 0xff, 0xff };
 
     const path = try utils.resolvePath(std.fs.cwd(), args[0]);
     const env = try lmdb.Environment.open(path, .{});
@@ -552,16 +609,50 @@ fn init(args: []const []const u8) !void {
         var builder = try okra.Builder.open(allocator, env, .{});
         errdefer builder.abort();
 
-        var i: u16 = 0;
+        var i: u32 = 0;
         while (i < iota) : (i += 1) {
-            std.mem.writeIntBig(u16, &key, i);
-            Sha256.hash(&key, &value, .{});
+            std.mem.writeIntBig(u32, &key, i);
             try builder.set(&key, &value);
         }
 
         try builder.commit();
     }
 }
+
+// fn stat(args: []const []const u8) !void {
+//     if (args.len > 1) {
+//         fail("too many arguments", .{});
+//     } else if (args.len == 0) {
+//         fail("path argument required", .{});
+//     }
+
+//     const path = try utils.resolvePath(std.fs.cwd(), args[0]);
+
+//     var treeOptions = okra.Tree.Options{};
+//     var txnOptions = okra.Transaction.Options{ .mode = .ReadOnly };
+
+//     var dbi = std.ArrayList(u8).init(allocator);
+//     defer dbi.deinit();
+//     if (nameOption.value.string) |name| {
+//         try dbi.resize(name.len + 1);
+//         std.mem.copy(u8, dbi.items[0..name.len], name);
+//         dbi.items[name.len] = 0;
+//         treeOptions.dbs = &.{dbi.items[0..name.len :0]};
+//     }
+
+//     var t = try okra.Tree.open(allocator, path, treeOptions);
+//     defer t.close();
+
+//     var txn = try okra.Transaction.open(allocator, &t, txnOptions);
+//     defer txn.abort();
+
+//     const stdout = std.io.getStdOut().writer();
+//     const result = try txn.stat();
+//     try stdout.print("height:     {d}\n", .{result.height});
+//     try stdout.print("node count: {d}\n", .{result.node_count});
+//     try stdout.print("leaf count: {d}\n", .{result.leaf_count});
+//     try stdout.print("avg degree: {d:.5}\n", .{result.degree});
+// }
 
 fn hash(args: []const []const u8) !void {
     if (args.len > 2) {

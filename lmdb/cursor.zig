@@ -61,26 +61,6 @@ pub const Cursor = struct {
         };
     }
 
-    pub fn setCurrentValue(self: Cursor, value: []const u8) !void {
-        var k: lmdb.MDB_val = undefined;
-        try switch (lmdb.mdb_cursor_get(self.ptr, &k, null, lmdb.MDB_GET_CURRENT)) {
-            0 => {},
-            lmdb.MDB_NOTFOUND => error.KeyNotFound,
-            @enumToInt(std.os.E.INVAL) => error.INVAL,
-            else => error.LmdbCursorError,
-        };
-
-        var v: lmdb.MDB_val = .{ .mv_size = value.len, .mv_data = @intToPtr([*]u8, @ptrToInt(value.ptr)) };
-        try switch (lmdb.mdb_cursor_put(self.ptr, &k, &v, lmdb.MDB_CURRENT)) {
-            0 => {},
-            lmdb.MDB_MAP_FULL => error.LmdbMapFull,
-            lmdb.MDB_TXN_FULL => error.LmdbTxnFull,
-            @enumToInt(std.os.E.INVAL) => error.INVAL,
-            @enumToInt(std.os.E.ACCES) => error.ACCES,
-            else => error.LmdbCursorError,
-        };
-    }
-
     pub fn deleteCurrentKey(self: Cursor) !void {
         try switch (lmdb.mdb_cursor_del(self.ptr, 0)) {
             0 => {},
