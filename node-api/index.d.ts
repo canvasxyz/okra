@@ -1,13 +1,16 @@
 declare module "@canvas-js/okra-node" {
+	export type Key = Uint8Array | null
 	export type Node = {
 		level: number
-		key: Uint8Array | null
+		key: Key
 		hash: Uint8Array
 		value?: Uint8Array
 	}
 
+	export type Bound = { key: Key; inclusive: boolean }
+
 	export class Tree {
-		constructor(path: string, options?: { mapSize?: number, dbs?: string[] })
+		constructor(path: string, options?: { mapSize?: number; dbs?: string[] })
 
 		/**
 		 * Close the tree and free its associated resources
@@ -17,12 +20,18 @@ declare module "@canvas-js/okra-node" {
 		/**
 		 * Open a managed read-only transaction
 		 */
-		public read<R>(callback: (txn: ReadOnlyTransaction) => Promise<R> | R, options?: { dbi?: string }): Promise<R>
+		public read<R>(
+			callback: (txn: ReadOnlyTransaction) => Promise<R> | R,
+			options?: { dbi?: string }
+		): Promise<R>
 
 		/**
 		 * Open a managed read-write transaction
 		 */
-		public write<R>(callback: (txn: ReadWriteTransaction) => Promise<R> | R, options?: { dbi?: string }): Promise<R>
+		public write<R>(
+			callback: (txn: ReadWriteTransaction) => Promise<R> | R,
+			options?: { dbi?: string }
+		): Promise<R>
 	}
 
 	export interface ReadOnlyTransaction {
@@ -39,7 +48,7 @@ declare module "@canvas-js/okra-node" {
 		 * @param key node key (null for anchor nodes)
 		 * @throws if the node does not exist
 		 */
-		getNode(level: number, key: Uint8Array | null): Node
+		getNode(level: number, key: Key): Node
 
 		/**
 		 * Get the root of the internal skip-list
@@ -52,13 +61,14 @@ declare module "@canvas-js/okra-node" {
 		 * @param key node key (null for anchor nodes)
 		 * @throws if level == 0 or if the node does not exist
 		 */
-		getChildren(level: number, key: Uint8Array | null): Node[]
+		getChildren(level: number, key: Key): Node[]
 
-		/**
-		 * Get the first node at a given level whose key is
-		 * greater than or equal to the provided needle.
-		 */
-		seek(level: number, needle: Uint8Array | null): Node | null
+		nodes(
+			level: number,
+			lowerBound?: Bound | null,
+			upperBound?: Bound | null,
+			options?: { reverse?: boolean }
+		): IterableIterator<Node>
 	}
 
 	export interface ReadWriteTransaction extends ReadOnlyTransaction {

@@ -15,32 +15,53 @@ const TransactionTypeTag = c.napi_type_tag{
     .upper = 0xB5EDCA98B9F7AA6F,
 };
 
+const IteratorTypeTag = c.napi_type_tag{
+    .lower = 0x6AEB370CA49B4E70,
+    .upper = 0xB0BD8E22C5C8C8F1,
+};
+
 export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) callconv(.C) c.napi_value {
-    const treeMethods = [_]n.Method{
-        comptime n.createMethod("close", 0, treeCloseMethod),
-    };
+    // new Tree(path, options)
+    {
+        const treeMethods = [_]n.Method{
+            comptime n.createMethod("close", 0, treeCloseMethod),
+        };
 
-    n.defineClass("Tree", 2, createTree, &treeMethods, env, exports) catch return null;
+        n.defineClass("Tree", 2, createTree, &treeMethods, env, exports) catch return null;
+    }
 
-    const transactionMethods = [_]n.Method{
-        comptime n.createMethod("abort", 0, transactionAbortMethod),
-        comptime n.createMethod("commit", 0, transactionCommitMethod),
+    // new Transaction(tree, readOnly, dbi)
+    {
+        const transactionMethods = [_]n.Method{
+            comptime n.createMethod("abort", 0, transactionAbortMethod),
+            comptime n.createMethod("commit", 0, transactionCommitMethod),
 
-        comptime n.createMethod("get", 1, transactionGetMethod),
-        comptime n.createMethod("set", 2, transactionSetMethod),
-        comptime n.createMethod("delete", 1, transactionDeleteMethod),
+            comptime n.createMethod("get", 1, transactionGetMethod),
+            comptime n.createMethod("set", 2, transactionSetMethod),
+            comptime n.createMethod("delete", 1, transactionDeleteMethod),
 
-        comptime n.createMethod("getRoot", 0, transactionGetRootMethod),
-        comptime n.createMethod("getNode", 2, transactionGetNodeMethod),
-        comptime n.createMethod("getChildren", 2, transactionGetChildrenMethod),
-        comptime n.createMethod("seek", 2, transactionSeekMethod),
-    };
+            comptime n.createMethod("getRoot", 0, transactionGetRootMethod),
+            comptime n.createMethod("getNode", 2, transactionGetNodeMethod),
+            comptime n.createMethod("getChildren", 2, transactionGetChildrenMethod),
+        };
 
-    n.defineClass("Transaction", 3, createTransaction, &transactionMethods, env, exports) catch return null;
+        n.defineClass("Transaction", 3, createTransaction, &transactionMethods, env, exports) catch return null;
+    }
+
+    // new Iterator(txn, level, lowerBound, upperBound, reverse)
+    {
+        const iteratorMethods = [_]n.Method{
+            comptime n.createMethod("close", 0, iteratorCloseMethod),
+            comptime n.createMethod("next", 0, iteratorNextMethod),
+        };
+
+        n.defineClass("Iterator", 5, createIterator, &iteratorMethods, env, exports) catch return null;
+    }
+
     return exports;
 }
 
-// Tree
+// new Tree(path, options)
 
 pub fn createTree(env: c.napi_env, this: c.napi_value, args: *const [2]c.napi_value) !c.napi_value {
     const pathArg = args[0];
@@ -94,7 +115,7 @@ fn treeCloseMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_valu
     return try n.getUndefined(env);
 }
 
-// Transaction
+// new Transaction(tree, readOnly, dbi)
 
 pub fn createTransaction(env: c.napi_env, this: c.napi_value, args: *const [3]c.napi_value) !c.napi_value {
     const tree = try n.unwrap(okra.Tree, &TreeTypeTag, env, args[0]);
@@ -233,6 +254,49 @@ fn transactionSeekMethod(env: c.napi_env, this: c.napi_value, args: *const [2]c.
     }
 }
 
+// new Iterator(txn, level, lowerBound, upperBound, reverse)
+
+pub fn createIterator(env: c.napi_env, this: c.napi_value, args: *const [5]c.napi_value) !c.napi_value {
+    const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, args[0]);
+    const iterator = try allocator.create(okra.Iterator);
+
+    try iterator.init(allocator, txn, .{
+        .level = try parseLevel(env, args[1]),
+        .lower_bound = try parseBound(env, args[2]),
+        .upper_bound = try parseBound(env, args[3]),
+        .reverse = try n.parseBoolean(env, args[4]),
+    });
+
+    try n.wrap(okra.Iterator, env, this, iterator, destroyIterator, &IteratorTypeTag);
+
+    return try n.getUndefined(env);
+}
+
+pub fn destroyIterator(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
+    if (finalize_data) |ptr| {
+        const iterator = @ptrCast(*okra.Iterator, @alignCast(@alignOf(okra.Iterator), ptr));
+        iterator.close();
+        allocator.destroy(iterator);
+    }
+}
+
+fn iteratorCloseMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_value) !c.napi_value {
+    const iterator = try n.unwrap(okra.Iterator, &IteratorTypeTag, env, this);
+    iterator.close();
+    return try n.getUndefined(env);
+}
+
+fn iteratorNextMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_value) !c.napi_value {
+    const iterator = try n.unwrap(okra.Iterator, &IteratorTypeTag, env, this);
+    if (try iterator.next()) |node| {
+        return try createNode(env, node);
+    } else {
+        return try n.getNull(env);
+    }
+}
+
+// Utilities
+
 fn createNode(env: c.napi_env, node: okra.Node) !c.napi_value {
     const result = try n.createObject(env);
 
@@ -261,10 +325,10 @@ fn createNode(env: c.napi_env, node: okra.Node) !c.napi_value {
 
 fn parseLevel(env: c.napi_env, levelValue: c.napi_value) !u8 {
     const level = try n.parseUint32(env, levelValue);
-    if (level > 0xFF) {
-        return n.throwRangeError(env, "level must be less than 256");
-    } else {
+    if (level < 0xFF) {
         return @intCast(u8, level);
+    } else {
+        return n.throwRangeError(env, "level must be less than 255");
     }
 }
 
@@ -272,5 +336,23 @@ fn parseKey(env: c.napi_env, key: c.napi_value) !?[]const u8 {
     return switch (try n.typeOf(env, key)) {
         c.napi_null => null,
         else => try n.parseTypedArray(u8, env, key),
+    };
+}
+
+fn parseBound(env: c.napi_env, bound: c.napi_value) !?okra.Iterator.Bound {
+    const dbi_type = try n.typeOf(env, bound);
+    if (dbi_type == c.napi_null) {
+        return null;
+    }
+
+    const key_property = try n.createString(env, "key");
+    const key_value = try n.getProperty(env, bound, key_property);
+
+    const inclusive_property = try n.createString(env, "inclusive");
+    const inclusive_value = try n.getProperty(env, bound, inclusive_property);
+
+    return okra.Iterator.Bound{
+        .key = try parseKey(env, key_value),
+        .inclusive = try n.parseBoolean(env, inclusive_value),
     };
 }
