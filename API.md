@@ -197,7 +197,7 @@ defer txn.abort();
 
 const iterator = try allocator.create(Iterator);
 defer allocator.destroy(iterator);
-try iterator.init(allocator, &txn, .{ .level = 0 });
+try iterator.init(allocator, txn, .{ .level = 0 });
 defer iterator.close();
 
 while (try iterator.next()) |node| {
