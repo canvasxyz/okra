@@ -151,7 +151,7 @@ interface ReadOnlyTransaction {
     lowerBound?: Bound | null,
     upperBound?: Bound | null,
     options?: { reverse?: boolean }
-  ): IterableIterator<Node>
+  ): AsyncIterableIterator<Node>
 }
 
 interface ReadWriteTransaction extends ReadOnlyTransaction {

@@ -68,7 +68,7 @@ export class ReadOnlyTransaction extends okra.Transaction {
 		super(tree, true, dbi)
 	}
 
-	*nodes(level, lowerBound = null, upperBound = null, options = {}) {
+	async *nodes(level, lowerBound = null, upperBound = null, options = {}) {
 		const reverse = options.reverse ?? false
 		const iter = new okra.Iterator(this, level, lowerBound, upperBound, reverse)
 		try {
