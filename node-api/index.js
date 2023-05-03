@@ -67,8 +67,12 @@ export class Transaction extends okra.Transaction {
 	*nodes(level, lowerBound = null, upperBound = null, options = {}) {
 		const reverse = options.reverse ?? false
 		const iter = new okra.Iterator(this, level, lowerBound, upperBound, reverse)
-		for (let node = iter.next(); node !== null; node = iter.next()) {
-			yield node
+		try {
+			for (let node = iter.next(); node !== null; node = iter.next()) {
+				yield node
+			}
+		} finally {
+			iter.close()
 		}
 	}
 }

@@ -4,16 +4,7 @@ import { AbortError } from "p-queue"
 
 import { openTree } from "./utils.js"
 
-const encoder = new TextEncoder()
-const encode = (value) => encoder.encode(value)
-const fromHex = (hex) => new Uint8Array(Buffer.from(hex, "hex"))
-
 const wait = (t) => new Promise((resolve) => setTimeout(resolve, t))
-
-const result = (p) =>
-	p
-		.then((value) => ({ status: "success", value }))
-		.catch((err) => ({ status: "failure", error: err }))
 
 test("abort queued write transactions", async (t) => {
 	t.timeout(10000)

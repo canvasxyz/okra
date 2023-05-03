@@ -138,35 +138,6 @@ test("Get internal merkle tree nodes", async (t) => {
 	})
 })
 
-test("Seek to needle", async (t) => {
-	const a = {
-		level: 0,
-		key: encode("a"),
-		hash: fromHex("a0568b6bb51648ab5b2df66ca897ffa4"),
-		value: new Uint8Array([0]),
-	}
-
-	const c = {
-		level: 0,
-		key: encode("c"),
-		hash: fromHex("690b688439b13abeb843a1d7a24d0ea7"),
-		value: new Uint8Array([2]),
-	}
-
-	await openTree(async (tree) => {
-		await tree.write((txn) => {
-			txn.set(a.key, a.value)
-			txn.set(c.key, c.value)
-		})
-
-		await tree.read((txn) => {
-			t.deepEqual(txn.seek(0, encode("b")), c)
-			t.deepEqual(txn.seek(0, encode("d")), null)
-			t.deepEqual(txn.seek(1, encode("a")), null)
-		})
-	})
-})
-
 test("Named databases", async (t) => {
 	await openTree(
 		async (tree) => {

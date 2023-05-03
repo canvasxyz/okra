@@ -29,3 +29,18 @@ export async function openTree(callback, { dbs } = {}) {
 		fs.rmSync(directory, { recursive: true })
 	}
 }
+
+const encoder = new TextEncoder()
+export const encode = (text) => encoder.encode(text)
+
+export const fromHex = (hex) => new Uint8Array(Buffer.from(hex, "hex"))
+
+export const node = (level, key, hash, value) =>
+	value === undefined
+		? { level, key: key && encode(key), hash: fromHex(hash) }
+		: {
+				level,
+				key: key && encode(key),
+				hash: fromHex(hash),
+				value: encode(value),
+		  }
