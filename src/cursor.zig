@@ -6,21 +6,26 @@ const lmdb = @import("lmdb");
 pub fn Cursor(comptime K: u8, comptime Q: u32) type {
     const Header = @import("header.zig").Header(K, Q);
     const Node = @import("node.zig").Node(K, Q);
+    const NodeEncoder = @import("node_encoder.zig").NodeEncoder(K, Q);
 
     return struct {
         is_open: bool = false,
         level: u8 = 0xFF,
         cursor: lmdb.Cursor,
-        buffer: std.ArrayList(u8),
+        encoder: *NodeEncoder,
 
         const Self = @This();
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction) !void {
+        pub const Options = struct { encoder: *NodeEncoder };
+
+        pub fn init(txn: lmdb.Transaction, options: Options) !Self {
             const cursor = try lmdb.Cursor.open(txn);
-            self.is_open = true;
-            self.level = 0xFF;
-            self.cursor = cursor;
-            self.buffer = std.ArrayList(u8).init(allocator);
+            return Self{
+                .is_open = true,
+                .level = 0xFF,
+                .cursor = cursor,
+                .encoder = options.encoder,
+            };
         }
 
         pub fn close(self: *Self) void {
