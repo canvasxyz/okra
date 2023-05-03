@@ -23,10 +23,10 @@ export class Tree extends okra.Tree {
 		this.queue = new PQueue({ concurrency: 1 })
 	}
 
-	async read(callback, { dbi } = {}) {
+	async read(callback, { dbi = null } = {}) {
 		let result = undefined
 
-		const txn = new Transaction(this, true, dbi ?? null)
+		const txn = new ReadOnlyTransaction(this, { dbi })
 		try {
 			result = await callback(txn)
 		} finally {
@@ -41,7 +41,7 @@ export class Tree extends okra.Tree {
 
 		await this.queue.add(
 			async () => {
-				const txn = new Transaction(this, false, dbi ?? null)
+				const txn = new ReadWriteTransaction(this, { dbi })
 				try {
 					result = await callback(txn)
 					txn.commit()
@@ -63,7 +63,29 @@ export class Tree extends okra.Tree {
 	}
 }
 
-export class Transaction extends okra.Transaction {
+export class ReadOnlyTransaction extends okra.Transaction {
+	constructor(tree, { dbi = null } = {}) {
+		super(tree, true, dbi)
+	}
+
+	*nodes(level, lowerBound = null, upperBound = null, options = {}) {
+		const reverse = options.reverse ?? false
+		const iter = new okra.Iterator(this, level, lowerBound, upperBound, reverse)
+		try {
+			for (let node = iter.next(); node !== null; node = iter.next()) {
+				yield node
+			}
+		} finally {
+			iter.close()
+		}
+	}
+}
+
+export class ReadWriteTransaction extends okra.Transaction {
+	constructor(tree, { dbi = null } = {}) {
+		super(tree, false, dbi)
+	}
+
 	*nodes(level, lowerBound = null, upperBound = null, options = {}) {
 		const reverse = options.reverse ?? false
 		const iter = new okra.Iterator(this, level, lowerBound, upperBound, reverse)

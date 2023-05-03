@@ -1,5 +1,6 @@
 declare module "@canvas-js/okra-node" {
 	export type Key = Uint8Array | null
+
 	export type Node = {
 		level: number
 		key: Key
@@ -34,7 +35,12 @@ declare module "@canvas-js/okra-node" {
 		): Promise<R>
 	}
 
-	export interface ReadOnlyTransaction {
+	interface ReadOnlyTransaction {
+		/**
+		 * Abort the transaction
+		 */
+		abort(): void
+
 		/**
 		 * Get the value of an entry
 		 * @param {Uint8Array} key
@@ -71,7 +77,12 @@ declare module "@canvas-js/okra-node" {
 		): IterableIterator<Node>
 	}
 
-	export interface ReadWriteTransaction extends ReadOnlyTransaction {
+	interface ReadWriteTransaction extends ReadOnlyTransaction {
+		/**
+		 * Commit the transaction
+		 */
+		commit(): void
+
 		/**
 		 * Set a key/value entry
 		 * @param {Uint8Array} key
@@ -87,4 +98,8 @@ declare module "@canvas-js/okra-node" {
 		 */
 		delete(key: Uint8Array): void
 	}
+
+	export class ReadOnlyTransaction implements ReadOnlyTransaction {}
+
+	export class ReadWriteTransaction implements ReadWriteTransaction {}
 }
