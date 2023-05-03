@@ -92,14 +92,14 @@ class Tree {
   public close(): void
 
   /**
-	 * Open a manageded read-only transaction
-	 */
-	public read<R>(callback: (txn: ReadOnlyTransaction) => Promise<R> | R): Promise<R>
+   * Open a manageded read-only transaction
+   */
+  public read<R>(callback: (txn: ReadOnlyTransaction) => Promise<R> | R): Promise<R>
 
-	/**
-	 * Open a manageded read-write transaction
-	 */
-	public write<R>(callback: (txn: ReadWriteTransaction) => Promise<R> | R): Promise<R>
+  /**
+   * Open a manageded read-write transaction
+   */
+  public write<R>(callback: (txn: ReadWriteTransaction) => Promise<R> | R): Promise<R>
 }
 ```
 
