@@ -173,8 +173,12 @@ var tree = try Tree.open(allocator, "/path/to/okra.db", .{});
 var txn = try Transaction.open(allocator, &tree, .{ .read_only = true });
 defer txn.abort();
 
-var iterator = try Iterator.open(allocator, &txn);
+var iterator = try Iterator.open(allocator, &txn, .{ .level = 0 });
 defer iterator.close();
+
+while (try iterator.next()) |node| {
+    // ...
+}
 ```
 
 ... or the heap:
@@ -193,8 +197,12 @@ defer txn.abort();
 
 const iterator = try allocator.create(Iterator);
 defer allocator.destroy(iterator);
-try iterator.init(allocator, txn);
+try iterator.init(allocator, &txn, .{ .level = 0 });
 defer iterator.close();
+
+while (try iterator.next()) |node| {
+    // ...
+}
 ```
 
 Iterators must be closed before their parent transaction is aborted or committed. The iterator yields a `Node`, whose fields `key`, `hash`, and `value` are only valid until the next yield.
