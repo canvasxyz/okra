@@ -199,16 +199,16 @@ fn transactionGetNodeMethod(env: c.napi_env, this: c.napi_value, args: *const [2
     const level = try parseLevel(env, args[0]);
     const key = try parseKey(env, args[1]);
 
-    const node = try txn.cursor.goToNode(level, key);
-
-    return try createNode(env, node);
+    if (try txn.getNode(level, key)) |node| {
+        return try createNode(env, node);
+    } else {
+        return try n.getNull(env);
+    }
 }
 
 fn transactionGetRootMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_value) !c.napi_value {
     const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
-
-    const root = try txn.cursor.goToRoot();
-
+    const root = try txn.getRoot();
     return try createNode(env, root);
 }
 
@@ -239,19 +239,6 @@ fn transactionGetChildrenMethod(env: c.napi_env, this: c.napi_value, args: *cons
     }
 
     return try n.wrapArray(env, children.items);
-}
-
-fn transactionSeekMethod(env: c.napi_env, this: c.napi_value, args: *const [2]c.napi_value) !c.napi_value {
-    const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
-
-    const level = try parseLevel(env, args[0]);
-    const key = try parseKey(env, args[1]);
-
-    if (try txn.cursor.seek(level, key)) |node| {
-        return try createNode(env, node);
-    } else {
-        return try n.getNull(env);
-    }
 }
 
 // new Iterator(txn, level, lowerBound, upperBound, reverse)
