@@ -49,6 +49,17 @@ pub fn Iterator(comptime K: u8, comptime Q: u32) type {
             try self.reset(range);
         }
 
+        pub fn close(self: *Self) void {
+            if (self.is_open) {
+                self.is_open = false;
+                self.is_live = false;
+                self.is_done = true;
+                self.cursor.close();
+                self.lower_bound.deinit();
+                self.upper_bound.deinit();
+            }
+        }
+
         pub fn reset(self: *Self, range: Range) !void {
             if (self.is_open) {
                 self.is_live = false;
@@ -71,17 +82,6 @@ pub fn Iterator(comptime K: u8, comptime Q: u32) type {
                     try Self.copy(&self.upper_bound, range.level + 1, null);
                     self.upper_bound_inclusive = false;
                 }
-            }
-        }
-
-        pub fn close(self: *Self) void {
-            if (self.is_open) {
-                self.is_open = false;
-                self.is_live = false;
-                self.is_done = true;
-                self.cursor.close();
-                self.lower_bound.deinit();
-                self.upper_bound.deinit();
             }
         }
 

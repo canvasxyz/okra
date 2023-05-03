@@ -4,10 +4,10 @@
 
 - [Tree](#tree)
 - [Transaction](#transaction)
-- [Cursor](#cursor)
+- [Iterator](#iterator)
 
 
-The three basic classes are `Tree`, `Transaction`, and `Cursor`. Internally, all three are generic structs parametrized by two comptime values `K: u8` and `Q: u32`:
+The three basic classes are `Tree`, `Transaction`, and `Iterator`. Internally, all three are generic structs parametrized by two comptime values `K: u8` and `Q: u32`:
 
 - `K` is the size **in bytes** of the internal Blake3 hash digests.
 - `Q` is the target fanout degree. Nodes in a tree will have, on average, `Q` children.
@@ -16,7 +16,7 @@ Concrete structs are exported from [src/lib.zig](src/lib.zig) with the default v
 
 Trees and transactions form a classical key/value store interface. You can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries.
 
-A cursor can be used to move around the nodes of the tree itself, which includes the leaves, the intermediate-level nodes, and the root node.
+An iterator can be used to iterate over ranges of merkle nodes in the tree itself. Ranges are always on a single level of the tree, and have optional upper/lower inclusive/exclusive key bounds.
 
 ## Tree
 
@@ -65,10 +65,11 @@ pub const Node = struct {
 
     pub fn isBoundary(self: Node) bool
     pub fn equal(self: Node, other: Node) bool
+    pub fn parse(key: []const u8, value: []const u8) !Node
 };
 ```
 
-Some transaction and cursor methods return `Node` structs, which represent internal nodes of the merkle tree. Leaf nodes have level `0`. `node.key` is `null` for anchor nodes. `node.value` is null if `node.knodesey == null` or `node.level > 0` (anchor or non-leaf nodes), and points to the value of the leaf entry if `node.key != null` and `node.level == 0` (non-anchor leaf nodes).
+Some transaction and iterator methods return `Node` structs, which represent internal nodes of the merkle tree. Leaf nodes have level `0`. `node.key` is `null` for anchor nodes. `node.value` is null if `node.knodesey == null` or `node.level > 0` (anchor or non-leaf nodes), and points to the value of the leaf entry if `node.key != null` and `node.level == 0` (non-anchor leaf nodes).
 
 ## Transaction
 
@@ -85,6 +86,9 @@ const Transaction = struct {
     pub fn get(self: *Transaction, key: []const u8) !?[]const u8
     pub fn set(self: *Transaction, key: []const u8, value: []const u8) !void
     pub fn delete(self: *Transaction, key: []const u8) !void
+
+    pub fn getRoot(self: *Transaction) !Node
+    pub fn getNode(self: *Transaction, level: u8, key: ?[]const u8) !?Node
 }
 ```
 
@@ -140,31 +144,37 @@ const value = try txn.get("foo");
 
 If the environment was opened with a positive `options.max_dbs`, you can open a transaction inside an isolated named database by passing an `Options.dbi: [*:0]const u8` name.
 
-## Cursor
+## Iterator
 
 ```zig
-pub const Cursor = struct {
-    pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction) !Cursor
-    pub fn init(self: *Cursor, allocator: std.mem.Allocator, txn: lmdb.Transaction) !void
-    pub fn close(self: *Cursor) void
+pub const Iterator = struct {
+    pub const Bound = struct { key: ?[]const u8, inclusive: bool };
+    pub const Range = struct {
+        level: u8 = 0,
+        lower_bound: ?Bound = null,
+        upper_bound: ?Bound = null,
+        reverse: bool = false,
+    };
 
-    pub fn goToRoot(self: *Cursor) !Node
-    pub fn goToNode(self: *Cursor, level: u8, key: ?[]const u8) !Node
-    pub fn goToNext(self: *Cursor) !?Node
-    pub fn goToPrevious(self: *Cursor) !?Node
-    pub fn seek(self: *Cursor, level: u8, key: ?[]const u8) !?Node
+    pub fn open(allocator: std.mem.Allocator, txn: *const Transaction, range: Range) !Iterator
+    pub fn init(self: *Iterator, allocator: std.mem.Allocator, txn: *const Transaction, range: Range) !void
+
+    pub fn close(self: *Iterator) void
+    pub fn reset(self: *Iterator, range: Range) !void
+
+    pub fn next(self: *Self) !?Node
 }
 ```
 
-Just like trees and transactions, cursors can be allocated on the stack:
+Just like trees and transactions, iterators can be allocated on the stack:
 
 ```zig
 var tree = try Tree.open(allocator, "/path/to/okra.db", .{});
 var txn = try Transaction.open(allocator, &tree, .{ .read_only = true });
 defer txn.abort();
 
-var cursor = try Cursor.open(allocator, &txn);
-defer cursor.close();
+var iterator = try Iterator.open(allocator, &txn);
+defer iterator.close();
 ```
 
 ... or the heap:
@@ -181,10 +191,10 @@ defer allocator.destroy(txn);
 try txn.init(allocator, tree, .{ .read_only = false });
 defer txn.abort();
 
-const cursor = try allocator.create(Cursor);
-defer allocator.destroy(cursor);
-try cursor.init(allocator, txn);
-defer cursor.close();
+const iterator = try allocator.create(Iterator);
+defer allocator.destroy(iterator);
+try iterator.init(allocator, txn);
+defer iterator.close();
 ```
 
-Cursors must be closed before their parent transaction is aborted or committed. Cursor operations return a `Node`, whose fields `key`, `hash`, and `value` are **only valid until the next cursor operation**.
+Iterators must be closed before their parent transaction is aborted or committed. The iterator yields a `Node`, whose fields `key`, `hash`, and `value` are only valid until the next yield.
