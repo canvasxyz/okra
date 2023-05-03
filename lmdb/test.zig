@@ -212,3 +212,35 @@ test "seek" {
         .{ "abb", "qux" },
     });
 }
+
+test "parent transactions" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try utils.resolvePath(tmp.dir, ".");
+    const env = try Environment.open(path, .{});
+    defer env.close();
+
+    const parentTxn = try Transaction.open(env, .{ .read_only = false });
+    defer parentTxn.abort();
+
+    try parentTxn.set("a", "foo");
+    try parentTxn.set("b", "bar");
+    try parentTxn.set("c", "baz");
+
+    {
+        const childTxn = try Transaction.open(env, .{ .read_only = false, .parent = parentTxn });
+        try childTxn.delete("c");
+        try childTxn.commit();
+    }
+
+    try expectEqual(@as(?[]const u8, null), try parentTxn.get("c"));
+
+    {
+        const childTxn = try Transaction.open(env, .{ .read_only = false, .parent = parentTxn });
+        try childTxn.set("c", "baz");
+        childTxn.abort();
+    }
+
+    try expectEqual(@as(?[]const u8, null), try parentTxn.get("c"));
+}

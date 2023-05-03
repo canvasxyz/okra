@@ -40,7 +40,7 @@ pub const Environment = struct {
             else => error.LmdbEnvironmentError,
         };
 
-        const flags: u32 = lmdb.MDB_WRITEMAP | lmdb.MDB_NOTLS;
+        const flags: u32 = lmdb.MDB_NOTLS;
 
         errdefer lmdb.mdb_env_close(env.ptr);
         try switch (lmdb.mdb_env_open(env.ptr, path, flags, options.mode)) {

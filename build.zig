@@ -78,20 +78,24 @@ pub fn build(b: *std.build.Builder) void {
     test_step.dependOn(transaction_test_step);
     test_step.dependOn(iterator_test_step);
 
-    const lmdb_bench = b.addTest("lmdb/benchmark.zig");
-    lmdb_bench.setBuildMode(std.builtin.Mode.ReleaseFast);
+    // Benchmarks
+
+    const lmdb_bench = b.addTest("benchmarks/lmdb.zig");
+    lmdb_bench.setBuildMode(std.builtin.Mode.Debug);
+    lmdb_bench.addPackage(lmdb);
     lmdb_bench.addIncludePath("libs/openldap/libraries/liblmdb");
     lmdb_bench.addCSourceFiles(lmdbSources, &.{});
     var lmdb_bench_step = b.step("bench-lmdb", "Run LMDB benchmarks");
     lmdb_bench_step.dependOn(&lmdb_bench.step);
 
-    const bench = b.addTest("src/benchmark.zig");
-    bench.setBuildMode(std.builtin.Mode.ReleaseFast);
-    bench.addPackage(lmdb);
-    bench.addIncludePath("libs/openldap/libraries/liblmdb");
-    bench.addCSourceFiles(lmdbSources, &.{});
-    var bench_step = b.step("bench", "Run benchmarks");
-    bench_step.dependOn(&bench.step);
+    const okra_bench = b.addTest("benchmarks/okra.zig");
+    okra_bench.setBuildMode(std.builtin.Mode.Debug);
+    okra_bench.addPackage(lmdb);
+    okra_bench.addPackage(okra);
+    okra_bench.addIncludePath("libs/openldap/libraries/liblmdb");
+    okra_bench.addCSourceFiles(lmdbSources, &.{});
+    var okra_bench_step = b.step("bench-okra", "Run Okra benchmarks");
+    okra_bench_step.dependOn(&okra_bench.step);
 }
 
 const lmdb = std.build.Pkg{

@@ -5,7 +5,11 @@ const Environment = @import("environment.zig").Environment;
 const lmdb = @import("lmdb.zig");
 
 pub const Transaction = struct {
-    pub const Options = struct { read_only: bool = true, dbi: ?[*:0]const u8 = null };
+    pub const Options = struct {
+        read_only: bool = true,
+        dbi: ?[*:0]const u8 = null,
+        parent: ?Transaction = null,
+    };
 
     ptr: ?*lmdb.MDB_txn,
     dbi: lmdb.MDB_dbi,
@@ -14,8 +18,17 @@ pub const Transaction = struct {
         var txn = Transaction{ .ptr = null, .dbi = 0 };
 
         {
-            const flags: c_uint = if (options.read_only) lmdb.MDB_RDONLY else 0;
-            try switch (lmdb.mdb_txn_begin(env.ptr, null, flags, &txn.ptr)) {
+            var flags: c_uint = 0;
+            if (options.read_only) {
+                flags |= lmdb.MDB_RDONLY;
+            }
+
+            var parentPtr: ?*lmdb.MDB_txn = null;
+            if (options.parent) |parent| {
+                parentPtr = parent.ptr;
+            }
+
+            try switch (lmdb.mdb_txn_begin(env.ptr, parentPtr, flags, &txn.ptr)) {
                 0 => {},
                 @enumToInt(std.os.E.ACCES) => error.ACCES,
                 @enumToInt(std.os.E.NOMEM) => error.NOMEM,
