@@ -1,5 +1,7 @@
 # @canvas-js/okra-node
 
+[![NPM version](https://img.shields.io/npm/v/@canvas-js/okra-node)](https://www.npmjs.com/package/@canvas-js/okra-node) ![TypeScript types](https://img.shields.io/npm/types/@canvas-js/okra-node)
+
 Native NodeJS bindings for Okra over LMDB.
 
 ## Table of Contents
@@ -65,7 +67,7 @@ tree.close()
 
 The two basic classes are `Tree` and `Transaction`. Trees and transactions form a classical key/value store interface: you can open a tree, use the tree to open read-only or read-write transactions, and use the transaction to get, set, and delete key/value entries.
 
-Transactions also have `getRoot`, `getNode`, and `getChildren` methods and a `nodes` iterator to access the internal merkle tree. These methods return `Node` objects. `node.key === null` for anchor nodes, and `node.value === undefined` if `level > 0 || key === null`.
+Transactions also have `getRoot`, `getNode`, and `getChildren` methods and an async `nodes` iterator to access the internal merkle tree. These methods return `Node` objects. `node.key === null` for anchor nodes, and `node.value === undefined` if `level > 0 || key === null`.
 
 ```ts
 type Key = Uint8Array | null
@@ -107,7 +109,7 @@ LMDB has optional support for multiple [named databases](http://www.lmdb.tech/do
 
 ### Transaction
 
-Transactions are opened as either the `ReadOnlyTransaction` or `ReadWriteTransaction` subclass. Only one read-write transaction can be open at a time.
+The easiest way to open trasactions is using the managed `read` and `write` methods on the `Tree`. However, they can also be opened manually using the `ReadOnlyTransaction` and `ReadWriteTransaction` class constructors. If you manage transactions yourself, you must only try to open read-write transaction at a time. The `Tree` uses an internal `PQueue` with `{ concurrency: 1 }` to enforce this for transactions opened with `tree.write(...)`.
 
 ```ts
 export type Bound = { key: Key; inclusive: boolean }
@@ -180,3 +182,7 @@ export class ReadOnlyTransaction implements ReadOnlyTransaction {}
 
 export class ReadWriteTransaction implements ReadWriteTransaction {}
 ```
+
+## License
+
+MIT © 2023 Canvas Technologies, Inc.
