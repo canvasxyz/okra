@@ -8,9 +8,9 @@ d88' `88b  888 .8P'   `888""8P `P  )88b
 `Y8bod8P' o888o o888o d888b    `Y888""8o  
 ```
 
-okra is a _deterministic pseudo-random merkle tree_. This repo has two compatible implementations: `@canvas-js/okra-node` in Zig, built on LMDB and packaged as a native NodeJS module, and `@canvas-js/okra-browser` in pure JavaScript, built on IndexedDB and the Web Locks API.
+Okra is a Prolly Tree written in Zig and built on top of LMDB.
 
-You can use okra as a persistent key/value store. Internally, it has a special skip list structure that **enables a new class of efficient p2p syncing algorithms**. For example, if you have a peer-to-peer network in which peers publish CRDT operations but occasionally go offline and miss operations, two peers can use okra to **quickly identify missing operations** without relying on any type of consensus, ordering, vector clocks, etc. This is fast even if the database of operations is extremely large and the differences are buried deep in the past.
+You can use Okra as a persistent key/value store. Internally, it has a special merkle tree structure that **enables a new class of efficient p2p syncing algorithms**. For example, if you have a peer-to-peer network in which peers publish CRDT operations but occasionally go offline and miss operations, two peers can use okra to quickly identify missing operations without relying on version vectors.
 
 ## Table of Contents
 
@@ -23,11 +23,11 @@ You can use okra as a persistent key/value store. Internally, it has a special s
 
 ## Usage
 
-The internal Zig structs are documented in [API.md](API.md). The NodeJS bindings are documented in [okra-node/README.md](./okra-node/), and the JavaScript/IndexedDB implementation is documented in [okra-browser/README.md](./okra-browser/).
+The internal Zig structs are documented in [API.md](API.md) and the NodeJS bindings are documented in [node-api/README.md](./node-api/).
 
 ## Design
 
-okra is a [merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) whose leaves are key/value entries sorted lexicographically by key. It has three crucial properties:
+okra is a Prolly Tree whose leaves are key/value entries sorted lexicographically by key. It has three crucial properties:
 
 1. deterministic: two trees have the same root hash if and only if they comprise the same set of leaf entries, independent of insertion order
 2. pseudorandom: the number of children per node varies, but the expected degree is a constant and can be configured by the user
@@ -85,7 +85,7 @@ In practice, the tree is incrementally maintained and is not re-built from the g
 
 The tree is stored in an LMDB database where nodes are _LMDB_ key/value entries with keys prefixed by a `level: u8` byte and values prefixed by the entry's `[K]u8` hash. For anchor nodes, the level byte is the entire key, and for non-leaf `level > 0` nodes, the hash is the entire value. The key `[1]u8{0xFF}` is reserved as a metadata entry for storing the database version and compile-time constants. This gives the tree a maximum height of 254. In practice, with the default fanout degree of 32, the tree will rarely be taller than 5 (millions of entries) or 6 (billions of entries) levels.
 
-okra has no external concept of versioning or time-travel. LMDB is copy-on-write, and open transactions retain a consistent view of a snapshot of the database, but the old pages are garbage-collected once the last transaction referencing them is closed. When we talk about "comparing two merkle roots", we mean two separate database instances (e.g. on different machines), not two local revisions of the same database.
+Okra has no external concept of versioning or time-travel. LMDB is copy-on-write, and open transactions retain a consistent view of a snapshot of the database, but the old pages are garbage-collected once the last transaction referencing them is closed. When we talk about "comparing two merkle roots", we mean two separate database instances (e.g. on different machines), not two local revisions of the same database.
 
 ## Tests
 
