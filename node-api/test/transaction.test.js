@@ -62,7 +62,7 @@ test("Call .set in a read-only transaction", async (t) => {
 					txn.set(encode("a"), encode("foo"))
 				})
 			},
-			{ message: "ACCES" }
+			{ message: "LmdbTransactionBeginError" }
 		)
 	})
 })

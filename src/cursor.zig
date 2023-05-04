@@ -12,26 +12,28 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         is_open: bool = false,
         level: u8 = 0xFF,
         cursor: lmdb.Cursor,
-        encoder: *NodeEncoder,
+        encoder: NodeEncoder,
 
         const Self = @This();
 
-        pub const Options = struct { encoder: *NodeEncoder };
+        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction) !Self {
+            var self: Self = undefined;
+            try self.init(allocator, txn);
+            return self;
+        }
 
-        pub fn init(txn: lmdb.Transaction, options: Options) !Self {
+        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction) !void {
             const cursor = try lmdb.Cursor.open(txn);
-            return Self{
-                .is_open = true,
-                .level = 0xFF,
-                .cursor = cursor,
-                .encoder = options.encoder,
-            };
+            self.is_open = true;
+            self.level = 0xFF;
+            self.cursor = cursor;
+            self.encoder = NodeEncoder.init(allocator);
         }
 
         pub fn close(self: *Self) void {
             if (self.is_open) {
                 self.is_open = false;
-                self.buffer.deinit();
+                self.encoder.deinit();
                 self.cursor.close();
             }
         }
@@ -52,8 +54,8 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
             errdefer self.level = 0xFF;
             self.level = level;
 
-            try self.copyKey(level, key);
-            try self.cursor.goToKey(self.buffer.items);
+            const k = try self.encoder.encodeKey(level, key);
+            try self.cursor.goToKey(k);
             return try self.getCurrentNode();
         }
 
@@ -94,8 +96,8 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn seek(self: *Self, level: u8, key: ?[]const u8) !?Node {
-            try self.copyKey(level, key);
-            if (try self.cursor.seek(self.buffer.items)) |k| {
+            const entry_key = try self.encoder.encodeKey(level, key);
+            if (try self.cursor.seek(entry_key)) |k| {
                 if (k.len == 0) {
                     return error.InvalidDatabase;
                 } else if (k[0] == level) {

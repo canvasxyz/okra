@@ -34,48 +34,55 @@ test("Iterate over range", async (t) => {
 			}
 		})
 
-		await tree.read((txn) => {
-			t.deepEqual([...txn.nodes(0)], levels[0])
-			t.deepEqual([...txn.nodes(1)], levels[1])
-			t.deepEqual([...txn.nodes(2)], [])
+		await tree.read(async (txn) => {
+			t.deepEqual(await collect(txn.nodes(0)), levels[0])
+			t.deepEqual(await collect(txn.nodes(1)), levels[1])
+			t.deepEqual(await collect(txn.nodes(2)), [])
 
 			t.deepEqual(
-				[...txn.nodes(0, { key: null, inclusive: true }, null)],
+				await collect(txn.nodes(0, { key: null, inclusive: true }, null)),
 				levels[0]
 			)
 			t.deepEqual(
-				[...txn.nodes(0, { key: null, inclusive: false }, null)],
+				await collect(txn.nodes(0, { key: null, inclusive: false }, null)),
 				levels[0].slice(1)
 			)
 			t.deepEqual(
-				[
-					...txn.nodes(
+				await collect(
+					txn.nodes(
 						0,
 						{ key: encode("a"), inclusive: false },
 						{ key: encode("c"), inclusive: false }
-					),
-				],
+					)
+				),
 				levels[0].slice(2, 3)
 			)
 			t.deepEqual(
-				[
-					...txn.nodes(
+				await collect(
+					txn.nodes(
 						0,
 						{ key: encode("a"), inclusive: false },
 						{ key: encode("c"), inclusive: false },
 						{ reverse: true }
-					),
-				],
+					)
+				),
 				levels[0].slice(2, 3).reverse()
 			)
 			t.deepEqual(
-				[
-					...txn.nodes(0, { key: null, inclusive: false }, null, {
-						reverse: true,
-					}),
-				],
+				await collect(
+					txn.nodes(0, { key: null, inclusive: false }, null, { reverse: true })
+				),
 				levels[0].slice(1).reverse()
 			)
 		})
 	})
 })
+
+async function collect(iter) {
+	const values = []
+	for await (const value of iter) {
+		values.push(value)
+	}
+
+	return values
+}

@@ -218,40 +218,42 @@ test "open a named database" {
     defer tmp.cleanup();
 
     const path = try utils.resolvePath(tmp.dir, ".");
-    const dbs: []const [*:0]const u8 = &.{ "a", "b" };
+    const dbs: []const [*:0]const u8 = &.{ "x", "y" };
 
     var tree = try Tree.open(allocator, path, .{ .dbs = dbs });
     defer tree.close();
 
     {
-        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .dbi = "a" });
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .dbi = "x" });
         errdefer txn.abort();
-        try txn.set("x", "foo");
+        try txn.set("a", "foo");
+        try txn.set("b", "bar");
+        try txn.set("c", "baz");
         try txn.commit();
     }
 
     {
-        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .dbi = "b" });
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .dbi = "y" });
         errdefer txn.abort();
-        try txn.set("x", "bar");
+        try txn.set("a", "ooo");
         try txn.commit();
     }
 
     {
-        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadOnly, .dbi = "a" });
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadOnly, .dbi = "x" });
         defer txn.abort();
-        try if (try txn.get("x")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
+        try if (try txn.get("a")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
     }
 
     {
-        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadOnly, .dbi = "b" });
+        var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadOnly, .dbi = "y" });
         defer txn.abort();
-        try if (try txn.get("x")) |value| expectEqualSlices(u8, "bar", value) else error.KeyNotFound;
+        try if (try txn.get("a")) |value| expectEqualSlices(u8, "ooo", value) else error.KeyNotFound;
     }
 
     try expectError(
         error.DatabaseNotFound,
-        Transaction.open(allocator, &tree, .{ .mode = .ReadOnly, .dbi = "c" }),
+        Transaction.open(allocator, &tree, .{ .mode = .ReadOnly, .dbi = "z" }),
     );
 }
 
