@@ -4,11 +4,11 @@ Since Okra is built on top of LMDB and exposes the same external key/value store
 
 The entries are small, with 4-byte keys (monotonically increasing u32s) and 8-byte values (the Blake3 hash of a random seed).
 
-> ℹ️ The very rough takeaway here is that, when compared to baseline LMDB performance, Okra can do about 1/2 the ops/s for reads, and between 2/3 to 1/10 the ops/s for writes, depending mostly on the size of the database and the way that transactions are batched.
+> ℹ️ The rough takeaway here is that, compared to native LMDB, Okra has similar performance for reads, similar performance for small batches of writes, and degrades quickly for large batches of writes.
+
+Another way of looking at this is that the overhead of opening and commiting a transaction dominates the cost of actually doing any work inside the transaction, even for LMDB.
 
 ## LMDB benchmarks
-
-Run the LMDB benchmarks:
 
 ```sh
 $ zig build bench-lmdb
@@ -49,8 +49,6 @@ $ zig build bench-lmdb
 
 ## Okra benchmarks
 
-Run the Okra benchmarks:
-
 ```sh
 $ zig build bench-okra
 ```
@@ -87,3 +85,4 @@ $ zig build bench-okra
 | set 1 random entry             |        100 |     0.2498 |     1.1822 |     0.3867 |   0.1168 |       2586 |
 | set 1,000 random entries       |         10 |   274.5737 |   295.4067 |   286.4128 |   5.6272 |       3491 |
 | set 50,000 random entries      |         10 | 15009.5366 | 16055.5033 | 15533.0363 | 315.5509 |       3219 |
+
