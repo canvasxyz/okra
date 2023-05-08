@@ -99,7 +99,11 @@ declare module "@canvas-js/okra-node" {
 		delete(key: Uint8Array): void
 	}
 
-	export class ReadOnlyTransaction implements ReadOnlyTransaction {}
+	export class ReadOnlyTransaction implements ReadOnlyTransaction {
+		constructor(tree: Tree, options?: { dbi?: string })
+	}
 
-	export class ReadWriteTransaction implements ReadWriteTransaction {}
+	export class ReadWriteTransaction implements ReadWriteTransaction {
+		constructor(tree: Tree, options?: { dbi?: string })
+	}
 }
