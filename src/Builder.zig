@@ -158,7 +158,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
         }
 
         fn isBoundary(value: *const [K]u8) bool {
-            const limit: comptime_int = (1 << 32) / @intCast(u33, Q);
+            const limit: comptime_int = (1 << 32) / @as(u33, @intCast(Q));
             return std.mem.readIntBig(u32, value[0..4]) < limit;
         }
 

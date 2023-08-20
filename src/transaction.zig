@@ -578,5 +578,17 @@ pub fn Transaction(comptime K: u8, comptime Q: u32) type {
                 return null;
             }
         }
+
+        pub fn getUserdata(self: *Self) !?[]const u8 {
+            return try self.txn.get(&Header.USERDATA_KEY);
+        }
+
+        pub fn setUserdata(self: *Self, userdata: ?[]const u8) !void {
+            if (userdata) |value| {
+                try self.txn.set(&Header.USERDATA_KEY, value);
+            } else {
+                try self.txn.delete(&Header.USERDATA_KEY);
+            }
+        }
     };
 }

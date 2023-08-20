@@ -57,7 +57,7 @@ pub fn defineClass(
     exports: c.napi_value,
 ) Error!void {
     var properties: [methods.len]c.napi_property_descriptor = undefined;
-    for (methods) |method, i| {
+    for (methods, 0..) |method, i| {
         properties[i] = .{
             .utf8name = method.name,
             .name = null,
@@ -116,7 +116,7 @@ pub fn unwrap(comptime T: type, tag: *const c.napi_type_tag, env: c.napi_env, va
         return throwError(env, "unwraped null object");
     }
 
-    return @ptrCast(*T, @alignCast(@alignOf(T), ptr));
+    return @as(*T, @ptrCast(@alignCast(ptr)));
 }
 
 var error_message_buffer: [36]u8 = undefined;
@@ -169,7 +169,7 @@ pub fn parseBuffer(env: c.napi_env, value: c.napi_value) Error![]const u8 {
         return throwError(env, "failed to get buffer info");
     }
 
-    return @ptrCast([*]const u8, ptr)[0..length];
+    return @as([*]const u8, @ptrCast(ptr))[0..length];
 }
 
 fn getArrayType(comptime T: type) c.napi_typedarray_type {
@@ -198,7 +198,7 @@ pub fn parseTypedArray(comptime T: type, env: c.napi_env, value: c.napi_value) E
     } else if (arrayType != getArrayType(T)) {
         return throwTypeError(env, "expected a " ++ @typeName(T) ++ " array");
     } else if (ptr) |data| {
-        return @ptrCast([*]const T, data)[0..length];
+        return @as([*]const T, @ptrCast(data))[0..length];
     } else {
         return &.{};
     }
@@ -238,7 +238,7 @@ pub fn createTypedArray(comptime T: type, env: c.napi_env, value: []const T) Err
     }
 
     if (ptr) |data| {
-        const array = @ptrCast([*]T, data)[0..value.len];
+        const array = @as([*]T, @ptrCast(data))[0..value.len];
         std.mem.copy(T, array, value);
     }
 
@@ -345,8 +345,8 @@ pub fn getNull(env: c.napi_env) Error!c.napi_value {
 
 pub fn wrapArray(env: c.napi_env, elements: []c.napi_value) Error!c.napi_value {
     const result = try createArrayWithLength(env, elements.len);
-    for (elements) |element, i| {
-        try setElement(env, result, @intCast(u32, i), element);
+    for (elements, 0..) |element, i| {
+        try setElement(env, result, @as(u32, @intCast(i)), element);
     }
 
     return result;

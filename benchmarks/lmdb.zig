@@ -65,11 +65,11 @@ const Context = struct {
         var timer = try std.time.Timer.start();
 
         var operations: usize = 0;
-        for (runtimes) |*t, i| {
+        for (&runtimes, 0..) |*t, i| {
             timer.reset();
-            operations += try run(ctx, @intCast(u32, i));
+            operations += try run(ctx, @as(u32, @intCast(i)));
             try ctx.env.flush();
-            t.* = @intToFloat(f64, timer.read()) / ms;
+            t.* = @as(f64, @floatFromInt(timer.read())) / ms;
         }
 
         try utils.printRow(ctx.log, name, &runtimes, operations);

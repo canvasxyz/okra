@@ -30,13 +30,13 @@ pub const Environment = struct {
 
         try switch (lmdb.mdb_env_set_mapsize(env.ptr, options.map_size)) {
             0 => {},
-            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            @intFromEnum(std.os.E.INVAL) => error.INVAL,
             else => error.LmdbEnvironmentError,
         };
 
         try switch (lmdb.mdb_env_set_maxdbs(env.ptr, options.max_dbs)) {
             0 => {},
-            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            @intFromEnum(std.os.E.INVAL) => error.INVAL,
             else => error.LmdbEnvironmentError,
         };
 
@@ -47,9 +47,9 @@ pub const Environment = struct {
             0 => {},
             lmdb.MDB_VERSION_MISMATCH => error.LmdbEnvironmentVersionMismatch,
             lmdb.MDB_INVALID => error.LmdbCorruptDatabase,
-            @enumToInt(std.os.E.ACCES) => error.ACCES,
-            @enumToInt(std.os.E.NOENT) => error.NOENT,
-            @enumToInt(std.os.E.AGAIN) => error.AGAIN,
+            @intFromEnum(std.os.E.ACCES) => error.ACCES,
+            @intFromEnum(std.os.E.NOENT) => error.NOENT,
+            @intFromEnum(std.os.E.AGAIN) => error.AGAIN,
             else => error.LmdbEnvironmentError,
         };
 
@@ -63,9 +63,9 @@ pub const Environment = struct {
     pub fn flush(self: Environment) !void {
         try switch (lmdb.mdb_env_sync(self.ptr, 0)) {
             0 => {},
-            @enumToInt(std.os.E.INVAL) => error.INVAL,
-            @enumToInt(std.os.E.ACCES) => error.ACCES,
-            @enumToInt(std.os.E.IO) => error.IO,
+            @intFromEnum(std.os.E.INVAL) => error.INVAL,
+            @intFromEnum(std.os.E.ACCES) => error.ACCES,
+            @intFromEnum(std.os.E.IO) => error.IO,
             else => error.LmdbEnvironmentError,
         };
     }

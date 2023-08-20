@@ -285,7 +285,7 @@ fn testPseudoRandomPermutations(
     var value: [32]u8 = undefined;
 
     var name_buffer: [24]u8 = undefined;
-    for (&permutations) |permutation, p| {
+    for (&permutations, 0..) |permutation, p| {
         const reference_name = try std.fmt.bufPrint(&name_buffer, "r{d}.{x}", .{ N, p });
         try tmp.dir.makeDir(reference_name);
         const reference_path = try utils.resolvePath(tmp.dir, reference_name);
@@ -320,7 +320,7 @@ fn testPseudoRandomPermutations(
             var txn = try Transaction.open(allocator, &tree, .{ .mode = .ReadWrite, .log = log });
             errdefer txn.abort();
 
-            for (permutation) |i, j| {
+            for (permutation, 0..) |i, j| {
                 if (log) |writer|
                     try writer.print("---------- {d} ({d} / {d}) ---------\n", .{ i, j, permutation.len });
 

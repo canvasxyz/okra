@@ -38,6 +38,8 @@ test("Open and abort a read-write transaction", async (t) => {
 
 test("Open and commit a read-write transaction", async (t) => {
 	await openTree(async (tree) => {
+		await tree.write((txn) => txn.setUserdata(Buffer.from("foo")))
+
 		const root = await tree.write((txn) => {
 			txn.set(encode("a"), encode("foo"))
 			txn.set(encode("b"), encode("bar"))
@@ -56,6 +58,8 @@ test("Open and commit a read-write transaction", async (t) => {
 
 test("Call .set in a read-only transaction", async (t) => {
 	await openTree(async (tree) => {
+		await tree.write((txn) => txn.setUserdata(Buffer.from("foo")))
+
 		await t.throwsAsync(
 			async () => {
 				await tree.read((txn) => {
@@ -69,6 +73,8 @@ test("Call .set in a read-only transaction", async (t) => {
 
 test("Basic sets and deletes", async (t) => {
 	await openTree(async (tree) => {
+		await tree.write((txn) => txn.setUserdata(Buffer.from("foo")))
+
 		await tree.write((txn) => {
 			txn.set(encode("a"), encode("foo"))
 			txn.set(encode("b"), encode("bar"))

@@ -38,8 +38,8 @@ fn printRow(name: []const u8, runtimes: []const u64, operations: usize, log: std
 
     var sum_sq: u128 = 0;
     for (runtimes) |t| {
-        const d = @intCast(i64, @intCast(i128, t) - avg);
-        sum_sq += @intCast(u64, d * d);
+        const d = @as(i64, @intCast(@as(i128, @intCast(t)) - avg));
+        sum_sq += @as(u64, @intCast(d * d));
     }
 
     const std_dev = std.math.sqrt(sum_sq / runtimes.len);

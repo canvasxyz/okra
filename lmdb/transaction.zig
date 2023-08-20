@@ -30,8 +30,8 @@ pub const Transaction = struct {
 
             try switch (lmdb.mdb_txn_begin(env.ptr, parentPtr, flags, &txn.ptr)) {
                 0 => {},
-                @enumToInt(std.os.E.ACCES) => error.ACCES,
-                @enumToInt(std.os.E.NOMEM) => error.NOMEM,
+                @intFromEnum(std.os.E.ACCES) => error.ACCES,
+                @intFromEnum(std.os.E.NOMEM) => error.NOMEM,
                 lmdb.MDB_PANIC => error.LmdbPanic,
                 lmdb.MDB_BAD_TXN => error.LmdbInvalidTransaction,
                 lmdb.MDB_MAP_RESIZED => error.LmdbMapResized,
@@ -57,10 +57,10 @@ pub const Transaction = struct {
     pub fn commit(self: Transaction) !void {
         try switch (lmdb.mdb_txn_commit(self.ptr)) {
             0 => {},
-            @enumToInt(std.os.E.INVAL) => error.INVAL,
-            @enumToInt(std.os.E.NOSPC) => error.NOSPC,
-            @enumToInt(std.os.E.IO) => error.IO,
-            @enumToInt(std.os.E.NOMEM) => error.NOMEM,
+            @intFromEnum(std.os.E.INVAL) => error.INVAL,
+            @intFromEnum(std.os.E.NOSPC) => error.NOSPC,
+            @intFromEnum(std.os.E.IO) => error.IO,
+            @intFromEnum(std.os.E.NOMEM) => error.NOMEM,
             else => error.LmdbTransactionCommitError,
         };
     }
@@ -70,36 +70,36 @@ pub const Transaction = struct {
     }
 
     pub fn get(self: Transaction, key: []const u8) !?[]const u8 {
-        var k: lmdb.MDB_val = .{ .mv_size = key.len, .mv_data = @intToPtr([*]u8, @ptrToInt(key.ptr)) };
+        var k: lmdb.MDB_val = .{ .mv_size = key.len, .mv_data = @as([*]u8, @ptrFromInt(@intFromPtr(key.ptr))) };
         var v: lmdb.MDB_val = .{ .mv_size = 0, .mv_data = null };
         return switch (lmdb.mdb_get(self.ptr, self.dbi, &k, &v)) {
-            0 => @ptrCast([*]u8, v.mv_data)[0..v.mv_size],
+            0 => @as([*]u8, @ptrCast(v.mv_data))[0..v.mv_size],
             lmdb.MDB_NOTFOUND => null,
-            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            @intFromEnum(std.os.E.INVAL) => error.INVAL,
             else => error.LmdbTransactionGetError,
         };
     }
 
     pub fn set(self: Transaction, key: []const u8, value: []const u8) !void {
-        var k: lmdb.MDB_val = .{ .mv_size = key.len, .mv_data = @intToPtr([*]u8, @ptrToInt(key.ptr)) };
-        var v: lmdb.MDB_val = .{ .mv_size = value.len, .mv_data = @intToPtr([*]u8, @ptrToInt(value.ptr)) };
+        var k: lmdb.MDB_val = .{ .mv_size = key.len, .mv_data = @as([*]u8, @ptrFromInt(@intFromPtr(key.ptr))) };
+        var v: lmdb.MDB_val = .{ .mv_size = value.len, .mv_data = @as([*]u8, @ptrFromInt(@intFromPtr(value.ptr))) };
         try switch (lmdb.mdb_put(self.ptr, self.dbi, &k, &v, 0)) {
             0 => {},
             lmdb.MDB_MAP_FULL => error.LmdbMapFull,
             lmdb.MDB_TXN_FULL => error.LmdbTxnFull,
-            @enumToInt(std.os.E.ACCES) => error.ACCES,
-            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            @intFromEnum(std.os.E.ACCES) => error.ACCES,
+            @intFromEnum(std.os.E.INVAL) => error.INVAL,
             else => error.LmdbTransactionSetError,
         };
     }
 
     pub fn delete(self: Transaction, key: []const u8) !void {
-        var k: lmdb.MDB_val = .{ .mv_size = key.len, .mv_data = @intToPtr([*]u8, @ptrToInt(key.ptr)) };
+        var k: lmdb.MDB_val = .{ .mv_size = key.len, .mv_data = @as([*]u8, @ptrFromInt(@intFromPtr(key.ptr))) };
         try switch (lmdb.mdb_del(self.ptr, self.dbi, &k, null)) {
             0 => {},
             lmdb.MDB_NOTFOUND => error.KeyNotFound,
-            @enumToInt(std.os.E.ACCES) => error.ACCES,
-            @enumToInt(std.os.E.INVAL) => error.INVAL,
+            @intFromEnum(std.os.E.ACCES) => error.ACCES,
+            @intFromEnum(std.os.E.INVAL) => error.INVAL,
             else => error.LmdbTransactionDeleteError,
         };
     }

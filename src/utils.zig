@@ -21,10 +21,10 @@ pub fn printEntries(env: lmdb.Environment, writer: std.fs.File.Writer) !void {
 pub fn hashEntry(key: []const u8, value: []const u8, result: []u8) void {
     var digest = Blake3.init(.{});
     var size: [4]u8 = undefined;
-    std.mem.writeIntBig(u32, &size, @intCast(u32, key.len));
+    std.mem.writeIntBig(u32, &size, @as(u32, @intCast(key.len)));
     digest.update(&size);
     digest.update(key);
-    std.mem.writeIntBig(u32, &size, @intCast(u32, value.len));
+    std.mem.writeIntBig(u32, &size, @as(u32, @intCast(value.len)));
     digest.update(&size);
     digest.update(value);
     digest.final(result);
@@ -34,7 +34,7 @@ var path_buffer: [4096]u8 = undefined;
 pub fn resolvePath(dir: std.fs.Dir, name: []const u8) ![*:0]const u8 {
     const path = try dir.realpath(name, &path_buffer);
     path_buffer[path.len] = 0;
-    return @ptrCast([*:0]const u8, path_buffer[0..path.len]);
+    return @as([*:0]const u8, @ptrCast(path_buffer[0..path.len]));
 }
 
 pub fn lessThan(a: ?[]const u8, b: ?[]const u8) bool {

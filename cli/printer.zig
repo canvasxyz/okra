@@ -100,7 +100,7 @@ pub const Printer = struct {
 
             const last_index = children.nodes.items.len - 1;
 
-            for (children.nodes.items) |child, i| {
+            for (children.nodes.items, 0..) |child, i| {
                 if (i > 0) {
                     try self.writer.print("{s}", .{self.prefix.items});
                 }

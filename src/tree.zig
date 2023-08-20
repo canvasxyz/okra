@@ -35,7 +35,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             self.allocator = allocator;
             self.env = try lmdb.Environment.open(path, .{
                 .map_size = options.map_size,
-                .max_dbs = if (options.dbs) |dbs| @intCast(u32, dbs.len) else 0,
+                .max_dbs = if (options.dbs) |dbs| @as(u32, @intCast(dbs.len)) else 0,
             });
 
             self.is_open = true;

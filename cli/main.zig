@@ -229,7 +229,7 @@ fn ls(args: []const []const u8) !void {
     var txn = try okra.Transaction.open(allocator, &t, .{ .mode = .ReadOnly });
     defer txn.abort();
 
-    const root = if (level == -1) try txn.getRoot() else try getNode(&txn, @intCast(u8, level), key_buffer.items);
+    const root = if (level == -1) try txn.getRoot() else try getNode(&txn, @intCast(level), key_buffer.items);
 
     try stdout.print("level | {s: <32} | key\n", .{"hash"});
     try stdout.print("----- | {s:-<32} | {s:-<32}\n", .{ "", "" });
@@ -258,7 +258,7 @@ fn ls(args: []const []const u8) !void {
 }
 
 fn getNode(txn: *okra.Transaction, level: u8, key: ?[]const u8) !okra.Node {
-    return try txn.getNode(@intCast(u8, level), key) orelse fail("node not found", .{});
+    return try txn.getNode(@as(u8, @intCast(level)), key) orelse fail("node not found", .{});
 }
 
 fn printNode(writer: std.fs.File.Writer, node: okra.Node, encoding: utils.Encoding) !void {
@@ -348,7 +348,7 @@ fn parseDepth() ?u8 {
         } else if (depth > 0xFF) {
             fail("depth must be less than 256", .{});
         } else {
-            return @intCast(u8, depth);
+            return @as(u8, @intCast(depth));
         }
     } else {
         return null;
@@ -362,7 +362,7 @@ fn parseHeight() ?u8 {
         } else if (height > 0xFF) {
             fail("height must be less than 256", .{});
         } else {
-            return @intCast(u8, height);
+            return @as(u8, @intCast(height));
         }
     } else {
         return null;

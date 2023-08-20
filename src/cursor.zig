@@ -39,11 +39,12 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn goToRoot(self: *Self) !Node {
-            try self.cursor.goToKey(&Header.HEADER_KEY);
-            if (try self.cursor.goToPrevious()) |k| {
-                if (k.len == 1) {
-                    self.level = k[0];
-                    return try self.getCurrentNode();
+            if (try self.cursor.seek(&.{Header.MAXIMUM_HEIGHT})) |_| {
+                if (try self.cursor.goToPrevious()) |k| {
+                    if (k.len == 1) {
+                        self.level = k[0];
+                        return try self.getCurrentNode();
+                    }
                 }
             }
 

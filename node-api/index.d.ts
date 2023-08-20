@@ -75,6 +75,8 @@ declare module "@canvas-js/okra-node" {
 			upperBound?: Bound | null,
 			options?: { reverse?: boolean }
 		): AsyncIterableIterator<Node>
+
+		getUserdata(): Uint8Array | null
 	}
 
 	interface ReadWriteTransaction extends ReadOnlyTransaction {
@@ -97,6 +99,8 @@ declare module "@canvas-js/okra-node" {
 		 * @throws if the transaction is read-only or if the entry does not exist
 		 */
 		delete(key: Uint8Array): void
+
+		setUserdata(userdata: Uint8Array | null): void
 	}
 
 	export class ReadOnlyTransaction implements ReadOnlyTransaction {

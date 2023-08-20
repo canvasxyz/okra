@@ -43,6 +43,9 @@ export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) callco
             comptime n.createMethod("getRoot", 0, transactionGetRootMethod),
             comptime n.createMethod("getNode", 2, transactionGetNodeMethod),
             comptime n.createMethod("getChildren", 2, transactionGetChildrenMethod),
+
+            comptime n.createMethod("getUserdata", 0, transactionGetUserdataMethod),
+            comptime n.createMethod("setUserdata", 1, transactionSetUserdataMethod),
         };
 
         n.defineClass("Transaction", 3, createTransaction, &transactionMethods, env, exports) catch return null;
@@ -104,7 +107,7 @@ pub fn createTree(env: c.napi_env, this: c.napi_value, args: *const [2]c.napi_va
 
 pub fn destroyTree(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
     if (finalize_data) |ptr| {
-        const tree = @ptrCast(*okra.Tree, @alignCast(@alignOf(okra.Tree), ptr));
+        const tree = @as(*okra.Tree, @ptrCast(@alignCast(ptr)));
         allocator.destroy(tree);
     }
 }
@@ -140,7 +143,7 @@ pub fn createTransaction(env: c.napi_env, this: c.napi_value, args: *const [3]c.
 
 pub fn destroyTransaction(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
     if (finalize_data) |ptr| {
-        const txn = @ptrCast(*okra.Transaction, @alignCast(@alignOf(okra.Transaction), ptr));
+        const txn = @as(*okra.Transaction, @ptrCast(@alignCast(ptr)));
         if (txn.is_open) {
             txn.abort();
         }
@@ -241,6 +244,24 @@ fn transactionGetChildrenMethod(env: c.napi_env, this: c.napi_value, args: *cons
     return try n.wrapArray(env, children.items);
 }
 
+fn transactionGetUserdataMethod(env: c.napi_env, this: c.napi_value, _: *const [0]c.napi_value) !c.napi_value {
+    const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
+
+    if (try txn.getUserdata()) |userdata| {
+        return try n.createTypedArray(u8, env, userdata);
+    } else {
+        return try n.getNull(env);
+    }
+}
+
+fn transactionSetUserdataMethod(env: c.napi_env, this: c.napi_value, args: *const [1]c.napi_value) !c.napi_value {
+    const txn = try n.unwrap(okra.Transaction, &TransactionTypeTag, env, this);
+
+    const userdata = try parseKey(env, args[0]);
+    try txn.setUserdata(userdata);
+    return n.getUndefined(env);
+}
+
 // new Iterator(txn, level, lowerBound, upperBound, reverse)
 
 pub fn createIterator(env: c.napi_env, this: c.napi_value, args: *const [5]c.napi_value) !c.napi_value {
@@ -261,7 +282,7 @@ pub fn createIterator(env: c.napi_env, this: c.napi_value, args: *const [5]c.nap
 
 pub fn destroyIterator(_: c.napi_env, finalize_data: ?*anyopaque, _: ?*anyopaque) callconv(.C) void {
     if (finalize_data) |ptr| {
-        const iterator = @ptrCast(*okra.Iterator, @alignCast(@alignOf(okra.Iterator), ptr));
+        const iterator = @as(*okra.Iterator, @ptrCast(@alignCast(ptr)));
         iterator.close();
         allocator.destroy(iterator);
     }
@@ -313,7 +334,7 @@ fn createNode(env: c.napi_env, node: okra.Node) !c.napi_value {
 fn parseLevel(env: c.napi_env, levelValue: c.napi_value) !u8 {
     const level = try n.parseUint32(env, levelValue);
     if (level < 0xFF) {
-        return @intCast(u8, level);
+        return @as(u8, @intCast(level));
     } else {
         return n.throwRangeError(env, "level must be less than 255");
     }

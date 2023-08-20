@@ -16,7 +16,7 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
         value: ?[]const u8 = null,
 
         pub inline fn isBoundaryHash(hash: *const [K]u8) bool {
-            const limit: comptime_int = (1 << 32) / @intCast(u33, Q);
+            const limit: comptime_int = (1 << 32) / @as(u33, @intCast(Q));
             return std.mem.readIntBig(u32, hash[0..4]) < limit;
         }
 
