@@ -56,7 +56,8 @@ pub fn build(b: *std.build.Builder) void {
     // cli.addPackage(lmdb);
     // cli.addPackage(okra);
 
-    cli.addIncludePath("./libs/openldap/libraries/liblmdb");
+    cli.addIncludePath(.{ .path = "./libs/openldap/libraries/liblmdb" });
+    // cli.addIncludePath("./libs/openldap/libraries/liblmdb");
     cli.addCSourceFiles(&lmdb_source_files, &.{});
     cli.linkLibC();
     b.installArtifact(cli);
@@ -64,7 +65,8 @@ pub fn build(b: *std.build.Builder) void {
 
     // Tests
     const lmdb_tests = b.addTest(.{ .root_source_file = FileSource.relative("lmdb/test.zig") });
-    lmdb_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    // lmdb_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    lmdb_tests.addIncludePath(.{ .path = "./libs/openldap/libraries/liblmdb" });
     lmdb_tests.addCSourceFiles(&lmdb_source_files, &.{});
     const run_lmdb_tests = b.addRunArtifact(lmdb_tests);
 
@@ -73,7 +75,8 @@ pub fn build(b: *std.build.Builder) void {
 
     const builder_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/builder_test.zig") });
     builder_tests.addModule("lmdb", lmdb);
-    builder_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    // builder_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    builder_tests.addIncludePath(.{ .path = "./libs/openldap/libraries/liblmdb" });
     builder_tests.addCSourceFiles(&lmdb_source_files, &.{});
     const run_builder_tests = b.addRunArtifact(builder_tests);
 
@@ -82,7 +85,8 @@ pub fn build(b: *std.build.Builder) void {
 
     const header_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/header_test.zig") });
     header_tests.addModule("lmdb", lmdb);
-    header_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    // header_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    header_tests.addIncludePath(.{ .path = "libs/openldap/libraries/liblmdb" });
     header_tests.addCSourceFiles(&lmdb_source_files, &.{});
     const run_header_tests = b.addRunArtifact(header_tests);
 
@@ -91,7 +95,8 @@ pub fn build(b: *std.build.Builder) void {
 
     const tree_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/tree_test.zig") });
     tree_tests.addModule("lmdb", lmdb);
-    tree_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    // tree_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    tree_tests.addIncludePath(.{ .path = "libs/openldap/libraries/liblmdb" });
     tree_tests.addCSourceFiles(&lmdb_source_files, &.{});
     const run_tree_tests = b.addRunArtifact(tree_tests);
 
@@ -100,7 +105,8 @@ pub fn build(b: *std.build.Builder) void {
 
     const transaction_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/transaction_test.zig") });
     transaction_tests.addModule("lmdb", lmdb);
-    transaction_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    // transaction_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    transaction_tests.addIncludePath(.{ .path = "libs/openldap/libraries/liblmdb" });
     transaction_tests.addCSourceFiles(&lmdb_source_files, &.{});
     const run_transaction_tests = b.addRunArtifact(transaction_tests);
 
@@ -109,7 +115,8 @@ pub fn build(b: *std.build.Builder) void {
 
     const iterator_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/iterator_test.zig") });
     iterator_tests.addModule("lmdb", lmdb);
-    iterator_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    // iterator_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    iterator_tests.addIncludePath(.{ .path = "libs/openldap/libraries/liblmdb" });
     iterator_tests.addCSourceFiles(&lmdb_source_files, &.{});
     const run_iterator_tests = b.addRunArtifact(iterator_tests);
 
@@ -118,7 +125,8 @@ pub fn build(b: *std.build.Builder) void {
 
     const effects_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/effects_test.zig") });
     effects_tests.addModule("lmdb", lmdb);
-    effects_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    // effects_tests.addIncludePath("libs/openldap/libraries/liblmdb");
+    effects_tests.addIncludePath(.{ .path = "libs/openldap/libraries/liblmdb" });
     effects_tests.addCSourceFiles(&lmdb_source_files, &.{});
     const run_effects_tests = b.addRunArtifact(effects_tests);
 
@@ -138,7 +146,8 @@ pub fn build(b: *std.build.Builder) void {
     const lmdb_bench = b.addTest(.{ .root_source_file = FileSource.relative("benchmarks/lmdb.zig") });
     // lmdb_bench.setBuildMode(std.builtin.Mode.Debug);
     lmdb_bench.addModule("lmdb", lmdb);
-    lmdb_bench.addIncludePath("libs/openldap/libraries/liblmdb");
+    // lmdb_bench.addIncludePath("libs/openldap/libraries/liblmdb");
+    lmdb_bench.addIncludePath(.{ .path = "libs/openldap/libraries/liblmdb" });
     lmdb_bench.addCSourceFiles(&lmdb_source_files, &.{});
     const run_lmdb_bench = b.addRunArtifact(lmdb_bench);
 
@@ -149,7 +158,8 @@ pub fn build(b: *std.build.Builder) void {
     // okra_bench.setBuildMode(std.builtin.Mode.Debug);
     okra_bench.addModule("lmdb", lmdb);
     okra_bench.addModule("okra", okra);
-    okra_bench.addIncludePath("libs/openldap/libraries/liblmdb");
+    // okra_bench.addIncludePath("libs/openldap/libraries/liblmdb");
+    okra_bench.addIncludePath(.{ .path = "libs/openldap/libraries/liblmdb" });
     okra_bench.addCSourceFiles(&lmdb_source_files, &.{});
     const run_okra_bench = b.addRunArtifact(lmdb_bench);
 
