@@ -92,9 +92,9 @@ fn parseEncoding() utils.Encoding {
     }
 }
 
-var app = &cli.Command{
+var app = &cli.App{
     .name = "okra",
-    .help = "okra is a deterministic pseudo-random merkle tree built on LMDB",
+    .description = "okra is a deterministic pseudo-random merkle tree built on LMDB",
     .subcommands = &.{
         &cli.Command{
             .name = "cat",
