@@ -5,3 +5,6 @@
 	path = libs/openldap
 	url = https://git.openldap.org/openldap/openldap.git
 	branch = mdb.master
+[submodule "zig-lmdb"]
+	path = libs/zig-lmdb
+	url = git@github.com:canvasxyz/zig-lmdb.git
