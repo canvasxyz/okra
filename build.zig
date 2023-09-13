@@ -39,14 +39,6 @@ pub fn build(b: *std.build.Builder) void {
     {
         // Tests
 
-        const builder_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/builder_test.zig") });
-        builder_tests.addIncludePath(lmdb_include_path);
-        builder_tests.addCSourceFiles(&lmdb_source_files, &.{});
-        builder_tests.addModule("lmdb", lmdb.module("lmdb"));
-        const run_builder_tests = b.addRunArtifact(builder_tests);
-
-        b.step("test-builder", "Run Builder tests").dependOn(&run_builder_tests.step);
-
         const header_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/header_test.zig") });
         header_tests.addIncludePath(lmdb_include_path);
         header_tests.addCSourceFiles(&lmdb_source_files, &.{});
@@ -55,6 +47,22 @@ pub fn build(b: *std.build.Builder) void {
 
         b.step("test-header", "Run Header tests").dependOn(&run_header_tests.step);
 
+        const builder_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/builder_test.zig") });
+        builder_tests.addIncludePath(lmdb_include_path);
+        builder_tests.addCSourceFiles(&lmdb_source_files, &.{});
+        builder_tests.addModule("lmdb", lmdb.module("lmdb"));
+        const run_builder_tests = b.addRunArtifact(builder_tests);
+
+        b.step("test-builder", "Run Builder tests").dependOn(&run_builder_tests.step);
+
+        const cursor_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/cursor_test.zig") });
+        cursor_tests.addIncludePath(lmdb_include_path);
+        cursor_tests.addCSourceFiles(&lmdb_source_files, &.{});
+        cursor_tests.addModule("lmdb", lmdb.module("lmdb"));
+        const run_cursor_tests = b.addRunArtifact(cursor_tests);
+
+        b.step("test-cursor", "Run Cursor tests").dependOn(&run_cursor_tests.step);
+
         const tree_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/tree_test.zig") });
         tree_tests.addIncludePath(lmdb_include_path);
         tree_tests.addCSourceFiles(&lmdb_source_files, &.{});
@@ -62,14 +70,6 @@ pub fn build(b: *std.build.Builder) void {
         const run_tree_tests = b.addRunArtifact(tree_tests);
 
         b.step("test-tree", "Run Tree tests").dependOn(&run_tree_tests.step);
-
-        const transaction_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/transaction_test.zig") });
-        transaction_tests.addIncludePath(lmdb_include_path);
-        transaction_tests.addCSourceFiles(&lmdb_source_files, &.{});
-        transaction_tests.addModule("lmdb", lmdb.module("lmdb"));
-        const run_transaction_tests = b.addRunArtifact(transaction_tests);
-
-        b.step("test-transaction", "Run Transaction tests").dependOn(&run_transaction_tests.step);
 
         const iterator_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/iterator_test.zig") });
         iterator_tests.addIncludePath(lmdb_include_path);
@@ -80,27 +80,28 @@ pub fn build(b: *std.build.Builder) void {
         b.step("test-iterator", "Run iterator tests").dependOn(&run_iterator_tests.step);
 
         const test_step = b.step("test", "Run unit tests");
-        test_step.dependOn(&run_builder_tests.step);
         test_step.dependOn(&run_header_tests.step);
+        test_step.dependOn(&run_builder_tests.step);
+        test_step.dependOn(&run_cursor_tests.step);
         test_step.dependOn(&run_tree_tests.step);
-        test_step.dependOn(&run_transaction_tests.step);
         test_step.dependOn(&run_iterator_tests.step);
     }
 
     {
         // Effect simulations
-        const effect_simulation = b.addExecutable(.{
-            .name = "effect-simulation",
-            .root_source_file = FileSource.relative("src/effects_test.zig"),
+        const effect = b.addExecutable(.{
+            .name = "bench-effect",
+            .root_source_file = FileSource.relative("benchmarks/effects.zig"),
             .optimize = .ReleaseFast,
         });
 
-        effect_simulation.addIncludePath(lmdb_include_path);
-        effect_simulation.addCSourceFiles(&lmdb_source_files, &.{});
-        effect_simulation.addModule("lmdb", lmdb.module("lmdb"));
+        effect.addIncludePath(lmdb_include_path);
+        effect.addCSourceFiles(&lmdb_source_files, &.{});
+        effect.addModule("lmdb", lmdb.module("lmdb"));
+        effect.addModule("okra", okra);
 
-        const run_effect_simulation = b.addRunArtifact(effect_simulation);
-        b.step("effect-simulation", "Run effects tests").dependOn(&run_effect_simulation.step);
+        const run_effects = b.addRunArtifact(effect);
+        b.step("bench-effect", "Run effect benchmarks").dependOn(&run_effects.step);
     }
 
     // // Benchmarks

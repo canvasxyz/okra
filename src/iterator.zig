@@ -3,11 +3,9 @@ const expectEqual = std.testing.expectEqual;
 
 const lmdb = @import("lmdb");
 
-const utils = @import("utils.zig");
-
 pub fn Iterator(comptime K: u8, comptime Q: u32) type {
     const Node = @import("node.zig").Node(K, Q);
-    const Transaction = @import("transaction.zig").Transaction(K, Q);
+    const Tree = @import("tree.zig").Tree(K, Q);
 
     return struct {
         pub const Bound = struct { key: ?[]const u8, inclusive: bool };
@@ -33,14 +31,14 @@ pub fn Iterator(comptime K: u8, comptime Q: u32) type {
         upper_bound_inclusive: bool,
         reverse: bool,
 
-        pub fn open(allocator: std.mem.Allocator, txn: *const Transaction, range: Range) !Self {
+        pub fn open(allocator: std.mem.Allocator, tree: *const Tree, range: Range) !Self {
             var iterator: Self = undefined;
-            try iterator.init(allocator, txn, range);
+            try iterator.init(allocator, tree, range);
             return iterator;
         }
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: *const Transaction, range: Range) !void {
-            const cursor = try lmdb.Cursor.open(txn.txn);
+        pub fn init(self: *Self, allocator: std.mem.Allocator, tree: *const Tree, range: Range) !void {
+            const cursor = try lmdb.Cursor.open(tree.db);
             self.allocator = allocator;
             self.lower_bound = std.ArrayList(u8).init(allocator);
             self.upper_bound = std.ArrayList(u8).init(allocator);

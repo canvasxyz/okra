@@ -30,13 +30,6 @@ pub fn hashEntry(key: []const u8, value: []const u8, result: []u8) void {
     digest.final(result);
 }
 
-var path_buffer: [4096]u8 = undefined;
-pub fn resolvePath(dir: std.fs.Dir, name: []const u8) ![*:0]const u8 {
-    const path = try dir.realpath(name, &path_buffer);
-    path_buffer[path.len] = 0;
-    return @as([*:0]const u8, @ptrCast(path_buffer[0..path.len]));
-}
-
 pub fn lessThan(a: ?[]const u8, b: ?[]const u8) bool {
     if (a) |a_bytes| {
         if (b) |b_byte| {

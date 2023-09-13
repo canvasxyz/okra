@@ -2,44 +2,55 @@ const std = @import("std");
 const expectEqual = std.testing.expectEqual;
 
 const lmdb = @import("lmdb");
+const Effects = @import("effects.zig");
 
 pub fn Cursor(comptime K: u8, comptime Q: u32) type {
     const Header = @import("header.zig").Header(K, Q);
     const Node = @import("node.zig").Node(K, Q);
-    const NodeEncoder = @import("node_encoder.zig").NodeEncoder(K, Q);
+    const NodeList = @import("node_list.zig").NodeList(K, Q);
+    const Encoder = @import("encoder.zig").Encoder(K, Q);
 
     return struct {
+        const Self = @This();
+
+        pub const Options = struct {
+            effects: ?*Effects = null,
+            trace: ?*NodeList = null,
+        };
+
         is_open: bool = false,
         level: u8 = 0xFF,
         cursor: lmdb.Cursor,
-        encoder: NodeEncoder,
+        encoder: Encoder,
+        effects: ?*Effects = null,
+        trace: ?*NodeList = null,
 
-        const Self = @This();
-
-        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction) !Self {
+        pub fn open(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
             var self: Self = undefined;
-            try self.init(allocator, txn);
+            try self.init(allocator, db, options);
             return self;
         }
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction) !void {
-            const cursor = try lmdb.Cursor.open(txn);
+        pub fn init(self: *Self, allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !void {
+            const cursor = try lmdb.Cursor.open(db);
             self.is_open = true;
             self.level = 0xFF;
             self.cursor = cursor;
-            self.encoder = NodeEncoder.init(allocator);
+            self.encoder = Encoder.init(allocator);
+            self.effects = options.effects;
+            self.trace = options.trace;
         }
 
         pub fn close(self: *Self) void {
             if (self.is_open) {
                 self.is_open = false;
-                self.encoder.deinit();
                 self.cursor.close();
+                self.encoder.deinit();
             }
         }
 
         pub fn goToRoot(self: *Self) !Node {
-            if (try self.cursor.seek(&.{Header.MAXIMUM_HEIGHT})) |_| {
+            if (try self.cursor.seek(&Header.METADATA_KEY)) |_| {
                 if (try self.cursor.goToPrevious()) |k| {
                     if (k.len == 1) {
                         self.level = k[0];
@@ -118,34 +129,17 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn setCurrentNode(self: Self, hash: *const [K]u8, value: ?[]const u8) !void {
-            try self.copyValue(hash, value);
-            try self.cursor.setCurrentValue(self.buffer.items);
+            const entry_value = try self.encoder.encodeValue(hash, value);
+            try self.cursor.setCurrentValue(entry_value);
+            if (self.trace) |trace| {
+                const node = try self.getCurrentNode();
+                try trace.append(node);
+            }
         }
 
         pub fn deleteCurrentNode(self: *Self) !void {
             try self.cursor.deleteCurrentKey();
-        }
-
-        inline fn copyKey(self: *Self, level: u8, key: ?[]const u8) !void {
-            if (key) |bytes| {
-                try self.buffer.resize(1 + bytes.len);
-                self.buffer.items[0] = level;
-                std.mem.copy(u8, self.buffer.items[1..], bytes);
-            } else {
-                try self.buffer.resize(1);
-                self.buffer.items[0] = level;
-            }
-        }
-
-        inline fn copyValue(self: *Self, hash: *const [K]u8, value: ?[]const u8) !void {
-            if (value) |bytes| {
-                try self.buffer.resize(K + bytes.len);
-                std.mem.copy(u8, self.buffer.items[0..K], hash);
-                std.mem.copy(u8, self.buffer.items[K..], bytes);
-            } else {
-                try self.buffer.resize(K);
-                std.mem.copy(u8, self.buffer.items, hash);
-            }
+            if (self.effects) |effects| effects.delete += 1;
         }
     };
 }

@@ -18,44 +18,46 @@ fn h(comptime value: *const [64]u8) [32]u8 {
 
 const empty_hash = h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262");
 
-test "initialize header in default database" {
+test "initialize a header in default database" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try utils.resolvePath(tmp.dir, ".");
+    const path = try lmdb.utils.resolvePath(tmp.dir, ".");
     const env = try lmdb.Environment.open(path, .{});
     defer env.close();
 
-    try Header.initialize(env, null);
+    const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
+    defer txn.abort();
+    const db = try lmdb.Database.open(txn, .{});
 
-    try lmdb.expectEqualEntries(env, &.{
+    try Header.write(db);
+
+    try lmdb.utils.expectEqualEntries(db, &.{
         .{ &[_]u8{0x00}, &empty_hash },
         .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
     });
 }
 
-test "initialize header in named databases" {
+test "initialize a header in named databases" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try utils.resolvePath(tmp.dir, ".");
+    const path = try lmdb.utils.resolvePath(tmp.dir, ".");
     const env = try lmdb.Environment.open(path, .{ .max_dbs = 2 });
     defer env.close();
 
-    try Header.initialize(env, "a");
-    try Header.initialize(env, "b");
+    const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
+    defer txn.abort();
 
-    {
-        const txn = try lmdb.Transaction.open(env, .{ .read_only = true, .dbi = "a" });
-        defer txn.abort();
-        try if (try txn.get(&[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
-        try if (try txn.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
-    }
+    const db_a = try lmdb.Database.open(txn, .{ .name = "a", .create = true });
+    const db_b = try lmdb.Database.open(txn, .{ .name = "b", .create = true });
 
-    {
-        const txn = try lmdb.Transaction.open(env, .{ .read_only = true, .dbi = "b" });
-        defer txn.abort();
-        try if (try txn.get(&[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
-        try if (try txn.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
-    }
+    try Header.write(db_a);
+    try Header.write(db_b);
+
+    try if (try db_a.get(&[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
+    try if (try db_a.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
+
+    try if (try db_b.get(&[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
+    try if (try db_b.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
 }

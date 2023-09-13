@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn NodeEncoder(comptime K: u8, comptime Q: u32) type {
+pub fn Encoder(comptime K: u8, comptime Q: u32) type {
     const Node = @import("node.zig").Node(K, Q);
 
     return struct {
@@ -33,7 +33,8 @@ pub fn NodeEncoder(comptime K: u8, comptime Q: u32) type {
             if (key) |bytes| {
                 try self.key_buffer.resize(1 + bytes.len);
                 self.key_buffer.items[0] = level;
-                std.mem.copy(u8, self.key_buffer.items[1..], bytes);
+                @memcpy(self.key_buffer.items[1..], bytes);
+                // std.mem.copyForwards(u8, self.key_buffer.items[1..], bytes);
             } else {
                 try self.key_buffer.resize(1);
                 self.key_buffer.items[0] = level;
@@ -45,11 +46,14 @@ pub fn NodeEncoder(comptime K: u8, comptime Q: u32) type {
         pub fn encodeValue(self: *Self, hash: *const [K]u8, value: ?[]const u8) ![]const u8 {
             if (value) |bytes| {
                 try self.value_buffer.resize(K + bytes.len);
-                std.mem.copy(u8, self.value_buffer.items[0..K], hash);
-                std.mem.copy(u8, self.value_buffer.items[K..], bytes);
+                // std.mem.copy(u8, self.value_buffer.items[0..K], hash);
+                // std.mem.copy(u8, self.value_buffer.items[K..], bytes);
+                @memcpy(self.value_buffer.items[0..K], hash);
+                @memcpy(self.value_buffer.items[K..], bytes);
             } else {
                 try self.value_buffer.resize(K);
-                std.mem.copy(u8, self.value_buffer.items, hash);
+                // std.mem.copy(u8, self.value_buffer.items, hash);
+                @memcpy(self.value_buffer.items, hash);
             }
 
             return self.value_buffer.items;

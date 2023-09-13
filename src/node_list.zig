@@ -48,7 +48,8 @@ pub fn NodeList(comptime K: u8, comptime Q: u32) type {
         fn createKey(self: Self, key: ?[]const u8) !?[]const u8 {
             if (key) |bytes| {
                 const result = try self.allocator.alloc(u8, bytes.len);
-                std.mem.copy(u8, result, bytes);
+                // std.mem.copy(u8, result, bytes);
+                @memcpy(result, bytes);
                 return result;
             } else {
                 return null;
@@ -57,7 +58,8 @@ pub fn NodeList(comptime K: u8, comptime Q: u32) type {
 
         fn createHash(self: Self, hash: *const [K]u8) !*const [K]u8 {
             const result = try self.allocator.alloc(u8, K);
-            std.mem.copy(u8, result, hash);
+            // std.mem.copy(u8, result, hash);
+            @memcpy(result, hash);
             return result[0..K];
         }
     };

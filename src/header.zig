@@ -14,39 +14,36 @@ fn getFanoutDegree(comptime Q: u32) [4]u8 {
 pub fn Header(comptime K: u8, comptime Q: u32) type {
     return struct {
         pub const ANCHOR_KEY = [1]u8{0x00};
-        pub const USERDATA_KEY = [1]u8{0xfe};
         pub const METADATA_KEY = [1]u8{0xff};
 
         pub const DATABASE_VERSION = 0x01;
-        pub const MAXIMUM_HEIGHT = 0x80;
 
         const header = [_]u8{ 'o', 'k', 'r', 'a', DATABASE_VERSION, K } ++ getFanoutDegree(Q);
 
-        pub fn initialize(env: lmdb.Environment, dbi: ?[*:0]const u8) !void {
-            const txn = try lmdb.Transaction.open(env, .{ .read_only = false, .dbi = dbi });
-            errdefer txn.abort();
-
-            if (try txn.get(&METADATA_KEY)) |value| {
+        pub fn initialize(db: lmdb.Database) !void {
+            if (try db.get(&METADATA_KEY)) |value| {
                 if (std.mem.eql(u8, value, &header)) {
-                    txn.abort();
+                    return;
                 } else {
                     return error.InvalidDatabase;
                 }
-            } else {
-                try write(txn);
-                try txn.commit();
             }
+
+            try switch (db.txn.mode) {
+                .ReadOnly => error.Uninitialized,
+                .ReadWrite => write(db),
+            };
         }
 
-        pub fn write(txn: lmdb.Transaction) !void {
+        pub fn write(db: lmdb.Database) !void {
             var anchor_hash: [K]u8 = undefined;
             Blake3.hash(&[0]u8{}, &anchor_hash, .{});
-            try txn.set(&ANCHOR_KEY, &anchor_hash);
-            try txn.set(&METADATA_KEY, &header);
+            try db.set(&ANCHOR_KEY, &anchor_hash);
+            try db.set(&METADATA_KEY, &header);
         }
 
-        pub fn validate(txn: lmdb.Transaction) !void {
-            if (try txn.get(&METADATA_KEY)) |value| {
+        pub fn validate(db: lmdb.Database) !void {
+            if (try db.get(&METADATA_KEY)) |value| {
                 if (std.mem.eql(u8, value, &header)) {
                     return;
                 } else {
