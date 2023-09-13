@@ -27,7 +27,7 @@ fn testSetEffects(comptime K: u8, comptime Q: u32, comptime T: u8, iterations: u
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const log = std.io.getStdErr().writer();
+    const log = std.io.getStdOut().writer();
     _ = try log.write("\n\n");
 
     const path = try utils.resolvePath(tmp.dir, ".");
@@ -75,12 +75,12 @@ fn testSetEffects(comptime K: u8, comptime Q: u32, comptime T: u8, iterations: u
 
             const stat = try tree.env.stat();
             const sample = Sample{
-                .node_count = @intToFloat(f64, stat.entries - 1),
-                .height = @intToFloat(f64, effects.height),
-                .degree = @intToFloat(f64, stat.entries - 2) / @intToFloat(f64, stat.entries - entry_count),
-                .create = @intToFloat(f64, effects.create),
-                .update = @intToFloat(f64, effects.update),
-                .delete = @intToFloat(f64, effects.delete),
+                .node_count = @as(f64, @floatFromInt(stat.entries - 1)),
+                .height = @as(f64, @floatFromInt(effects.height)),
+                .degree = @as(f64, @floatFromInt(stat.entries - 2)) / @as(f64, @floatFromInt(stat.entries - entry_count)),
+                .create = @as(f64, @floatFromInt(effects.create)),
+                .update = @as(f64, @floatFromInt(effects.update)),
+                .delete = @as(f64, @floatFromInt(effects.delete)),
             };
 
             avg.node_count += sample.node_count;
@@ -97,7 +97,7 @@ fn testSetEffects(comptime K: u8, comptime Q: u32, comptime T: u8, iterations: u
     const final_time = timer.read();
     try log.print("updated {d} random entries in {d}ms\n", .{ iterations, final_time / 1000000 });
 
-    const iters = @intToFloat(f64, iterations);
+    const iters = @as(f64, @floatFromInt(iterations));
     avg.node_count = avg.node_count / iters;
     avg.height = avg.height / iters;
     avg.degree = avg.degree / iters;
@@ -133,10 +133,15 @@ fn testSetEffects(comptime K: u8, comptime Q: u32, comptime T: u8, iterations: u
     try log.print("deleted    | {d: >12.3} | {d: >6.3}\n", .{ avg.delete, sigma.delete });
 }
 
-test "average 1000 random set effects on 65536 entries with Q=4" {
-    try testSetEffects(16, 4, 2, 1000);
-}
+// test "average 1000 random set effects on 65536 entries with Q=4" {
+//     try testSetEffects(16, 4, 2, 1000);
+// }
 
-test "average 1000 random set effects on 16777216 entries with Q=32" {
+// test "average 1000 random set effects on 16777216 entries with Q=32" {
+//     try testSetEffects(16, 32, 3, 1000);
+// }
+
+pub fn main() !void {
+    try testSetEffects(16, 4, 2, 1000);
     try testSetEffects(16, 32, 3, 1000);
 }
