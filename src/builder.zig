@@ -17,25 +17,27 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
 
     return struct {
         const Self = @This();
-        pub const Options = struct { log: ?std.fs.File.Writer = null };
+        pub const Options = struct { txn: lmdb.Transaction, dbi: ?lmdb.Transaction.DBI = null, log: ?std.fs.File.Writer = null };
 
-        db: lmdb.Database,
+        txn: lmdb.Transaction,
+        dbi: lmdb.Transaction.DBI,
         key_buffer: std.ArrayList(u8),
         value_buffer: std.ArrayList(u8),
         hash_buffer: [K]u8 = undefined,
         logger: Logger,
 
-        pub fn open(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
+        pub fn open(allocator: std.mem.Allocator, options: Options) !Self {
             var builder: Self = undefined;
-            try builder.init(allocator, db, options);
+            try builder.init(allocator, options);
             return builder;
         }
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !void {
+        pub fn init(self: *Self, allocator: std.mem.Allocator, options: Options) !void {
             self.logger = Logger.init(allocator, options.log);
-            self.db = db;
+            self.txn = options.txn;
+            self.dbi = options.dbi orelse try self.txn.openDatabase(.{});
 
-            try Header.write(db);
+            try Header.write(options.txn, options.dbi);
 
             self.key_buffer = std.ArrayList(u8).init(allocator);
             self.value_buffer = std.ArrayList(u8).init(allocator);
@@ -48,16 +50,16 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
 
         pub fn set(self: *Self, key: []const u8, value: []const u8) !void {
             try self.setNode(key, value);
-            try self.db.set(self.key_buffer.items, self.value_buffer.items);
+            try self.txn.set(self.dbi, self.key_buffer.items, self.value_buffer.items);
         }
 
         pub fn delete(self: *Self, key: []const u8) !void {
             try self.setKey(0, key);
-            try self.db.delete(self.key_buffer.items);
+            try self.txn.delete(self.dbi, self.key_buffer.items);
         }
 
         pub fn build(self: *Self) !void {
-            const cursor = try lmdb.Cursor.open(self.db);
+            const cursor = try lmdb.Cursor.open(self.txn, self.dbi);
             defer cursor.close();
             try cursor.goToKey(&[_]u8{0});
 
@@ -104,7 +106,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
                     try self.log("digest.final() => {s}", .{hex(&self.hash_buffer)});
                     parent_count += 1;
                     try self.log("setting parent {s} -> {s}", .{ hex(self.key_buffer.items), hex(&self.hash_buffer) });
-                    try self.db.set(self.key_buffer.items, &self.hash_buffer);
+                    try self.txn.set(self.dbi, self.key_buffer.items, &self.hash_buffer);
 
                     const key = try cursor.getCurrentKey();
                     try self.setKey(level + 1, key[1..]);
@@ -128,7 +130,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
             }
 
             digest.final(&self.hash_buffer);
-            try self.db.set(self.key_buffer.items, &self.hash_buffer);
+            try self.txn.set(self.dbi, self.key_buffer.items, &self.hash_buffer);
             return parent_count + 1;
         }
 

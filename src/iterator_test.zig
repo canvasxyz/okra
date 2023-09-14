@@ -32,9 +32,7 @@ test "Iterator(a, b, c)" {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .create = true });
-
-    var tree = try Tree.open(allocator, db, .{});
+    var tree = try Tree.open(allocator, txn, .{});
     try tree.set("a", "foo");
     try tree.set("b", "bar");
     try tree.set("c", "baz");

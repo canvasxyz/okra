@@ -26,16 +26,14 @@ test "basic cursor operations" {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .create = true });
-
-    var builder = try Builder.open(allocator, db, .{});
+    var builder = try Builder.open(allocator, .{ .txn = txn });
     defer builder.deinit();
     try builder.set("a", "foo");
     try builder.set("b", "bar");
     try builder.set("c", "baz");
     try builder.build();
 
-    var cursor = try Cursor.open(allocator, db, .{});
+    var cursor = try Cursor.open(allocator, txn, .{});
     const root = try cursor.goToRoot();
     try expect(root.level == 3);
     try expect(root.key == null);

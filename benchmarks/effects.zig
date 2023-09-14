@@ -39,9 +39,7 @@ fn testSetEffects(comptime T: u8, iterations: u32) !void {
         const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
         errdefer txn.abort();
 
-        const db = try lmdb.Database.open(txn, .{ .create = true });
-
-        var builder = try okra.Builder.open(allocator, db, .{});
+        var builder = try okra.Builder.open(allocator, .{ .txn = txn });
         defer builder.deinit();
 
         var i: u32 = 0;
@@ -67,10 +65,8 @@ fn testSetEffects(comptime T: u8, iterations: u32) !void {
         const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
         defer txn.abort();
 
-        const db = try lmdb.Database.open(txn, .{});
-
         var effects = okra.Effects{};
-        var tree = try okra.Tree.open(allocator, db, .{ .effects = &effects });
+        var tree = try okra.Tree.open(allocator, txn, .{ .effects = &effects });
         defer tree.close();
 
         var i: u32 = 0;

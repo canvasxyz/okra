@@ -38,7 +38,7 @@ pub fn Iterator(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn init(self: *Self, allocator: std.mem.Allocator, tree: *const Tree, range: Range) !void {
-            const cursor = try lmdb.Cursor.open(tree.db);
+            const cursor = try lmdb.Cursor.open(tree.txn, tree.dbi);
             self.allocator = allocator;
             self.lower_bound = std.ArrayList(u8).init(allocator);
             self.upper_bound = std.ArrayList(u8).init(allocator);

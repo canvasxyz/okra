@@ -39,12 +39,10 @@ test "open a Tree" {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .create = true });
-
-    var tree = try Tree.open(allocator, db, .{});
+    var tree = try Tree.open(allocator, txn, .{});
     defer tree.close();
 
-    try lmdb.utils.expectEqualEntries(db, &.{
+    try lmdb.utils.expectEqualEntries(txn, null, &.{
         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
         .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
     });
@@ -61,9 +59,7 @@ test "basic get/set/delete operations" {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .create = true });
-
-    var tree = try Tree.open(allocator, db, .{});
+    var tree = try Tree.open(allocator, txn, .{});
     defer tree.close();
 
     try tree.set("a", "foo");
@@ -88,14 +84,12 @@ test "library tests" {
         const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
         defer txn.abort();
 
-        const db = try lmdb.Database.open(txn, .{ .create = true });
-
-        var tree = try Tree.open(allocator, db, .{});
+        var tree = try Tree.open(allocator, txn, .{});
         defer tree.close();
 
         for (t.leaves) |entry| try tree.set(entry[0], entry[1]);
 
-        try lmdb.utils.expectEqualEntries(db, t.entries);
+        try lmdb.utils.expectEqualEntries(txn, null, t.entries);
     }
 }
 
@@ -110,9 +104,7 @@ test "set the same entry twice" {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .create = true });
-
-    var tree = try Tree.open(allocator, db, .{});
+    var tree = try Tree.open(allocator, txn, .{});
     defer tree.close();
 
     try tree.set("a", "foo");
@@ -132,9 +124,7 @@ test "delete a leaf anchor" {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .create = true });
-
-    var tree = try Tree.open(allocator, db, .{});
+    var tree = try Tree.open(allocator, txn, .{});
     defer tree.close();
 
     for (library.tests[2].leaves) |entry| {
@@ -143,7 +133,7 @@ test "delete a leaf anchor" {
 
     try tree.delete("d");
 
-    try lmdb.utils.expectEqualEntries(db, &.{
+    try lmdb.utils.expectEqualEntries(txn, null, &.{
         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
         .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
         .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
@@ -173,9 +163,7 @@ test "overwrite a leaf anchor with another anchor" {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .create = true });
-
-    var tree = try Tree.open(allocator, db, .{});
+    var tree = try Tree.open(allocator, txn, .{});
     defer tree.close();
 
     for (library.tests[2].leaves) |entry| {
@@ -185,7 +173,7 @@ test "overwrite a leaf anchor with another anchor" {
     try tree.delete("d");
     try tree.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
 
-    try lmdb.utils.expectEqualEntries(db, &.{
+    try lmdb.utils.expectEqualEntries(txn, null, &.{
         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
         .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
         .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
@@ -217,9 +205,7 @@ test "overwrite a leaf anchor with a non-anchor" {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .create = true });
-
-    var tree = try Tree.open(allocator, db, .{});
+    var tree = try Tree.open(allocator, txn, .{});
     defer tree.close();
 
     for (library.tests[2].leaves) |entry| {
@@ -229,7 +215,7 @@ test "overwrite a leaf anchor with a non-anchor" {
     try tree.delete("d");
     try tree.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
 
-    try lmdb.utils.expectEqualEntries(db, &.{
+    try lmdb.utils.expectEqualEntries(txn, null, &.{
         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
         .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
         .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
@@ -254,7 +240,7 @@ fn testPseudoRandomPermutations(
     comptime P: u16,
     comptime R: u16,
     log: ?std.fs.File.Writer,
-    environment_options: lmdb.Environment.Options,
+    environment_options: lmdb.Environment.EnvironmentOptions,
 ) !void {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -287,9 +273,7 @@ fn testPseudoRandomPermutations(
         const reference_txn = try lmdb.Transaction.open(reference_env, .{ .mode = .ReadWrite });
         defer reference_txn.abort();
 
-        const reference_db = try lmdb.Database.open(reference_txn, .{ .create = true });
-
-        var builder = try Builder.open(allocator, reference_db, .{});
+        var builder = try Builder.open(allocator, .{ .txn = reference_txn });
         defer builder.deinit();
 
         for (permutation) |i| {
@@ -315,9 +299,7 @@ fn testPseudoRandomPermutations(
         const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
         defer txn.abort();
 
-        const db = try lmdb.Database.open(txn, .{ .create = true });
-
-        var tree = try Tree.open(allocator, db, .{});
+        var tree = try Tree.open(allocator, txn, .{});
         defer tree.close();
 
         {
@@ -344,7 +326,7 @@ fn testPseudoRandomPermutations(
         //     try utils.printEntries(tree.env, writer);
         // }
 
-        const delta = try lmdb.compare.compareDatabases(reference_db, db, .{ .log = log });
+        const delta = try lmdb.compare.compareDatabases(reference_txn, null, txn, null, .{ .log = log });
         try expect(delta == 0);
     }
 }

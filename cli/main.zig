@@ -15,7 +15,7 @@ const allocator = std.heap.c_allocator;
 var name_option = cli.Option{
     .long_name = "name",
     .short_alias = 'n',
-    .help = "use a named database instance",
+    .help = "select a named database",
     .value = cli.OptionValue{ .string = null },
     .required = false,
 };
@@ -30,6 +30,12 @@ var verbose_option = cli.Option{
 var iota_option = cli.Option{
     .long_name = "iota",
     .help = "initialize the tree with hashes of the first iota positive integers as sample data",
+    .value = cli.OptionValue{ .int = 0 },
+};
+
+var databases_option = cli.Option{
+    .long_name = "databases",
+    .help = "maximum number of named databases",
     .value = cli.OptionValue{ .int = 0 },
 };
 
@@ -111,8 +117,8 @@ var app = &cli.App{
         },
         &cli.Command{
             .name = "init",
-            .help = "initialize an empty database",
-            .options = &.{&iota_option},
+            .help = "initialize an empty database environment",
+            .options = &.{ &databases_option, &iota_option, &name_option },
             .action = init,
         },
         &cli.Command{
@@ -157,6 +163,10 @@ fn cat(args: []const []const u8) !void {
 
     const encoding = parseEncoding();
 
+    var name_buffer = std.ArrayList(u8).init(allocator);
+    defer name_buffer.deinit();
+    const name = try parseName(&name_buffer);
+
     const stdout = std.io.getStdOut().writer();
 
     const path = try lmdb.utils.resolvePath(std.fs.cwd(), args[0]);
@@ -166,8 +176,9 @@ fn cat(args: []const []const u8) !void {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });
     defer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{});
-    var tree = try okra.Tree.open(allocator, db, .{});
+    const dbi = try txn.openDatabase(.{ .name = name });
+
+    var tree = try okra.Tree.open(allocator, txn, .{ .dbi = dbi });
     defer tree.close();
 
     const range = okra.Iterator.Range{
@@ -194,6 +205,10 @@ fn ls(args: []const []const u8) !void {
     }
 
     const encoding = parseEncoding();
+
+    var name_buffer = std.ArrayList(u8).init(allocator);
+    defer name_buffer.deinit();
+    const name = try parseName(&name_buffer);
 
     var key_buffer = std.ArrayList(u8).init(allocator);
     defer key_buffer.deinit();
@@ -235,8 +250,9 @@ fn ls(args: []const []const u8) !void {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });
     defer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{});
-    var tree = try okra.Tree.open(allocator, db, .{});
+    const dbi = try txn.openDatabase(.{ .name = name });
+
+    var tree = try okra.Tree.open(allocator, txn, .{ .dbi = dbi });
     defer tree.close();
 
     const root = if (level == -1) try tree.getRoot() else try getNode(&tree, @intCast(level), key_buffer.items);
@@ -324,9 +340,9 @@ fn printTree(args: []const []const u8) !void {
     const height = parseHeight();
     const depth = parseDepth();
 
-    var dbi = std.ArrayList(u8).init(allocator);
-    defer dbi.deinit();
-    const name = try parseName(&dbi);
+    var name_buffer = std.ArrayList(u8).init(allocator);
+    defer name_buffer.deinit();
+    const name = try parseName(&name_buffer);
 
     const path = try lmdb.utils.resolvePath(std.fs.cwd(), args[0]);
     const env = try lmdb.Environment.open(path, .{});
@@ -335,8 +351,9 @@ fn printTree(args: []const []const u8) !void {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });
     errdefer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .name = name });
-    var tree = try okra.Tree.open(allocator, db, .{});
+    const dbi = try txn.openDatabase(.{ .name = name });
+
+    var tree = try okra.Tree.open(allocator, txn, .{ .dbi = dbi });
     defer tree.close();
 
     var printer = try Printer.init(allocator, &tree, encoding, null);
@@ -402,9 +419,9 @@ fn get(args: []const []const u8) !void {
         },
     }
 
-    var dbi = std.ArrayList(u8).init(allocator);
-    defer dbi.deinit();
-    const name = try parseName(&dbi);
+    var name_buffer = std.ArrayList(u8).init(allocator);
+    defer name_buffer.deinit();
+    const name = try parseName(&name_buffer);
 
     const path = try lmdb.utils.resolvePath(std.fs.cwd(), args[0]);
     const env = try lmdb.Environment.open(path, .{});
@@ -413,8 +430,9 @@ fn get(args: []const []const u8) !void {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });
     errdefer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .name = name });
-    var tree = try okra.Tree.open(allocator, db, .{});
+    const dbi = try txn.openDatabase(.{ .name = name });
+
+    var tree = try okra.Tree.open(allocator, txn, .{ .dbi = dbi });
     defer tree.close();
 
     const value = try tree.get(key_buffer.items) orelse fail("KeyNotFound", .{});
@@ -481,9 +499,9 @@ fn set(args: []const []const u8) !void {
     var trace_nodes = okra.NodeList.init(allocator);
     const trace = if (trace_option.value.bool) &trace_nodes else null;
 
-    var dbi = std.ArrayList(u8).init(allocator);
-    defer dbi.deinit();
-    const name = try parseName(&dbi);
+    var name_buffer = std.ArrayList(u8).init(allocator);
+    defer name_buffer.deinit();
+    const name = try parseName(&name_buffer);
 
     const log = if (verbose_option.value.bool) std.io.getStdOut().writer() else null;
 
@@ -494,8 +512,9 @@ fn set(args: []const []const u8) !void {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });
     errdefer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .name = name });
-    var tree = try okra.Tree.open(allocator, db, .{ .log = log, .trace = trace });
+    const dbi = try txn.openDatabase(.{ .name = name });
+
+    var tree = try okra.Tree.open(allocator, txn, .{ .dbi = dbi, .log = log, .trace = trace });
     defer tree.close();
 
     try tree.set(key_buffer.items, value_buffer.items);
@@ -545,9 +564,9 @@ fn delete(args: []const []const u8) !void {
     var trace_nodes = okra.NodeList.init(allocator);
     const trace = if (trace_option.value.bool) &trace_nodes else null;
 
-    var dbi = std.ArrayList(u8).init(allocator);
-    defer dbi.deinit();
-    const name = try parseName(&dbi);
+    var name_buffer = std.ArrayList(u8).init(allocator);
+    defer name_buffer.deinit();
+    const name = try parseName(&name_buffer);
 
     const log = if (verbose_option.value.bool) std.io.getStdOut().writer() else null;
 
@@ -558,8 +577,9 @@ fn delete(args: []const []const u8) !void {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });
     errdefer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{ .name = name });
-    var tree = try okra.Tree.open(allocator, db, .{ .log = log, .trace = trace });
+    const dbi = try txn.openDatabase(.{ .name = name });
+
+    var tree = try okra.Tree.open(allocator, txn, .{ .dbi = dbi, .log = log, .trace = trace });
     defer tree.close();
 
     try tree.delete(key_buffer.items);
@@ -589,6 +609,10 @@ fn init(args: []const []const u8) !void {
         fail("iota must be a non-negative integer", .{});
     }
 
+    var name_buffer = std.ArrayList(u8).init(allocator);
+    defer name_buffer.deinit();
+    const name = try parseName(&name_buffer);
+
     var key: [4]u8 = undefined;
     var value = [4]u8{ 0xff, 0xff, 0xff, 0xff };
 
@@ -606,17 +630,20 @@ fn init(args: []const []const u8) !void {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     errdefer txn.abort();
 
-    const db = try lmdb.Database.open(txn, .{});
-    var builder = try okra.Builder.open(allocator, db, .{});
-    defer builder.deinit();
+    if (iota > 0) {
+        const dbi = try txn.openDatabase(.{ .name = name });
+        var builder = try okra.Builder.open(allocator, .{ .txn = txn, .dbi = dbi });
+        defer builder.deinit();
 
-    var i: u32 = 0;
-    while (i < iota) : (i += 1) {
-        std.mem.writeIntBig(u32, &key, i);
-        try builder.set(&key, &value);
+        var i: u32 = 0;
+        while (i < iota) : (i += 1) {
+            std.mem.writeIntBig(u32, &key, i);
+            try builder.set(&key, &value);
+        }
+
+        try builder.build();
     }
 
-    try builder.build();
     try txn.commit();
 }
 
@@ -694,12 +721,12 @@ fn parseKey(key_buffer: *std.ArrayList(u8)) !void {
     }
 }
 
-fn parseName(dbi: *std.ArrayList(u8)) !?[*:0]u8 {
+fn parseName(name_buffer: *std.ArrayList(u8)) !?[*:0]u8 {
     if (name_option.value.string) |name| {
-        try dbi.resize(name.len + 1);
-        std.mem.copy(u8, dbi.items[0..name.len], name);
-        dbi.items[name.len] = 0;
-        return dbi.items[0..name.len :0];
+        try name_buffer.resize(name.len + 1);
+        std.mem.copy(u8, name_buffer.items[0..name.len], name);
+        name_buffer.items[name.len] = 0;
+        return name_buffer.items[0..name.len :0];
     } else {
         return null;
     }

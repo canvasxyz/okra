@@ -26,12 +26,14 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         const Self = @This();
 
         pub const Options = struct {
+            dbi: ?lmdb.Transaction.DBI = null,
             log: ?std.fs.File.Writer = null,
             trace: ?*NodeList = null,
             effects: ?*Effects = null,
         };
 
-        db: lmdb.Database,
+        txn: lmdb.Transaction,
+        dbi: lmdb.Transaction.DBI,
         cursor: Cursor,
         logger: Logger,
         pool: BufferPool,
@@ -41,15 +43,20 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         trace: ?*NodeList = null,
         hash_buffer: [K]u8 = undefined,
 
-        pub fn open(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
+        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, options: Options) !Self {
             var tree: Self = undefined;
-            try tree.init(allocator, db, options);
+            try tree.init(allocator, txn, options);
             return tree;
         }
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !void {
-            self.db = db;
-            self.cursor = try Cursor.open(allocator, self.db, .{ .effects = options.effects, .trace = options.trace });
+        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, options: Options) !void {
+            self.txn = txn;
+            self.dbi = options.dbi orelse try txn.openDatabase(.{});
+            self.cursor = try Cursor.open(allocator, self.txn, .{
+                .dbi = self.dbi,
+                .effects = options.effects,
+                .trace = options.trace,
+            });
             self.logger = Logger.init(allocator, options.log);
             self.pool = BufferPool.init(allocator);
             self.encoder = Encoder.init(allocator);
@@ -57,7 +64,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             self.effects = options.effects;
             self.trace = options.trace;
 
-            try Header.initialize(db);
+            try Header.initialize(txn, self.dbi);
         }
 
         pub fn close(self: *Self) void {
@@ -77,7 +84,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
 
         pub fn getNode(self: *Self, level: u8, key: ?[]const u8) !?Node {
             const entry_key = try self.encoder.encodeKey(level, key);
-            if (try self.db.get(entry_key)) |entry_value| {
+            if (try self.txn.get(self.dbi, entry_key)) |entry_value| {
                 return try Node.parse(entry_key, entry_value);
             } else {
                 return null;
@@ -88,20 +95,20 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             const entry = try self.encoder.encode(node);
             if (self.trace) |trace| try trace.append(node);
             if (self.effects) |effects| {
-                if (try self.db.get(entry.key)) |_| {
+                if (try self.txn.get(self.dbi, entry.key)) |_| {
                     effects.update += 1;
                 } else {
                     effects.create += 1;
                 }
             }
 
-            try self.db.set(entry.key, entry.value);
+            try self.txn.set(self.dbi, entry.key, entry.value);
         }
 
         fn deleteNode(self: *Self, level: u8, key: ?[]const u8) !void {
             const entry_key = try self.encoder.encodeKey(level, key);
             if (self.effects) |effects| effects.delete += 1;
-            try self.db.delete(entry_key);
+            try self.txn.delete(self.dbi, entry_key);
         }
 
         // External tree operations
@@ -116,7 +123,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
 
         pub fn get(self: *Self, key: []const u8) !?[]const u8 {
             const entry_key = try self.encoder.encodeKey(0, key);
-            if (try self.db.get(entry_key)) |entry_value| {
+            if (try self.txn.get(self.dbi, entry_key)) |entry_value| {
                 const node = try Node.parse(entry_key, entry_value);
                 if (node.value) |value| {
                     return value;

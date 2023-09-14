@@ -14,6 +14,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         const Self = @This();
 
         pub const Options = struct {
+            dbi: ?lmdb.Transaction.DBI = null,
             effects: ?*Effects = null,
             trace: ?*NodeList = null,
         };
@@ -25,14 +26,14 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         effects: ?*Effects = null,
         trace: ?*NodeList = null,
 
-        pub fn open(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
+        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, options: Options) !Self {
             var self: Self = undefined;
-            try self.init(allocator, db, options);
+            try self.init(allocator, txn, options);
             return self;
         }
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !void {
-            const cursor = try lmdb.Cursor.open(db);
+        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, options: Options) !void {
+            const cursor = try lmdb.Cursor.open(txn, options.dbi);
             self.is_open = true;
             self.level = 0xFF;
             self.cursor = cursor;

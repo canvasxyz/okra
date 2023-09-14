@@ -28,11 +28,10 @@ test "initialize a header in default database" {
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
-    const db = try lmdb.Database.open(txn, .{});
 
-    try Header.write(db);
+    try Header.write(txn, null);
 
-    try lmdb.utils.expectEqualEntries(db, &.{
+    try lmdb.utils.expectEqualEntries(txn, null, &.{
         .{ &[_]u8{0x00}, &empty_hash },
         .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
     });
@@ -49,15 +48,15 @@ test "initialize a header in named databases" {
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
 
-    const db_a = try lmdb.Database.open(txn, .{ .name = "a", .create = true });
-    const db_b = try lmdb.Database.open(txn, .{ .name = "b", .create = true });
+    const db_a = try txn.openDatabase(.{ .name = "a", .create = true });
+    const db_b = try txn.openDatabase(.{ .name = "b", .create = true });
 
-    try Header.write(db_a);
-    try Header.write(db_b);
+    try Header.write(txn, db_a);
+    try Header.write(txn, db_b);
 
-    try if (try db_a.get(&[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
-    try if (try db_a.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
+    try if (try txn.get(db_a, &[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
+    try if (try txn.get(db_a, &[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
 
-    try if (try db_b.get(&[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
-    try if (try db_b.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
+    try if (try txn.get(db_b, &[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
+    try if (try txn.get(db_b, &[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
 }
