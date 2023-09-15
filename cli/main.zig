@@ -463,7 +463,6 @@ fn set(args: []const []const u8) !void {
 
     var key_buffer = std.ArrayList(u8).init(allocator);
     defer key_buffer.deinit();
-    try parseKey(&key_buffer);
 
     var value_buffer = std.ArrayList(u8).init(allocator);
     defer value_buffer.deinit();
@@ -509,20 +508,22 @@ fn set(args: []const []const u8) !void {
     const env = try lmdb.Environment.open(path, .{});
     defer env.close();
 
-    const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });
+    const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     errdefer txn.abort();
 
     const dbi = try txn.openDatabase(.{ .name = name });
 
-    var tree = try okra.Tree.open(allocator, txn, .{ .dbi = dbi, .log = log, .trace = trace });
-    defer tree.close();
+    {
+        var tree = try okra.Tree.open(allocator, txn, .{ .dbi = dbi, .log = log, .trace = trace });
+        defer tree.close();
 
-    try tree.set(key_buffer.items, value_buffer.items);
+        try tree.set(key_buffer.items, value_buffer.items);
 
-    if (trace_option.value.bool) {
-        var printer = try Printer.init(allocator, &tree, encoding, &trace_nodes);
-        defer printer.deinit();
-        try printer.printRoot(height, depth);
+        if (trace_option.value.bool) {
+            var printer = try Printer.init(allocator, &tree, encoding, &trace_nodes);
+            defer printer.deinit();
+            try printer.printRoot(height, depth);
+        }
     }
 
     try txn.commit();
@@ -619,7 +620,9 @@ fn init(args: []const []const u8) !void {
     std.fs.cwd().access(args[0], .{ .mode = .read_write }) catch |err| {
         switch (err) {
             error.FileNotFound => try std.fs.cwd().makeDir(args[0]),
-            else => {},
+            else => {
+                return err;
+            },
         }
     };
 
