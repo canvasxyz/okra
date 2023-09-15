@@ -6,7 +6,6 @@
 - [Transaction](#transaction)
 - [Iterator](#iterator)
 
-
 The three basic classes are `Tree`, `Transaction`, and `Iterator`. Internally, all three are generic structs parametrized by two comptime values `K: u8` and `Q: u32`:
 
 - `K` is the size **in bytes** of the internal Blake3 hash digests.
@@ -76,7 +75,7 @@ Some transaction and iterator methods return `Node` structs, which represent int
 ```zig
 const Transaction = struct {
     pub const Options = struct { read_only: bool, dbi: ?[*:0]const u8 = null, log: ?std.fs.File.Writer = null };
-    
+
     // lifecycle methods
     pub fn open(allocator: std.mem.Allocator, tree: *const Tree, options: Options) !Transaction
     pub fn abort(self: *Transaction) void
@@ -92,7 +91,7 @@ const Transaction = struct {
 }
 ```
 
-A `Transaction` can be read-only or read-write. Only one write transaction can be open at a time. 
+A `Transaction` can be read-only or read-write. Only one write transaction can be open at a time.
 
 ```zig
 // read-only transaction
