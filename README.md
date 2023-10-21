@@ -14,7 +14,7 @@ You can use Okra as a persistent key/value store. Internally, it has a special m
 
 ## Table of Contents
 
-- [Usage](#Usage)
+- [Usage](#usage)
 - [Design](#design)
 - [Benchmarks](#benchmarks)
 - [References](#references)
@@ -23,11 +23,11 @@ You can use Okra as a persistent key/value store. Internally, it has a special m
 
 ## Usage
 
-The internal Zig structs are documented in [API.md](API.md) and the NodeJS bindings are documented in [node-api/README.md](./node-api/).
+The internal Zig structs are documented in [API.md](API.md). You may also prefer to use [NodeJS bindings](https://github.com/canvasxyz/okra-js/tree/main/packages/okra-node) in the JavaScript monorepo.
 
 ## Design
 
-okra is a Prolly Tree whose leaves are key/value entries sorted lexicographically by key. It has three crucial properties:
+Okra is a Prolly Tree whose leaves are key/value entries sorted lexicographically by key. It has three crucial properties:
 
 1. deterministic: two trees have the same root hash if and only if they comprise the same set of leaf entries, independent of insertion order
 2. pseudorandom: the number of children per node varies, but the expected degree is a constant and can be configured by the user
@@ -91,7 +91,7 @@ Okra has no external concept of versioning or time-travel. LMDB is copy-on-write
 
 Run all tests with `zig build test`.
 
-Okra is currently built with zig version `0.11.0-dev.3947+89396ff02`.
+Okra is currently built with zig version `0.11.0`.
 
 ## Benchmarks
 
