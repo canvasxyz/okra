@@ -26,7 +26,6 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         const Self = @This();
 
         pub const Options = struct {
-            dbi: ?lmdb.Transaction.DBI = null,
             log: ?std.fs.File.Writer = null,
             trace: ?*NodeList = null,
             effects: ?*Effects = null,
@@ -43,20 +42,20 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         trace: ?*NodeList = null,
         hash_buffer: [K]u8 = undefined,
 
-        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, options: Options) !Self {
+        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !Self {
             var tree: Self = undefined;
-            try tree.init(allocator, txn, options);
+            try tree.init(allocator, txn, dbi, options);
             return tree;
         }
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, options: Options) !void {
+        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !void {
             self.txn = txn;
-            self.dbi = options.dbi orelse try txn.openDatabase(.{});
-            self.cursor = try Cursor.open(allocator, self.txn, .{
-                .dbi = self.dbi,
+            self.dbi = dbi;
+            self.cursor = try Cursor.open(allocator, txn, dbi, .{
                 .effects = options.effects,
                 .trace = options.trace,
             });
+
             self.logger = Logger.init(allocator, options.log);
             self.pool = BufferPool.init(allocator);
             self.encoder = Encoder.init(allocator);
@@ -64,12 +63,11 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             self.effects = options.effects;
             self.trace = options.trace;
 
-            try Header.initialize(txn, self.dbi);
+            try Header.initialize(txn, dbi);
         }
 
         pub fn close(self: *Self) void {
             self.cursor.close();
-
             self.logger.deinit();
             self.pool.deinit();
             self.encoder.deinit();
@@ -128,7 +126,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 if (node.value) |value| {
                     return value;
                 } else {
-                    return error.InvalidDatabase;
+                    return error.InvalidDatabase11;
                 }
             } else {
                 return null;
@@ -229,7 +227,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                             return Result.delete;
                         }
                     } else {
-                        return error.InvalidDatabase;
+                        return error.InvalidDatabase12;
                     }
                 },
                 .delete => |operation| {
@@ -350,7 +348,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                         target = try self.pool.copy(id, next_child_key);
                     }
                 } else {
-                    return error.InvalidDatabase;
+                    return error.InvalidDatabase13;
                 }
             }
 

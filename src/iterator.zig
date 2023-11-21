@@ -5,12 +5,11 @@ const lmdb = @import("lmdb");
 
 pub fn Iterator(comptime K: u8, comptime Q: u32) type {
     const Node = @import("node.zig").Node(K, Q);
-    const Tree = @import("tree.zig").Tree(K, Q);
 
     return struct {
         pub const Bound = struct { key: ?[]const u8, inclusive: bool };
         pub const Range = struct {
-            level: u8 = 0,
+            level: u8,
             lower_bound: ?Bound = null,
             upper_bound: ?Bound = null,
             reverse: bool = false,
@@ -18,7 +17,6 @@ pub fn Iterator(comptime K: u8, comptime Q: u32) type {
 
         const Self = @This();
 
-        allocator: std.mem.Allocator,
         is_open: bool = false,
         is_live: bool = false,
         is_done: bool = false,
@@ -31,15 +29,14 @@ pub fn Iterator(comptime K: u8, comptime Q: u32) type {
         upper_bound_inclusive: bool,
         reverse: bool,
 
-        pub fn open(allocator: std.mem.Allocator, tree: *const Tree, range: Range) !Self {
+        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, range: Range) !Self {
             var iterator: Self = undefined;
-            try iterator.init(allocator, tree, range);
+            try iterator.init(allocator, txn, dbi, range);
             return iterator;
         }
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, tree: *const Tree, range: Range) !void {
-            const cursor = try lmdb.Cursor.open(tree.txn, tree.dbi);
-            self.allocator = allocator;
+        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, range: Range) !void {
+            const cursor = try lmdb.Cursor.open(txn, dbi);
             self.lower_bound = std.ArrayList(u8).init(allocator);
             self.upper_bound = std.ArrayList(u8).init(allocator);
             self.is_open = true;

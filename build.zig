@@ -18,10 +18,10 @@ pub fn build(b: *std.build.Builder) void {
 
     {
         // CLI
-
         const cli = b.addExecutable(.{
             .name = "okra",
             .root_source_file = FileSource.relative("./cli/main.zig"),
+            .optimize = .Debug,
         });
 
         const zig_cli = b.anonymousDependency("libs/zig-cli/", @import("libs/zig-cli/build.zig"), .{});
@@ -34,11 +34,13 @@ pub fn build(b: *std.build.Builder) void {
 
         cli.linkLibC();
         b.installArtifact(cli);
+
+        const cli_artifact = b.addInstallArtifact(cli, .{});
+        b.step("cli", "Build the CLI").dependOn(&cli_artifact.step);
     }
 
     {
         // Tests
-
         const header_tests = b.addTest(.{ .root_source_file = FileSource.relative("src/header_test.zig") });
         header_tests.addIncludePath(lmdb_include_path);
         header_tests.addCSourceFiles(&lmdb_source_files, &.{});
@@ -87,41 +89,35 @@ pub fn build(b: *std.build.Builder) void {
         test_step.dependOn(&run_iterator_tests.step);
     }
 
-    {
-        // Effect simulations
-        const effect = b.addExecutable(.{
-            .name = "bench-effect",
-            .root_source_file = FileSource.relative("benchmarks/effects.zig"),
-            .optimize = .ReleaseFast,
-        });
+    // {
+    //     // Effect simulations
+    //     const effect = b.addExecutable(.{
+    //         .name = "bench-effect",
+    //         .root_source_file = FileSource.relative("benchmarks/effects.zig"),
+    //         .optimize = .ReleaseFast,
+    //     });
 
-        effect.addIncludePath(lmdb_include_path);
-        effect.addCSourceFiles(&lmdb_source_files, &.{});
-        effect.addModule("lmdb", lmdb.module("lmdb"));
-        effect.addModule("okra", okra);
+    //     effect.addIncludePath(lmdb_include_path);
+    //     effect.addCSourceFiles(&lmdb_source_files, &.{});
+    //     effect.addModule("lmdb", lmdb.module("lmdb"));
+    //     effect.addModule("okra", okra);
 
-        const run_effects = b.addRunArtifact(effect);
-        b.step("bench-effect", "Run effect benchmarks").dependOn(&run_effects.step);
-    }
+    //     const run_effects = b.addRunArtifact(effect);
+    //     b.step("bench-effect", "Run effect benchmarks").dependOn(&run_effects.step);
+    // }
 
-    // // Benchmarks
+    // Benchmarks
+    const bench = b.addExecutable(.{
+        .name = "okra-benchmark",
+        .root_source_file = LazyPath.relative("benchmarks/main.zig"),
+        .optimize = .ReleaseFast,
+    });
 
-    // const lmdb_bench = b.addTest(.{ .root_source_file = FileSource.relative("benchmarks/lmdb.zig") });
-    // lmdb_bench.addModule("lmdb", lmdb);
-    // lmdb_bench.addIncludePath(.{ .path = "libs/openldap/libraries/liblmdb" });
-    // lmdb_bench.addCSourceFiles(&lmdb_source_files, &.{});
-    // const run_lmdb_bench = b.addRunArtifact(lmdb_bench);
+    bench.addIncludePath(lmdb_include_path);
+    bench.addCSourceFiles(&lmdb_source_files, &.{});
+    bench.addModule("lmdb", lmdb.module("lmdb"));
+    bench.addModule("okra", okra);
 
-    // const lmdb_bench_step = b.step("bench-lmdb", "Run LMDB benchmarks");
-    // lmdb_bench_step.dependOn(&run_lmdb_bench.step);
-
-    // const okra_bench = b.addTest(.{ .root_source_file = FileSource.relative("benchmarks/okra.zig") });
-    // okra_bench.addModule("lmdb", lmdb);
-    // okra_bench.addModule("okra", okra);
-    // okra_bench.addIncludePath(.{ .path = "libs/openldap/libraries/liblmdb" });
-    // okra_bench.addCSourceFiles(&lmdb_source_files, &.{});
-    // const run_okra_bench = b.addRunArtifact(lmdb_bench);
-
-    // const okra_bench_step = b.step("bench-okra", "Run Okra benchmarks");
-    // okra_bench_step.dependOn(&run_okra_bench.step);
+    const run_bench = b.addRunArtifact(bench);
+    b.step("bench", "Run Okra benchmarks").dependOn(&run_bench.step);
 }

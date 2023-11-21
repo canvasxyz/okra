@@ -25,8 +25,7 @@ fn testSetEffects(comptime T: u8, iterations: u32) !void {
     const log = std.io.getStdOut().writer();
     _ = try log.write("\n");
 
-    const path = try lmdb.utils.resolvePath(tmp.dir, ".");
-    const env = try lmdb.Environment.open(path, .{ .map_size = 2 * 1024 * 1024 * 1024 });
+    const env = try lmdb.Environment.open(tmp.dir, .{ .map_size = 2 * 1024 * 1024 * 1024 });
     defer env.close();
 
     const entry_count = std.math.pow(u32, 2, 8 * T);

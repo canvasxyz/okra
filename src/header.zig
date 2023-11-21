@@ -20,12 +20,12 @@ pub fn Header(comptime K: u8, comptime Q: u32) type {
 
         const header = [_]u8{ 'o', 'k', 'r', 'a', DATABASE_VERSION, K } ++ getFanoutDegree(Q);
 
-        pub fn initialize(txn: lmdb.Transaction, dbi: ?lmdb.Transaction.DBI) !void {
+        pub fn initialize(txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI) !void {
             if (try txn.get(dbi, &METADATA_KEY)) |value| {
                 if (std.mem.eql(u8, value, &header)) {
                     return;
                 } else {
-                    return error.InvalidDatabase;
+                    return error.InvalidDatabase6;
                 }
             }
 
@@ -39,7 +39,7 @@ pub fn Header(comptime K: u8, comptime Q: u32) type {
             };
         }
 
-        pub fn write(txn: lmdb.Transaction, dbi: ?lmdb.Transaction.DBI) !void {
+        pub fn write(txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI) !void {
             var anchor_hash: [K]u8 = undefined;
             Blake3.hash(&[0]u8{}, &anchor_hash, .{});
             try txn.set(dbi, &ANCHOR_KEY, &anchor_hash);
@@ -51,10 +51,10 @@ pub fn Header(comptime K: u8, comptime Q: u32) type {
                 if (std.mem.eql(u8, value, &header)) {
                     return;
                 } else {
-                    return error.InvalidDatabase;
+                    return error.InvalidDatabase7;
                 }
             } else {
-                return error.InvalidDatabase;
+                return error.InvalidDatabase8;
             }
         }
     };

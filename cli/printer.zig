@@ -17,7 +17,7 @@ is_a_tty: bool,
 
 pub fn init(allocator: std.mem.Allocator, tree: *okra.Tree, encoding: utils.Encoding, trace: ?*okra.NodeList) !Printer {
     const stdout = std.io.getStdOut();
-    var iter = try okra.Iterator.open(allocator, tree, .{});
+    var iter = try okra.Iterator.open(allocator, tree.txn, tree.dbi, .{ .level = 0 });
     return .{
         .allocator = allocator,
         .tree = tree,
@@ -151,7 +151,7 @@ fn printKey(self: *const Printer, key: ?[]const u8) !void {
     if (key) |bytes| {
         switch (self.encoding) {
             .hex => try self.writer.print("│ {s}\n", .{hex(bytes)}),
-            .utf8 => try self.writer.print("│ {s}\n", .{bytes}),
+            .raw => try self.writer.print("│ {s}\n", .{bytes}),
         }
     } else {
         try self.writer.print("│\n", .{});

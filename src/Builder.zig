@@ -17,7 +17,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
 
     return struct {
         const Self = @This();
-        pub const Options = struct { txn: lmdb.Transaction, dbi: ?lmdb.Transaction.DBI = null, log: ?std.fs.File.Writer = null };
+        pub const Options = struct { log: ?std.fs.File.Writer = null };
 
         txn: lmdb.Transaction,
         dbi: lmdb.Transaction.DBI,
@@ -26,21 +26,20 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
         hash_buffer: [K]u8 = undefined,
         logger: Logger,
 
-        pub fn open(allocator: std.mem.Allocator, options: Options) !Self {
+        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !Self {
             var builder: Self = undefined;
-            try builder.init(allocator, options);
+            try builder.init(allocator, txn, dbi, options);
             return builder;
         }
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, options: Options) !void {
+        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !void {
             self.logger = Logger.init(allocator, options.log);
-            self.txn = options.txn;
-            self.dbi = options.dbi orelse try self.txn.openDatabase(.{});
-
-            try Header.write(options.txn, options.dbi);
-
+            self.txn = txn;
+            self.dbi = dbi;
             self.key_buffer = std.ArrayList(u8).init(allocator);
             self.value_buffer = std.ArrayList(u8).init(allocator);
+
+            try Header.write(txn, dbi);
         }
 
         pub fn deinit(self: *Self) void {
@@ -160,7 +159,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
 
         fn getNodeHash(value: []const u8) !*const [K]u8 {
             if (value.len < K) {
-                return error.InvalidDatabase;
+                return error.InvalidDatabase1;
             } else {
                 return value[0..K];
             }

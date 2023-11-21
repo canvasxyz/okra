@@ -1,10 +1,11 @@
 const std = @import("std");
 
-pub const Encoding = enum { utf8, hex };
+pub const Encoding = enum { raw, hex };
 
-// var path_buffer: [4096]u8 = undefined;
-// pub fn resolvePath(dir: std.fs.Dir, name: []const u8) ![*:0]const u8 {
-//     const path = try dir.realpath(name, &path_buffer);
-//     path_buffer[path.len] = 0;
-//     return @as([*:0]const u8, @ptrCast(path_buffer[0..path.len]));
-// }
+pub fn fail(comptime fmt: []const u8, args: anytype) noreturn {
+    var w = std.io.getStdErr().writer();
+    std.fmt.format(w, "ERROR: ", .{}) catch unreachable;
+    std.fmt.format(w, fmt, args) catch unreachable;
+    std.fmt.format(w, "\n", .{}) catch unreachable;
+    std.os.exit(1);
+}

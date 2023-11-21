@@ -13,15 +13,15 @@ test "Builder" {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        const path = try lmdb.utils.resolvePath(tmp.dir, ".");
-        const env = try lmdb.Environment.open(path, .{ .max_dbs = 1 });
+        const env = try lmdb.Environment.open(tmp.dir, .{ .max_dbs = 1 });
         defer env.close();
 
         const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
         defer txn.abort();
 
-        const dbi = try txn.openDatabase(.{ .create = true });
-        var builder = try Builder.open(allocator, .{ .txn = txn, .dbi = dbi });
+        const dbi = try txn.openDatabase(null, .{});
+
+        var builder = try Builder.open(allocator, txn, dbi, .{});
         defer builder.deinit();
 
         for (t.leaves) |leaf| try builder.set(leaf[0], leaf[1]);

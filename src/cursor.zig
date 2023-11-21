@@ -14,7 +14,6 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         const Self = @This();
 
         pub const Options = struct {
-            dbi: ?lmdb.Transaction.DBI = null,
             effects: ?*Effects = null,
             trace: ?*NodeList = null,
         };
@@ -26,14 +25,14 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         effects: ?*Effects = null,
         trace: ?*NodeList = null,
 
-        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, options: Options) !Self {
+        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !Self {
             var self: Self = undefined;
-            try self.init(allocator, txn, options);
+            try self.init(allocator, txn, dbi, options);
             return self;
         }
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, options: Options) !void {
-            const cursor = try lmdb.Cursor.open(txn, options.dbi);
+        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !void {
+            const cursor = try lmdb.Cursor.open(txn, dbi);
             self.is_open = true;
             self.level = 0xFF;
             self.cursor = cursor;
@@ -60,7 +59,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
                 }
             }
 
-            return error.InvalidDatabase;
+            return error.InvalidDatabase2;
         }
 
         pub fn goToNode(self: *Self, level: u8, key: ?[]const u8) !Node {
@@ -79,7 +78,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
 
             if (try self.cursor.goToNext()) |k| {
                 if (k.len == 0) {
-                    return error.InvalidDatabase;
+                    return error.InvalidDatabase3;
                 } else if (k[0] == self.level) {
                     return try self.getCurrentNode();
                 } else {
@@ -97,7 +96,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
 
             if (try self.cursor.goToPrevious()) |k| {
                 if (k.len == 0) {
-                    return error.InvalidDatabase;
+                    return error.InvalidDatabase4;
                 } else if (k[0] == self.level) {
                     return try self.getCurrentNode();
                 } else {
@@ -112,7 +111,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
             const entry_key = try self.encoder.encodeKey(level, key);
             if (try self.cursor.seek(entry_key)) |k| {
                 if (k.len == 0) {
-                    return error.InvalidDatabase;
+                    return error.InvalidDatabase5;
                 } else if (k[0] == level) {
                     self.level = level;
                     return try self.getCurrentNode();

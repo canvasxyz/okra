@@ -19,21 +19,24 @@ test "basic cursor operations" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try lmdb.utils.resolvePath(tmp.dir, ".");
-    const env = try lmdb.Environment.open(path, .{});
+    const env = try lmdb.Environment.open(tmp.dir, .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
 
-    var builder = try Builder.open(allocator, .{ .txn = txn });
+    const dbi = try txn.openDatabase(null, .{});
+
+    var builder = try Builder.open(allocator, txn, dbi, .{});
     defer builder.deinit();
+
     try builder.set("a", "foo");
     try builder.set("b", "bar");
     try builder.set("c", "baz");
     try builder.build();
 
-    var cursor = try Cursor.open(allocator, txn, .{});
+    var cursor = try Cursor.open(allocator, txn, dbi, .{});
+
     const root = try cursor.goToRoot();
     try expect(root.level == 3);
     try expect(root.key == null);

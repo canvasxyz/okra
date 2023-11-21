@@ -27,7 +27,6 @@ pub const BufferPool = struct {
 
     pub fn set(self: *BufferPool, id: usize, value: []const u8) !void {
         try self.values.items[id].resize(self.allocator, value.len);
-        // std.mem.copy(u8, self.values.items[id].items, value);
         @memcpy(self.values.items[id].items, value);
     }
 

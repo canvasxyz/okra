@@ -25,14 +25,15 @@ test "Iterator(a, b, c)" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const path = try lmdb.utils.resolvePath(tmp.dir, ".");
-    const env = try lmdb.Environment.open(path, .{});
+    const env = try lmdb.Environment.open(tmp.dir, .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
     defer txn.abort();
 
-    var tree = try Tree.open(allocator, txn, .{});
+    const dbi = try txn.openDatabase(null, .{});
+
+    var tree = try Tree.open(allocator, txn, dbi, .{});
     try tree.set("a", "foo");
     try tree.set("b", "bar");
     try tree.set("c", "baz");
@@ -49,7 +50,7 @@ test "Iterator(a, b, c)" {
     // L2 -----------------------------
     // 2453a3811e50851b4fc0bb95e1415b07
 
-    var iter = try Iterator.open(allocator, &tree, .{ .level = 2 });
+    var iter = try Iterator.open(allocator, txn, dbi, .{ .level = 2 });
     defer iter.close();
 
     try Node.expectEqualNodes(.{

@@ -10,13 +10,14 @@ d88' `88b  888 .8P'   `888""8P `P  )88b
 
 Okra is a Prolly tree written in Zig and built on top of LMDB.
 
-You can use Okra as a persistent key/value store. Internally, it has a special merkle skip-list structure that **enables a new class of efficient p2p syncing algorithms**. For example, if you have a peer-to-peer network in which peers publish CRDT operations but occasionally go offline and miss operations, two peers can use Okra to quickly identify missing operations (ie perform set reconciliation) without relying on version vectors.
+You can use Okra as a persistent key/value store. Internally, it has a special merkle skip-list structure that **enables a new class of efficient p2p syncing algorithms**. For example, if you have a peer-to-peer network in which peers publish CRDT operations but occasionally go offline and miss operations, two peers can use Okra to quickly identify missing operations (ie set reconciliation) without relying on version vectors.
 
 Read more about the motivation and design of Okra in [this blog post](https://docs.canvas.xyz/blog/2023-05-04-merklizing-the-key-value-store.html).
 
 ## Table of Contents
 
 - [Usage](#usage)
+  - [CLI](#cli)
 - [Design](#design)
 - [Benchmarks](#benchmarks)
 - [References](#references)
@@ -25,7 +26,33 @@ Read more about the motivation and design of Okra in [this blog post](https://do
 
 ## Usage
 
-The internal Zig structs are documented in [API.md](API.md). You may also prefer to use [NodeJS bindings](https://github.com/canvasxyz/okra-js/tree/main/packages/okra-node) in the JavaScript monorepo.
+The Zig library is documented in [API.md](API.md). You may also prefer to use [NodeJS bindings](https://github.com/canvasxyz/okra-js/tree/main/packages/okra-node) in the JavaScript monorepo.
+
+### CLI
+
+Build the CLI with `zig build cli`. The CLI can be used to initialize Okra trees, get/set/delete entries, and inspect the internal merkle tree nodes.
+
+```
+% ./zig-out/bin/okra --help
+okra
+
+USAGE:
+  okra [OPTIONS]
+
+okra is a deterministic pseudo-random merkle tree built on LMDB
+
+COMMANDS:
+  init     initialize an empty database environment
+  cat      Print the key/value entries to stdout
+  ls       list the children of an internal node
+  tree     Print the tree structure
+  get      Get a value by key
+  set      Set a value by key
+  delete   Delete a value by key
+
+OPTIONS:
+  -h, --help   Prints help information
+```
 
 ## Design
 
