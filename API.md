@@ -45,10 +45,7 @@ Trees are initialized with an LMDB transaction and database ID. They must be clo
 An easy way to make sure this happens is to always open trees within their own block.
 
 ```zig
-var dir = std.fs.cwd().openDir("db", .{});
-defer dir.close();
-
-const env = try lmdb.Environment.open(dir, .{});
+const env = try lmdb.Environment.open("path/to/db", .{});
 defer env.close();
 
 const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
@@ -115,10 +112,7 @@ pub const Iterator = struct {
 ```
 
 ```zig
-var dir = std.fs.cwd().openDir("db", .{});
-defer dir.close();
-
-const env = try lmdb.Environment.open(dir, .{});
+const env = try lmdb.Environment.open("path/to/db", .{});
 defer env.close();
 
 const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });

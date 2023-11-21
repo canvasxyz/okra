@@ -19,7 +19,7 @@ test "basic cursor operations" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const env = try lmdb.Environment.open(tmp.dir, .{});
+    const env = try lmdb.Environment.openDir(tmp.dir, .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });

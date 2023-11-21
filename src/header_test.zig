@@ -22,7 +22,7 @@ test "initialize a header in default database" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const env = try lmdb.Environment.open(tmp.dir, .{});
+    const env = try lmdb.Environment.openDir(tmp.dir, .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
@@ -42,7 +42,7 @@ test "initialize a header in named databases" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const env = try lmdb.Environment.open(tmp.dir, .{ .max_dbs = 2 });
+    const env = try lmdb.Environment.openDir(tmp.dir, .{ .max_dbs = 2 });
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });

@@ -33,7 +33,7 @@ const Context = struct {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        const env = try lmdb.Environment.open(tmp.dir, options);
+        const env = try lmdb.Environment.openDir(tmp.dir, options);
         defer env.close();
 
         const ctx = Context{ .env = env, .name = name, .size = size, .log = log };

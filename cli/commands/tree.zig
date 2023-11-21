@@ -90,10 +90,7 @@ fn run(args: []const []const u8) !void {
         utils.fail("height must be less than 255", .{});
     }
 
-    var dir = try std.fs.cwd().openDir(args[0], .{});
-    defer dir.close();
-
-    const env = try lmdb.Environment.open(dir, .{});
+    const env = try lmdb.Environment.open(args[0], .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });

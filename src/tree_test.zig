@@ -32,7 +32,7 @@ test "open a Tree" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const env = try lmdb.Environment.open(tmp.dir, .{});
+    const env = try lmdb.Environment.openDir(tmp.dir, .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
@@ -55,7 +55,7 @@ test "basic get/set/delete operations" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const env = try lmdb.Environment.open(tmp.dir, .{});
+    const env = try lmdb.Environment.openDir(tmp.dir, .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
@@ -83,7 +83,7 @@ test "library tests" {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        const env = try lmdb.Environment.open(tmp.dir, .{});
+        const env = try lmdb.Environment.openDir(tmp.dir, .{});
         defer env.close();
 
         const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
@@ -106,7 +106,7 @@ test "set the same entry twice" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const env = try lmdb.Environment.open(tmp.dir, .{});
+    const env = try lmdb.Environment.openDir(tmp.dir, .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
@@ -129,7 +129,7 @@ test "delete a leaf anchor" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const env = try lmdb.Environment.open(tmp.dir, .{});
+    const env = try lmdb.Environment.openDir(tmp.dir, .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
@@ -171,7 +171,7 @@ test "overwrite a leaf anchor with another anchor" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const env = try lmdb.Environment.open(tmp.dir, .{});
+    const env = try lmdb.Environment.openDir(tmp.dir, .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
@@ -216,7 +216,7 @@ test "overwrite a leaf anchor with a non-anchor" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const env = try lmdb.Environment.open(tmp.dir, .{});
+    const env = try lmdb.Environment.openDir(tmp.dir, .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
@@ -295,7 +295,7 @@ fn testPseudoRandomPermutations(
         var dir = try tmp.dir.openDir(name, .{});
         defer dir.close();
 
-        const env = try lmdb.Environment.open(dir, .{ .max_dbs = 2, .map_size = options.map_size });
+        const env = try lmdb.Environment.openDir(dir, .{ .max_dbs = 2, .map_size = options.map_size });
         defer env.close();
 
         const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });

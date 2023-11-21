@@ -113,10 +113,7 @@ fn run(args: []const []const u8) !void {
         },
     }
 
-    var dir = try std.fs.cwd().openDir(args[0], .{});
-    defer dir.close();
-
-    const env = try lmdb.Environment.open(dir, .{});
+    const env = try lmdb.Environment.open(args[0], .{});
     defer env.close();
 
     const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });

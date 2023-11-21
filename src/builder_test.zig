@@ -13,7 +13,7 @@ test "Builder" {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        const env = try lmdb.Environment.open(tmp.dir, .{ .max_dbs = 1 });
+        const env = try lmdb.Environment.openDir(tmp.dir, .{ .max_dbs = 1 });
         defer env.close();
 
         const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
