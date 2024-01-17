@@ -406,12 +406,12 @@ fn testPseudoRandomPermutations(
 //     try testPseudoRandomPermutations(1, 10, 0, .{ .log = null });
 // }
 
-// test "100 pseudo-random permutations of 50, deleting 0" {
-//     // const log = std.io.getStdErr().writer();
-//     // try log.print("\n", .{});
-//     // try testPseudoRandomPermutations(100, 50, 0, .{ .log = log });
-//     try testPseudoRandomPermutations(100, 50, 0, .{ .log = null });
-// }
+test "100 pseudo-random permutations of 50, deleting 0" {
+    // const log = std.io.getStdErr().writer();
+    // try log.print("\n", .{});
+    // try testPseudoRandomPermutations(100, 50, 0, .{ .log = log });
+    try testPseudoRandomPermutations(100, 50, 0, .{ .log = null });
+}
 
 // test "100 pseudo-random permutations of 500, deleting 50" {
 //     try testPseudoRandomPermutations(100, 500, 50, .{});

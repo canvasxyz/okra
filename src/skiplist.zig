@@ -29,7 +29,7 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
 
         pub const Options = struct {
             log: ?std.fs.File.Writer = null,
-            effects: ?*Effects,
+            effects: ?*Effects = null,
         };
 
         allocator: std.mem.Allocator,
