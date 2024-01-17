@@ -21,6 +21,10 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
             return Self.isBoundaryHash(self.hash);
         }
 
+        pub inline fn isAnchor(self: Self) bool {
+            return self.key == null;
+        }
+
         pub inline fn equal(self: Self, other: Self) bool {
             return self.level == other.level and
                 Key.equal(self.key, other.key) and

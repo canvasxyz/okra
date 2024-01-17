@@ -138,7 +138,8 @@ test "library tests" {
             for (t.leaves) |entry| try sl.set(entry[0], entry[1]);
         }
 
-        try expectEqual(@as(usize, 0), try utils.compareDatabases(expected, actual, .{ .log = log }));
+        try utils.expectEqualDatabases(expected, actual);
+        // try expectEqual(@as(usize, 0), try utils.compareDatabases(expected, actual, .{ .log = log }));
     }
 }
 
@@ -395,36 +396,36 @@ fn testPseudoRandomPermutations(
         //     try utils.printEntries(tree.env, writer);
         // }
 
-        // try utils.expectEqualDatabases(expected, actual);
-        try expectEqual(@as(usize, 0), try utils.compareDatabases(expected, actual, .{ .log = options.log }));
+        try utils.expectEqualDatabases(expected, actual);
+        // try expectEqual(@as(usize, 0), try utils.compareDatabases(expected, actual, .{ .log = options.log }));
     }
 }
 
-// test "1 pseudo-random permutations of 10, deleting 0" {
-//     // const log = std.io.getStdErr().writer();
-//     // try log.print("\n", .{});
-//     try testPseudoRandomPermutations(1, 10, 0, .{ .log = null });
-// }
+test "1 pseudo-random permutations of 10, deleting 0" {
+    // const log = std.io.getStdErr().writer();
+    // try log.writeByte('\n');
+    try testPseudoRandomPermutations(1, 10, 0, .{ .log = null });
+}
 
 test "100 pseudo-random permutations of 50, deleting 0" {
     // const log = std.io.getStdErr().writer();
-    // try log.print("\n", .{});
+    // try log.writeByte('\n');
     // try testPseudoRandomPermutations(100, 50, 0, .{ .log = log });
     try testPseudoRandomPermutations(100, 50, 0, .{ .log = null });
 }
 
-// test "100 pseudo-random permutations of 500, deleting 50" {
-//     try testPseudoRandomPermutations(100, 500, 50, .{});
-// }
+test "100 pseudo-random permutations of 500, deleting 50" {
+    try testPseudoRandomPermutations(100, 500, 50, .{});
+}
 
-// test "100 pseudo-random permutations of 1000, deleting 200" {
-//     try testPseudoRandomPermutations(100, 1000, 200, .{});
-// }
+test "100 pseudo-random permutations of 1000, deleting 200" {
+    try testPseudoRandomPermutations(100, 1000, 200, .{});
+}
 
-// test "10 pseudo-random permutations of 10000, deleting 500" {
-//     try testPseudoRandomPermutations(10, 10000, 500, .{ .map_size = 2 * 1024 * 1024 * 1024 });
-// }
+test "10 pseudo-random permutations of 10000, deleting 500" {
+    try testPseudoRandomPermutations(10, 10000, 500, .{ .map_size = 2 * 1024 * 1024 * 1024 });
+}
 
-// test "10 pseudo-random permutations of 50000, deleting 1000" {
-//     try testPseudoRandomPermutations(10, 10000, 1000, .{ .map_size = 2 * 1024 * 1024 * 1024 });
-// }
+test "10 pseudo-random permutations of 50000, deleting 1000" {
+    try testPseudoRandomPermutations(10, 10000, 1000, .{ .map_size = 2 * 1024 * 1024 * 1024 });
+}

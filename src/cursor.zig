@@ -51,7 +51,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
                 }
             }
 
-            return error.InvalidDatabase2;
+            return error.InvalidDatabase;
         }
 
         pub fn goToNode(self: *Self, level: u8, key: ?[]const u8) !void {
@@ -73,14 +73,13 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
 
             if (try self.cursor.goToNext()) |entry_key| {
                 if (entry_key.len == 0) {
-                    return error.InvalidDatabase3;
+                    return error.InvalidDatabase;
                 } else if (entry_key[0] == self.level) {
                     return try self.getCurrentNode();
-                } else {
-                    self.level = 0xFF;
                 }
             }
 
+            self.level = 0xFF;
             return null;
         }
 
@@ -93,7 +92,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
 
             if (try self.cursor.goToPrevious()) |entry_key| {
                 if (entry_key.len == 0) {
-                    return error.InvalidDatabase4;
+                    return error.InvalidDatabase;
                 } else if (entry_key[0] == self.level) {
                     return try self.getCurrentNode();
                 } else {
@@ -107,15 +106,15 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         pub fn seek(self: *Self, level: u8, key: ?[]const u8) !?Node {
             if (self.effects) |effects| effects.cursor_ops += 1;
 
+            self.level = level;
+            errdefer self.level = 0xFF;
+
             const entry_key = try self.encoder.encodeKey(level, key);
             if (try self.cursor.seek(entry_key)) |needle| {
                 if (needle.len == 0) {
-                    return error.InvalidDatabase5;
+                    return error.InvalidDatabase;
                 } else if (needle[0] == level) {
-                    self.level = level;
                     return try self.getCurrentNode();
-                } else {
-                    self.level = 0xFF;
                 }
             }
 
@@ -123,6 +122,10 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn getCurrentNode(self: Self) !Node {
+            if (self.level == 0xFF) {
+                return error.Uninitialized;
+            }
+
             const entry = try self.cursor.getCurrentEntry();
             return try Node.parse(entry.key, entry.value);
         }
@@ -136,9 +139,9 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         //     }
         // }
 
-        // pub fn deleteCurrentNode(self: *Self) !void {
-        //     try self.cursor.deleteCurrentKey();
-        //     if (self.effects) |effects| effects.delete += 1;
-        // }
+        pub fn deleteCurrentNode(self: *Self) !void {
+            try self.cursor.deleteCurrentKey();
+            if (self.effects) |effects| effects.delete += 1;
+        }
     };
 }
