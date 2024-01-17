@@ -29,275 +29,275 @@ fn leaf(hash: *const [64]u8, value: u8) [33]u8 {
     return result;
 }
 
-// test "open a SkipList" {
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
+test "open a SkipList" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-//     const env = try utils.open(tmp.dir, .{});
-//     defer env.deinit();
+    const env = try utils.open(tmp.dir, .{});
+    defer env.deinit();
 
-//     const txn = try env.transaction(.{ .mode = .ReadWrite });
-//     defer txn.abort();
+    const txn = try env.transaction(.{ .mode = .ReadWrite });
+    defer txn.abort();
 
-//     const db = try txn.database(null, .{});
+    const db = try txn.database(null, .{});
 
-//     {
-//         var sl = try SkipList.init(allocator, db, .{});
-//         defer sl.deinit();
+    {
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
-//         try utils.expectEqualEntries(db, &.{
-//             .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-//             .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
-//         });
-//     }
-// }
+        try utils.expectEqualEntries(db, &.{
+            .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
+            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
+        });
+    }
+}
 
-// test "basic get/set/delete operations" {
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
+test "basic get/set/delete operations" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-//     const env = try utils.open(tmp.dir, .{});
-//     defer env.deinit();
+    const env = try utils.open(tmp.dir, .{});
+    defer env.deinit();
 
-//     const txn = try env.transaction(.{ .mode = .ReadWrite });
-//     defer txn.abort();
+    const txn = try env.transaction(.{ .mode = .ReadWrite });
+    defer txn.abort();
 
-//     const db = try txn.database(null, .{});
+    const db = try txn.database(null, .{});
 
-//     {
-//         var sl = try SkipList.init(allocator, db, .{});
-//         defer sl.deinit();
+    {
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
-//         try sl.set("a", "foo");
-//         try sl.set("b", "bar");
-//         try sl.set("c", "baz");
+        try sl.set("a", "foo");
+        try sl.set("b", "bar");
+        try sl.set("c", "baz");
 
-//         try Key.expectEqual("foo", try sl.get("a"));
-//         try Key.expectEqual("bar", try sl.get("b"));
-//         try Key.expectEqual("baz", try sl.get("c"));
-//         try Key.expectEqual(null, try sl.get("d"));
-//     }
-// }
+        try Key.expectEqual("foo", try sl.get("a"));
+        try Key.expectEqual("bar", try sl.get("b"));
+        try Key.expectEqual("baz", try sl.get("c"));
+        try Key.expectEqual(null, try sl.get("d"));
+    }
+}
 
-// test "set empty values" {
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
+test "set empty values" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-//     const env = try utils.open(tmp.dir, .{});
-//     defer env.deinit();
+    const env = try utils.open(tmp.dir, .{});
+    defer env.deinit();
 
-//     const txn = try env.transaction(.{ .mode = .ReadWrite });
-//     defer txn.abort();
+    const txn = try env.transaction(.{ .mode = .ReadWrite });
+    defer txn.abort();
 
-//     const db = try txn.database(null, .{});
+    const db = try txn.database(null, .{});
 
-//     {
-//         var sl = try SkipList.init(allocator, db, .{});
-//         defer sl.deinit();
+    {
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
-//         try sl.set("a", "");
-//         try sl.set("b", "");
-//         try sl.set("c", "");
+        try sl.set("a", "");
+        try sl.set("b", "");
+        try sl.set("c", "");
 
-//         try Key.expectEqual("", try sl.get("a"));
-//         try Key.expectEqual("", try sl.get("b"));
-//         try Key.expectEqual("", try sl.get("c"));
-//         try Key.expectEqual(null, try sl.get("d"));
-//     }
-// }
+        try Key.expectEqual("", try sl.get("a"));
+        try Key.expectEqual("", try sl.get("b"));
+        try Key.expectEqual("", try sl.get("c"));
+        try Key.expectEqual(null, try sl.get("d"));
+    }
+}
 
-// test "library tests" {
-//     for (&library.tests) |t| {
-//         const log = std.io.getStdErr().writer();
-//         try log.writeByte('\n');
+test "library tests" {
+    for (&library.tests) |t| {
+        const log = std.io.getStdErr().writer();
+        try log.writeByte('\n');
 
-//         var tmp = std.testing.tmpDir(.{});
-//         defer tmp.cleanup();
+        var tmp = std.testing.tmpDir(.{});
+        defer tmp.cleanup();
 
-//         const env = try utils.open(tmp.dir, .{ .max_dbs = 2 });
-//         defer env.deinit();
+        const env = try utils.open(tmp.dir, .{ .max_dbs = 2 });
+        defer env.deinit();
 
-//         const txn = try env.transaction(.{ .mode = .ReadWrite });
-//         defer txn.abort();
+        const txn = try env.transaction(.{ .mode = .ReadWrite });
+        defer txn.abort();
 
-//         const expected = try txn.database("expected", .{ .create = true });
-//         const actual = try txn.database("actual", .{ .create = true });
+        const expected = try txn.database("expected", .{ .create = true });
+        const actual = try txn.database("actual", .{ .create = true });
 
-//         {
-//             var builder = try Builder.init(allocator, expected, .{});
-//             defer builder.deinit();
+        {
+            var builder = try Builder.init(allocator, expected, .{});
+            defer builder.deinit();
 
-//             for (t.leaves) |entry| try builder.set(entry[0], entry[1]);
-//             try builder.build();
-//         }
+            for (t.leaves) |entry| try builder.set(entry[0], entry[1]);
+            try builder.build();
+        }
 
-//         {
-//             var sl = try SkipList.init(allocator, actual, .{ .log = log });
-//             defer sl.deinit();
+        {
+            var sl = try SkipList.init(allocator, actual, .{ .log = null });
+            defer sl.deinit();
 
-//             for (t.leaves) |entry| try sl.set(entry[0], entry[1]);
-//         }
+            for (t.leaves) |entry| try sl.set(entry[0], entry[1]);
+        }
 
-//         try expectEqual(@as(usize, 0), try utils.compareDatabases(expected, actual, .{ .log = log }));
-//     }
-// }
+        try expectEqual(@as(usize, 0), try utils.compareDatabases(expected, actual, .{ .log = log }));
+    }
+}
 
-// test "set the same entry twice" {
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
+test "set the same entry twice" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-//     const env = try utils.open(tmp.dir, .{});
-//     defer env.deinit();
+    const env = try utils.open(tmp.dir, .{});
+    defer env.deinit();
 
-//     const txn = try env.transaction(.{ .mode = .ReadWrite });
-//     defer txn.abort();
+    const txn = try env.transaction(.{ .mode = .ReadWrite });
+    defer txn.abort();
 
-//     const db = try txn.database(null, .{});
+    const db = try txn.database(null, .{});
 
-//     {
-//         var sl = try SkipList.init(allocator, db, .{});
-//         defer sl.deinit();
+    {
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
-//         try sl.set("a", "foo");
-//         try sl.set("a", "foo");
+        try sl.set("a", "foo");
+        try sl.set("a", "foo");
 
-//         try if (try sl.get("a")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
-//     }
-// }
+        try if (try sl.get("a")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
+    }
+}
 
-// test "delete a leaf boundary" {
-//     const log = std.io.getStdErr().writer();
-//     try log.writeByte('\n');
+test "delete a leaf boundary" {
+    const log = std.io.getStdErr().writer();
+    try log.writeByte('\n');
 
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-//     const env = try utils.open(tmp.dir, .{});
-//     defer env.deinit();
+    const env = try utils.open(tmp.dir, .{});
+    defer env.deinit();
 
-//     const txn = try env.transaction(.{ .mode = .ReadWrite });
-//     defer txn.abort();
+    const txn = try env.transaction(.{ .mode = .ReadWrite });
+    defer txn.abort();
 
-//     const db = try txn.database(null, .{});
+    const db = try txn.database(null, .{});
 
-//     {
-//         var sl = try SkipList.init(allocator, db, .{ .log = log });
-//         defer sl.deinit();
+    {
+        var sl = try SkipList.init(allocator, db, .{ .log = null });
+        defer sl.deinit();
 
-//         for (library.tests[2].leaves) |entry| {
-//             try sl.set(entry[0], entry[1]);
-//         }
+        for (library.tests[2].leaves) |entry| {
+            try sl.set(entry[0], entry[1]);
+        }
 
-//         try sl.delete("d");
-//     }
+        try sl.delete("d");
+    }
 
-//     try utils.expectEqualEntries(db, &.{
-//         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-//         .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
-//         .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
-//         .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
-//         .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
-//         .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
-//         .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
-//         .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
-//         .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
-//         .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
-//         .{ &[_]u8{1}, &h("7ba4b9fd7a5b818f342615616c0a5697735b01e2fe6297a44a576a8d0286a670") },
-//         .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
-//         .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
-//         .{ &[_]u8{2}, &h("4124354b00d608e230b707504173482baf7b11636c62a8ec3abb0471e7ce89ed") },
-//         .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
-//     });
-// }
+    try utils.expectEqualEntries(db, &.{
+        .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
+        .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
+        .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
+        .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
+        .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
+        .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
+        .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
+        .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
+        .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
+        .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
+        .{ &[_]u8{1}, &h("7ba4b9fd7a5b818f342615616c0a5697735b01e2fe6297a44a576a8d0286a670") },
+        .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
+        .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
+        .{ &[_]u8{2}, &h("4124354b00d608e230b707504173482baf7b11636c62a8ec3abb0471e7ce89ed") },
+        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
+    });
+}
 
-// test "overwrite a leaf boundary with another boundary" {
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
+test "overwrite a leaf boundary with another boundary" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-//     const env = try utils.open(tmp.dir, .{});
-//     defer env.deinit();
+    const env = try utils.open(tmp.dir, .{});
+    defer env.deinit();
 
-//     const txn = try env.transaction(.{ .mode = .ReadWrite });
-//     defer txn.abort();
+    const txn = try env.transaction(.{ .mode = .ReadWrite });
+    defer txn.abort();
 
-//     const db = try txn.database(null, .{});
+    const db = try txn.database(null, .{});
 
-//     {
-//         var sl = try SkipList.init(allocator, db, .{});
-//         defer sl.deinit();
+    {
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
-//         for (library.tests[2].leaves) |entry| {
-//             try sl.set(entry[0], entry[1]);
-//         }
+        for (library.tests[2].leaves) |entry| {
+            try sl.set(entry[0], entry[1]);
+        }
 
-//         try sl.delete("d");
-//         try sl.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
-//     }
+        try sl.delete("d");
+        try sl.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
+    }
 
-//     try utils.expectEqualEntries(db, &.{
-//         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-//         .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
-//         .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
-//         .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
-//         .{ &[_]u8{ 0, 'd' }, &leaf("0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2", 0x0c) },
-//         .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
-//         .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
-//         .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
-//         .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
-//         .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
-//         .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
-//         .{ &[_]u8{1}, &h("70ff616136e6ca5726aa564f5db211806ee00a5beb72bbe8d5ce29e95351e092") },
-//         .{ &[_]u8{ 1, 'd' }, &h("8c2f38a49b3e3b3e0bf4914ce5c87e4992be4c98b1df18638787cba6437b0287") },
-//         .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
-//         .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
-//         .{ &[_]u8{2}, &h("14953d0fc005ee26c8bfbc3757b4f2642d9936a7b3a99eb6d6d7347b7ec2cd97") },
-//         .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
-//     });
-// }
+    try utils.expectEqualEntries(db, &.{
+        .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
+        .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
+        .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
+        .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
+        .{ &[_]u8{ 0, 'd' }, &leaf("0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2", 0x0c) },
+        .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
+        .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
+        .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
+        .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
+        .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
+        .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
+        .{ &[_]u8{1}, &h("70ff616136e6ca5726aa564f5db211806ee00a5beb72bbe8d5ce29e95351e092") },
+        .{ &[_]u8{ 1, 'd' }, &h("8c2f38a49b3e3b3e0bf4914ce5c87e4992be4c98b1df18638787cba6437b0287") },
+        .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
+        .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
+        .{ &[_]u8{2}, &h("14953d0fc005ee26c8bfbc3757b4f2642d9936a7b3a99eb6d6d7347b7ec2cd97") },
+        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
+    });
+}
 
-// test "overwrite a leaf boundary with a non-boundary" {
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
+test "overwrite a leaf boundary with a non-boundary" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-//     const env = try utils.open(tmp.dir, .{});
-//     defer env.deinit();
+    const env = try utils.open(tmp.dir, .{});
+    defer env.deinit();
 
-//     const txn = try lmdb.Transaction.init(env, .{ .mode = .ReadWrite });
-//     defer txn.abort();
+    const txn = try lmdb.Transaction.init(env, .{ .mode = .ReadWrite });
+    defer txn.abort();
 
-//     const db = try txn.database(null, .{});
+    const db = try txn.database(null, .{});
 
-//     {
-//         var sl = try SkipList.init(allocator, db, .{});
-//         defer sl.deinit();
+    {
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
-//         for (library.tests[2].leaves) |entry| {
-//             try sl.set(entry[0], entry[1]);
-//         }
+        for (library.tests[2].leaves) |entry| {
+            try sl.set(entry[0], entry[1]);
+        }
 
-//         try sl.delete("d");
-//         try sl.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
-//     }
+        try sl.delete("d");
+        try sl.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
+    }
 
-//     try utils.expectEqualEntries(db, &.{
-//         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-//         .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
-//         .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
-//         .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
-//         .{ &[_]u8{ 0, 'd' }, &leaf("ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542", 0x00) },
-//         .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
-//         .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
-//         .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
-//         .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
-//         .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
-//         .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
-//         .{ &[_]u8{1}, &h("16ca86834b817987b8b75bd54ab477d938d494f012c8f86ce564e201df19e125") },
-//         .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
-//         .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
-//         .{ &[_]u8{2}, &h("733469f093b400276d5f804fc7f698e4a5a6d608bd4e75190f5917e1ff6663b1") },
-//         .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
-//     });
-// }
+    try utils.expectEqualEntries(db, &.{
+        .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
+        .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
+        .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
+        .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
+        .{ &[_]u8{ 0, 'd' }, &leaf("ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542", 0x00) },
+        .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
+        .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
+        .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
+        .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
+        .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
+        .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
+        .{ &[_]u8{1}, &h("16ca86834b817987b8b75bd54ab477d938d494f012c8f86ce564e201df19e125") },
+        .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
+        .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
+        .{ &[_]u8{2}, &h("733469f093b400276d5f804fc7f698e4a5a6d608bd4e75190f5917e1ff6663b1") },
+        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
+    });
+}
 
 const PermutationOptions = struct {
     log: ?std.fs.File.Writer = null,

@@ -71,10 +71,10 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
                 return error.Uninitialized;
             }
 
-            if (try self.cursor.goToNext()) |k| {
-                if (k.len == 0) {
+            if (try self.cursor.goToNext()) |entry_key| {
+                if (entry_key.len == 0) {
                     return error.InvalidDatabase3;
-                } else if (k[0] == self.level) {
+                } else if (entry_key[0] == self.level) {
                     return try self.getCurrentNode();
                 } else {
                     self.level = 0xFF;
@@ -91,10 +91,10 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
                 return error.Uninitialized;
             }
 
-            if (try self.cursor.goToPrevious()) |k| {
-                if (k.len == 0) {
+            if (try self.cursor.goToPrevious()) |entry_key| {
+                if (entry_key.len == 0) {
                     return error.InvalidDatabase4;
-                } else if (k[0] == self.level) {
+                } else if (entry_key[0] == self.level) {
                     return try self.getCurrentNode();
                 } else {
                     self.level = 0xFF;
@@ -108,10 +108,10 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
             if (self.effects) |effects| effects.cursor_ops += 1;
 
             const entry_key = try self.encoder.encodeKey(level, key);
-            if (try self.cursor.seek(entry_key)) |k| {
-                if (k.len == 0) {
+            if (try self.cursor.seek(entry_key)) |needle| {
+                if (needle.len == 0) {
                     return error.InvalidDatabase5;
-                } else if (k[0] == level) {
+                } else if (needle[0] == level) {
                     self.level = level;
                     return try self.getCurrentNode();
                 } else {
@@ -127,18 +127,18 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
             return try Node.parse(entry.key, entry.value);
         }
 
-        pub fn setCurrentNode(self: Self, hash: *const [K]u8, value: ?[]const u8) !void {
-            const entry_value = try self.encoder.encodeValue(hash, value);
-            try self.cursor.setCurrentValue(entry_value);
-            if (self.trace) |trace| {
-                const node = try self.getCurrentNode();
-                try trace.append(node);
-            }
-        }
+        // pub fn setCurrentNode(self: Self, hash: *const [K]u8, value: ?[]const u8) !void {
+        //     const entry_value = try self.encoder.encodeValue(hash, value);
+        //     try self.cursor.setCurrentValue(entry_value);
+        //     if (self.trace) |trace| {
+        //         const node = try self.getCurrentNode();
+        //         try trace.append(node);
+        //     }
+        // }
 
-        pub fn deleteCurrentNode(self: *Self) !void {
-            try self.cursor.deleteCurrentKey();
-            if (self.effects) |effects| effects.delete += 1;
-        }
+        // pub fn deleteCurrentNode(self: *Self) !void {
+        //     try self.cursor.deleteCurrentKey();
+        //     if (self.effects) |effects| effects.delete += 1;
+        // }
     };
 }

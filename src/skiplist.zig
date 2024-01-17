@@ -15,6 +15,9 @@ const nil = [0]u8{};
 
 pub fn SkipList(comptime K: u8, comptime Q: u32) type {
     const Header = @import("header.zig").Header(K, Q);
+    const Node = @import("node.zig").Node(K, Q);
+    const Encoder = @import("encoder.zig").Encoder(K, Q);
+    const Cursor = @import("cursor.zig").Cursor(K, Q);
 
     return struct {
         const Self = @This();
@@ -34,21 +37,26 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
 
         allocator: std.mem.Allocator,
         db: lmdb.Database,
-        cursor: lmdb.Cursor,
-        key_buffer: std.ArrayList(u8),
-        buffer: std.ArrayList(u8),
+        cursor: Cursor,
+        encoder: Encoder,
+
+        // key_buffer: std.ArrayList(u8),
+        // buffer: std.ArrayList(u8),
         logger: ?std.fs.File.Writer,
         effects: ?*Effects,
 
         pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
             try Header.initialize(db);
-            const cursor = try db.cursor();
+
+            const cursor = try Cursor.init(allocator, db, .{ .effects = options.effects });
+
             return .{
                 .allocator = allocator,
                 .db = db,
                 .cursor = cursor,
-                .key_buffer = std.ArrayList(u8).init(allocator),
-                .buffer = std.ArrayList(u8).init(allocator),
+                .encoder = Encoder.init(allocator),
+                // .key_buffer = std.ArrayList(u8).init(allocator),
+                // .buffer = std.ArrayList(u8).init(allocator),
                 .logger = options.log,
                 .effects = options.effects,
             };
@@ -56,8 +64,10 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
 
         pub fn deinit(self: *Self) void {
             self.cursor.deinit();
-            self.buffer.deinit();
-            self.key_buffer.deinit();
+            self.encoder.deinit();
+
+            // self.buffer.deinit();
+            // self.key_buffer.deinit();
         }
 
         pub fn get(self: *Self, key: []const u8) !?[]const u8 {
@@ -88,77 +98,53 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             try self.log("------------------------\n", .{});
         }
 
-        fn copyKey(self: *Self, level: u8, key: ?[]const u8) ![]const u8 {
-            if (key) |key_bytes| {
-                try self.key_buffer.resize(1 + key_bytes.len);
-                self.key_buffer.items[0] = level;
-                @memcpy(self.key_buffer.items[1..], key_bytes);
-                return self.key_buffer.items;
-            } else {
-                try self.key_buffer.resize(1);
-                self.key_buffer.items[0] = level;
-                return self.key_buffer.items;
-            }
-        }
-
-        fn getNode(self: *Self, level: u8, key: ?[]const u8) !?[]const u8 {
-            const entry_key = try self.copyKey(level, key);
-            return try self.db.get(entry_key);
-        }
-
         fn apply(self: *Self, op: Operation) !void {
-            var arena = std.heap.ArenaAllocator.init(self.allocator);
-            defer arena.deinit();
-            if (self.effects) |effects| effects.reset();
 
-            const allocator = arena.allocator();
+            // var arena = std.heap.ArenaAllocator.init(self.allocator);
+            // defer arena.deinit();
 
-            var operations = std.ArrayList(Effect).init(allocator);
+            // if (self.effects) |effects| effects.reset();
+
+            // const allocator = arena.allocator();
+
+            var operations = std.ArrayList(Effect).init(self.allocator);
+            defer operations.deinit();
 
             try self.print();
 
-            const leaf_key = try Key.create(allocator, 0, op.key);
-
             // Handle the level 0 edits manually
-            if (op.value) |new_value| {
-                try self.buffer.resize(K + new_value.len);
-                const new_leaf_value = self.buffer.items;
-                Entry.hash(op.key, new_value, new_leaf_value[0..K]);
-                @memcpy(new_leaf_value[K..], new_value);
+            if (op.value) |value| {
+                var hash: [K]u8 = undefined;
+                Entry.hash(op.key, value, &hash);
+                const new_leaf = Node{ .level = 0, .key = op.key, .hash = &hash, .value = value };
 
-                if (try self.db.get(leaf_key)) |old_leaf_value| {
-                    if (old_leaf_value.len < K) {
-                        return error.InvalidDatabase;
-                    } else if (std.mem.eql(u8, new_leaf_value, old_leaf_value)) {
+                if (try self.getNode(0, op.key)) |old_leaf| {
+                    const old_value = old_leaf.value orelse return error.InvalidDatabase;
+                    if (std.mem.eql(u8, old_value, value)) {
                         return;
                     }
 
-                    if (isBoundary(old_leaf_value[0..K])) {
-                        const old_parent = try Key.create(allocator, 1, op.key);
-                        if (isBoundary(new_leaf_value[0..K])) {
-                            try self.db.set(leaf_key, new_leaf_value);
+                    if (old_leaf.isBoundary()) {
+                        if (new_leaf.isBoundary()) {
+                            try self.setNode(new_leaf);
                             if (self.effects) |effects| effects.update += 1;
 
-                            if (try self.db.get(old_parent) == null) {
-                                try operations.append(.{ .create = old_parent });
-                            } else {
-                                try operations.append(.{ .update = old_parent });
-                            }
+                            try operations.append(.{ .update = op.key });
                         } else {
-                            try self.deleteNode(old_parent);
-
-                            try self.db.set(leaf_key, new_leaf_value);
+                            try self.deleteNode(1, op.key);
+                            try self.setNode(new_leaf);
                             if (self.effects) |effects| effects.update += 1;
 
-                            const new_parent = try self.getParent(allocator, leaf_key);
-                            if (try self.db.get(new_parent) == null) {
+                            // TODO: copy new_parent
+                            const new_parent = try self.getParent(0, op.key);
+                            if (try self.getNode(1, new_parent) == null) {
                                 try operations.append(.{ .create = new_parent });
                             } else {
                                 try operations.append(.{ .update = new_parent });
                             }
                         }
                     } else {
-                        const old_parent = try self.getParent(allocator, leaf_key);
+                        const old_parent = try self.getParent(0, new_leaf.key);
                         if (try self.db.get(old_parent) == null) {
                             try operations.append(.{ .create = old_parent });
                         } else {
@@ -364,55 +350,41 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             try self.log("------------\n", .{});
         }
 
-        fn getParent(self: Self, allocator: std.mem.Allocator, key: []const u8) ![]const u8 {
-            if (key.len == 0) {
-                return error.InternalError;
+        fn getParent(self: *Self, level: u8, key: ?[]const u8) !?[]const u8 {
+            if (key == null) {
+                return null;
             }
 
-            if (isAnchor(key)) {
-                return try Key.create(allocator, key[0] + 1, null);
-            }
-
-            if (self.effects) |effects| effects.cursor_ops += 1;
-            if (try self.cursor.seek(key)) |next| {
-                try self.log("cursor.seek({s}) -> {s}\n", .{ hex(key), hex(next) });
-                if (std.mem.eql(u8, next, key)) {
-                    const value = try self.cursor.getCurrentValue();
-                    if (value.len < K) {
-                        return error.InvalidDatabase;
-                    }
-
-                    if (isBoundary(value[0..K])) {
-                        return try Key.create(allocator, key[0] + 1, key[1..]);
-                    }
+            if (try self.cursor.seek(level, key)) |next| {
+                try self.log("cursor.seek({d}, {s}) -> {s}\n", .{ level, Key.fmt(key), Key.fmt(next.key) });
+                if (Key.equal(next.key, key) and next.isBoundary()) {
+                    return next.key;
                 }
             } else {
                 return error.InvalidDatabase;
             }
 
-            if (self.effects) |effects| effects.cursor_ops += 1;
             while (try self.cursor.goToPrevious()) |previous| {
-                if (previous.len == 0 or previous[0] != key[0]) {
-                    return error.InvalidDatabase;
-                } else if (isAnchor(previous)) {
-                    return try Key.create(allocator, key[0] + 1, null);
-                }
-
-                const value = try self.cursor.getCurrentValue();
-                if (value.len < K) {
-                    return error.InvalidDatabase;
-                } else if (isBoundary(value[0..K])) {
-                    return try Key.create(allocator, previous[0] + 1, previous[1..]);
+                if (previous.key == null or previous.isBoundary()) {
+                    return previous.key;
                 }
             }
 
             return error.InvalidDatabase;
         }
 
-        fn copy(self: *Self, value: []const u8) ![]u8 {
-            try self.buffer.resize(value.len);
-            @memcpy(self.buffer.items, value);
-            return self.buffer.items;
+        fn getNode(self: *Self, level: u8, key: ?[]const u8) !?Node {
+            const entry_key = self.encoder.encodeKey(level, key);
+            if (try self.db.get(entry_key)) |entry_value| {
+                return Node.parse(entry_key, entry_value);
+            } else {
+                return null;
+            }
+        }
+
+        fn setNode(self: *Self, node: Node) !void {
+            const entry = try self.encoder.encode(node);
+            try self.db.set(entry.key, entry.value);
         }
 
         fn getHash(self: *Self, parent: []const u8, result: *[K]u8) !void {
@@ -422,7 +394,7 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
                 return error.InternalError;
             }
 
-            const first_child = try self.copy(parent);
+            const first_child = try self.encoder.encodeKey(parent[0], parent[1..]);
             first_child[0] = parent[0] - 1;
 
             {
@@ -458,14 +430,13 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             digest.final(result);
         }
 
-        fn deleteNode(self: *Self, key: []const u8) !void {
-            const target = try self.copy(key);
-
-            while (try self.db.get(target)) |_| {
-                try self.db.delete(target);
+        fn deleteNode(self: *Self, level: u8, key: ?[]const u8) !void {
+            const entry_key = try self.encoder.encodeKey(level, key);
+            while (try self.db.get(entry_key)) |_| {
+                try self.db.delete(entry_key);
                 if (self.effects) |effects| effects.delete += 1;
 
-                target[0] += 1;
+                entry_key[0] += 1;
             }
         }
 

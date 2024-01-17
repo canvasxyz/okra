@@ -59,5 +59,24 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
                 .value = if (key[0] == 0 and key.len > 1) value[K..] else null,
             };
         }
+
+        // fn formatNode(node: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        //     const charset = "0123456789abcdef";
+
+        //     var buf: [2]u8 = undefined;
+        //     if (key) |bytes| {
+        //         for (bytes) |c| {
+        //             buf[0] = charset[c >> 4];
+        //             buf[1] = charset[c & 15];
+        //             try writer.writeAll(&buf);
+        //         }
+        //     } else {
+        //         try writer.writeAll("null");
+        //     }
+        // }
+
+        // pub fn fmt(node: Self) std.fmt.Formatter(formatNode) {
+        //     return .{ .data = key };
+        // }
     };
 }
