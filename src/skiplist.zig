@@ -35,6 +35,7 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
         allocator: std.mem.Allocator,
         db: lmdb.Database,
         cursor: lmdb.Cursor,
+        key_buffer: std.ArrayList(u8),
         buffer: std.ArrayList(u8),
         logger: ?std.fs.File.Writer,
         effects: ?*Effects,
@@ -46,6 +47,7 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
                 .allocator = allocator,
                 .db = db,
                 .cursor = cursor,
+                .key_buffer = std.ArrayList(u8).init(allocator),
                 .buffer = std.ArrayList(u8).init(allocator),
                 .logger = options.log,
                 .effects = options.effects,
@@ -55,14 +57,11 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
         pub fn deinit(self: *Self) void {
             self.cursor.deinit();
             self.buffer.deinit();
+            self.key_buffer.deinit();
         }
 
         pub fn get(self: *Self, key: []const u8) !?[]const u8 {
-            try self.buffer.resize(1 + key.len);
-            self.buffer.items[0] = 0;
-            @memcpy(self.buffer.items[1..], key);
-
-            if (try self.db.get(self.buffer.items)) |value| {
+            if (try self.getNode(0, key)) |value| {
                 if (value.len < K) {
                     return error.InvalidDatabase;
                 } else {
@@ -89,6 +88,24 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             try self.log("------------------------\n", .{});
         }
 
+        fn copyKey(self: *Self, level: u8, key: ?[]const u8) ![]const u8 {
+            if (key) |key_bytes| {
+                try self.key_buffer.resize(1 + key_bytes.len);
+                self.key_buffer.items[0] = level;
+                @memcpy(self.key_buffer.items[1..], key_bytes);
+                return self.key_buffer.items;
+            } else {
+                try self.key_buffer.resize(1);
+                self.key_buffer.items[0] = level;
+                return self.key_buffer.items;
+            }
+        }
+
+        fn getNode(self: *Self, level: u8, key: ?[]const u8) !?[]const u8 {
+            const entry_key = try self.copyKey(level, key);
+            return try self.db.get(entry_key);
+        }
+
         fn apply(self: *Self, op: Operation) !void {
             var arena = std.heap.ArenaAllocator.init(self.allocator);
             defer arena.deinit();
@@ -104,9 +121,9 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
 
             // Handle the level 0 edits manually
             if (op.value) |new_value| {
-                const new_leaf_value = try allocator.alloc(u8, K + new_value.len);
+                try self.buffer.resize(K + new_value.len);
+                const new_leaf_value = self.buffer.items;
                 Entry.hash(op.key, new_value, new_leaf_value[0..K]);
-                // std.crypto.hash.Blake3.hash(new_value, new_leaf_value[0..K], .{});
                 @memcpy(new_leaf_value[K..], new_value);
 
                 if (try self.db.get(leaf_key)) |old_leaf_value| {
