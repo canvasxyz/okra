@@ -1,0 +1,11 @@
+.{
+    .paths = .{ "src", "build.zig", "build.zig.zon", "README.md" },
+    .name = "zig-okra",
+    .version = "0.1.0",
+    .dependencies = .{
+        .lmdb = .{
+            .url = "https://github.com/canvasxyz/zig-lmdb/archive/59ad49becf8382ff30bb6e7e4ca26cf7f1452007.tar.gz",
+            .hash = "12209858bcdacf486d04fdebe1c46c3efab5cef52cc50d6f534d714b688ca52ca068",
+        },
+    },
+}

@@ -84,7 +84,7 @@ fn run(args: []const []const u8) !void {
 
     var i: u32 = 0;
     while (i < config.iota) : (i += 1) {
-        std.mem.writeIntBig(u32, &key, i);
+        std.mem.writeInt(u32, &key, i, .big);
         try builder.set(&key, &value);
     }
 

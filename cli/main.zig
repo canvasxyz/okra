@@ -14,18 +14,22 @@ const set = @import("./commands/set.zig").command;
 const delete = @import("./commands/delete.zig").command;
 
 var app = &cli.App{
-    .name = "okra",
-    .description = "okra is a deterministic pseudo-random merkle tree built on LMDB",
-    .subcommands = &.{
-        init,
+    .command = .{
+        .name = "okra",
+        .description = "okra is a deterministic pseudo-random merkle tree built on LMDB",
+        .target = .{
+            .subcommands = &.{
+                init,
 
-        cat,
-        ls,
-        tree,
+                cat,
+                ls,
+                tree,
 
-        get,
-        set,
-        delete,
+                get,
+                set,
+                delete,
+            },
+        },
     },
 };
 

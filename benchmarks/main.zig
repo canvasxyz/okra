@@ -4,6 +4,7 @@ const hex = std.fmt.fmtSliceHexLower;
 
 const lmdb = @import("lmdb");
 const okra = @import("okra");
+const utils = @import("utils.zig");
 
 const value_size = 8;
 
@@ -15,11 +16,11 @@ const ms: f64 = 1_000_000.0;
 pub fn main() !void {
     const log = std.io.getStdOut().writer();
 
-    _ = try log.write("## Benchmarks\n\n");
+    try log.print("## Benchmarks\n\n", .{});
     try Context.exec("1k entries", 1_000, log, .{});
-    _ = try log.write("\n");
+    try log.writeByte('\n');
     try Context.exec("50k entries", 50_000, log, .{ .map_size = 2 * 1024 * 1024 * 1024 });
-    _ = try log.write("\n");
+    try log.writeByte('\n');
     try Context.exec("1m entries", 1_000_000, log, .{ .map_size = 2 * 1024 * 1024 * 1024 });
 }
 
@@ -29,12 +30,12 @@ const Context = struct {
     size: u32,
     log: std.fs.File.Writer,
 
-    pub fn exec(name: []const u8, size: u32, log: std.fs.File.Writer, options: lmdb.Environment.EnvironmentOptions) !void {
+    pub fn exec(name: []const u8, size: u32, log: std.fs.File.Writer, options: lmdb.Environment.Options) !void {
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        const env = try lmdb.Environment.openDir(tmp.dir, options);
-        defer env.close();
+        const env = try utils.open(tmp.dir, options);
+        defer env.deinit();
 
         const ctx = Context{ .env = env, .name = name, .size = size, .log = log };
         try ctx.initialize();
@@ -50,27 +51,27 @@ const Context = struct {
     }
 
     fn initialize(ctx: Context) !void {
-        const txn = try lmdb.Transaction.open(ctx.env, .{ .mode = .ReadWrite });
+        const txn = try ctx.env.transaction(.{ .mode = .ReadWrite });
         errdefer txn.abort();
 
-        const dbi = try txn.openDatabase(null, .{});
+        const db = try txn.database(null, .{});
 
-        var builder = try okra.Builder.open(allocator, txn, dbi, .{});
+        var builder = try okra.Builder.init(allocator, db, .{});
+        defer builder.deinit();
 
         var key: [4]u8 = undefined;
         var value: [value_size]u8 = undefined;
 
         var i: u32 = 0;
         while (i < ctx.size) : (i += 1) {
-            std.mem.writeIntBig(u32, &key, i);
+            std.mem.writeInt(u32, &key, i, .big);
             std.crypto.hash.Blake3.hash(&key, &value, .{});
             try builder.set(&key, &value);
         }
 
         try builder.build();
-
         try txn.commit();
-        try ctx.env.flush();
+        try ctx.env.sync();
     }
 
     fn printHeader(ctx: Context) !void {
@@ -94,20 +95,20 @@ const Context = struct {
             timer.reset();
             operations += batch_size;
 
-            const txn = try lmdb.Transaction.open(ctx.env, .{ .mode = .ReadOnly });
+            const txn = try ctx.env.transaction(.{ .mode = .ReadOnly });
             defer txn.abort();
 
-            const dbi = try txn.openDatabase(null, .{});
+            const db = try txn.database(null, .{});
 
             {
-                var tree = try okra.Tree.open(allocator, txn, dbi, .{});
-                defer tree.close();
+                var tree = try okra.Tree.init(allocator, db, .{});
+                defer tree.deinit();
 
                 var key: [4]u8 = undefined;
 
                 var n: u32 = 0;
                 while (n < batch_size) : (n += 1) {
-                    std.mem.writeIntBig(u32, &key, random.uintLessThan(u32, ctx.size));
+                    std.mem.writeInt(u32, &key, random.uintLessThan(u32, ctx.size), .big);
                     const value = try tree.get(&key);
                     std.debug.assert(value.?.len == value_size);
                 }
@@ -127,33 +128,33 @@ const Context = struct {
         for (&runtimes, 0..) |*t, i| {
             timer.reset();
 
-            const txn = try lmdb.Transaction.open(ctx.env, .{ .mode = .ReadWrite });
+            const txn = try ctx.env.transaction(.{ .mode = .ReadWrite });
             errdefer txn.abort();
 
-            const dbi = try txn.openDatabase(null, .{});
+            const db = try txn.database(null, .{});
 
             {
-                var tree = try okra.Tree.open(allocator, txn, dbi, .{});
-                defer tree.close();
+                var tree = try okra.Tree.init(allocator, db, .{});
+                defer tree.deinit();
 
                 var key: [4]u8 = undefined;
                 var seed: [12]u8 = undefined;
                 var value: [8]u8 = undefined;
 
-                std.mem.writeIntBig(u32, seed[0..4], ctx.size);
-                std.mem.writeIntBig(u32, seed[4..8], @as(u32, @intCast(i)));
+                std.mem.writeInt(u32, seed[0..4], ctx.size, .big);
+                std.mem.writeInt(u32, seed[4..8], @as(u32, @intCast(i)), .big);
 
                 var n: u32 = 0;
                 while (n < batch_size) : (n += 1) {
-                    std.mem.writeIntBig(u32, &key, random.uintLessThan(u32, ctx.size));
-                    std.mem.writeIntBig(u32, seed[8..], n);
+                    std.mem.writeInt(u32, &key, random.uintLessThan(u32, ctx.size), .big);
+                    std.mem.writeInt(u32, seed[8..], n, .big);
                     std.crypto.hash.Blake3.hash(&seed, &value, .{});
                     try tree.set(&key, &value);
                 }
             }
 
             try txn.commit();
-            try ctx.env.flush();
+            try ctx.env.sync();
 
             t.* = @as(f64, @floatFromInt(timer.read())) / ms;
             operations += batch_size;
@@ -171,21 +172,18 @@ const Context = struct {
             timer.reset();
             operations += ctx.size;
 
-            const txn = try lmdb.Transaction.open(ctx.env, .{ .mode = .ReadOnly });
+            const txn = try ctx.env.transaction(.{ .mode = .ReadOnly });
             defer txn.abort();
 
-            const dbi = try txn.openDatabase(null, .{});
+            const db = try txn.database(null, .{});
 
             {
-                var tree = try okra.Tree.open(allocator, txn, dbi, .{});
-                defer tree.close();
-
-                var iterator = try okra.Iterator.open(allocator, &tree, .{
+                var iterator = try okra.Iterator.init(allocator, db, .{
                     .level = 0,
                     .lower_bound = .{ .key = null, .inclusive = false },
                 });
 
-                defer iterator.close();
+                defer iterator.deinit();
 
                 while (try iterator.next()) |node| {
                     std.debug.assert(node.key.?.len == 4);

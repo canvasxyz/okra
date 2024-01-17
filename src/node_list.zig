@@ -10,7 +10,7 @@ pub fn NodeList(comptime K: u8, comptime Q: u32) type {
         nodes: std.ArrayListUnmanaged(Node),
 
         pub fn init(allocator: std.mem.Allocator) Self {
-            var nodes = std.ArrayListUnmanaged(Node){};
+            const nodes = std.ArrayListUnmanaged(Node){};
             return Self{ .allocator = allocator, .nodes = nodes };
         }
 
@@ -25,7 +25,7 @@ pub fn NodeList(comptime K: u8, comptime Q: u32) type {
             self.nodes.deinit(self.allocator);
         }
 
-        pub fn reset(self: *Self) void {
+        pub fn clear(self: *Self) void {
             for (self.nodes.items) |node| {
                 self.allocator.free(node.hash);
                 if (node.key) |key| {
@@ -48,7 +48,6 @@ pub fn NodeList(comptime K: u8, comptime Q: u32) type {
         fn createKey(self: Self, key: ?[]const u8) !?[]const u8 {
             if (key) |bytes| {
                 const result = try self.allocator.alloc(u8, bytes.len);
-                // std.mem.copy(u8, result, bytes);
                 @memcpy(result, bytes);
                 return result;
             } else {
@@ -58,7 +57,6 @@ pub fn NodeList(comptime K: u8, comptime Q: u32) type {
 
         fn createHash(self: Self, hash: *const [K]u8) !*const [K]u8 {
             const result = try self.allocator.alloc(u8, K);
-            // std.mem.copy(u8, result, hash);
             @memcpy(result, hash);
             return result[0..K];
         }

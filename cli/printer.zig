@@ -17,7 +17,7 @@ is_a_tty: bool,
 
 pub fn init(allocator: std.mem.Allocator, tree: *okra.Tree, encoding: utils.Encoding, trace: ?*okra.NodeList) !Printer {
     const stdout = std.io.getStdOut();
-    var iter = try okra.Iterator.open(allocator, tree.txn, tree.dbi, .{ .level = 0 });
+    const iter = try okra.Iterator.open(allocator, tree.txn, tree.dbi, .{ .level = 0 });
     return .{
         .allocator = allocator,
         .tree = tree,
@@ -52,7 +52,7 @@ pub fn printRoot(self: *Printer, height: ?u8, depth: ?u8) !void {
         try self.prefix.appendSlice(last_indentation_unit);
     }
 
-    _ = try self.writer.write("\n");
+    try self.writer.writeByte("\n");
     _ = try self.writer.write(self.prefix.items);
 
     const len = if (depth) |d| d else root.level;
@@ -65,16 +65,16 @@ pub fn printRoot(self: *Printer, height: ?u8, depth: ?u8) !void {
         try self.writer.print("│  level {d: <3}", .{root.level - i});
     }
 
-    _ = try self.writer.write("│ key\n");
-    _ = try self.writer.write(self.prefix.items);
+    try self.writer.print("│ key\n", .{});
+    try self.writer.print("{s}", .{self.prefix.items});
 
     i = 0;
     while (i < len + 1) : (i += 1) {
         try self.writer.print("{s}", .{header_indentation_unit});
     }
 
-    _ = try self.writer.write("┼──────\n");
-    _ = try self.writer.write(self.prefix.items);
+    try self.writer.print("┼──────\n", .{});
+    try self.writer.print("{s}", .{self.prefix.items});
 
     try self.indentLast();
     try self.printTree(root, null, len, "──");

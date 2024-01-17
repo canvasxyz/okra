@@ -1,10 +1,7 @@
 const std = @import("std");
-const expectEqual = std.testing.expectEqual;
-const expectEqualSlices = std.testing.expectEqualSlices;
 
 const lmdb = @import("lmdb");
-const utils = @import("utils.zig");
-const expectEqualKeys = utils.expectEqualKeys;
+const Key = @import("Key.zig");
 
 pub fn Node(comptime K: u32, comptime Q: u8) type {
     return struct {
@@ -17,7 +14,7 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
 
         pub inline fn isBoundaryHash(hash: *const [K]u8) bool {
             const limit: comptime_int = (1 << 32) / @as(u33, @intCast(Q));
-            return std.mem.readIntBig(u32, hash[0..4]) < limit;
+            return std.mem.readInt(u32, hash[0..4], .big) < limit;
         }
 
         pub inline fn isBoundary(self: Self) bool {
@@ -26,16 +23,16 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
 
         pub inline fn equal(self: Self, other: Self) bool {
             return self.level == other.level and
-                utils.equal(self.key, other.key) and
+                Key.equal(self.key, other.key) and
                 std.mem.eql(u8, self.hash, other.hash);
         }
 
-        pub fn expectEqualNodes(actual: ?Self, expected: ?Self) !void {
+        pub fn expectEqual(expected: ?Self, actual: ?Self) !void {
             if (actual) |actual_node| {
                 if (expected) |expected_node| {
-                    try expectEqual(actual_node.level, expected_node.level);
-                    try expectEqualKeys(actual_node.key, expected_node.key);
-                    try expectEqualSlices(u8, actual_node.hash, expected_node.hash);
+                    try std.testing.expectEqual(expected_node.level, actual_node.level);
+                    try Key.expectEqual(expected_node.key, actual_node.key);
+                    try std.testing.expectEqualSlices(u8, expected_node.hash, actual_node.hash);
                 } else {
                     return error.UnexpectedNode;
                 }

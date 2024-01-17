@@ -1,8 +1,8 @@
 const std = @import("std");
-const expectEqual = std.testing.expectEqual;
 
 const lmdb = @import("lmdb");
-const Effects = @import("effects.zig");
+
+const Effects = @import("Effects.zig");
 
 pub fn Cursor(comptime K: u8, comptime Q: u32) type {
     const Header = @import("header.zig").Header(K, Q);
@@ -18,60 +18,55 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
             trace: ?*NodeList = null,
         };
 
-        is_open: bool = false,
         level: u8 = 0xFF,
         cursor: lmdb.Cursor,
         encoder: Encoder,
         effects: ?*Effects = null,
         trace: ?*NodeList = null,
 
-        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !Self {
-            var self: Self = undefined;
-            try self.init(allocator, txn, dbi, options);
-            return self;
+        pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
+            const cursor = try db.cursor();
+            return .{
+                .level = 0xFF,
+                .cursor = cursor,
+                .encoder = Encoder.init(allocator),
+                .effects = options.effects,
+                .trace = options.trace,
+            };
         }
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !void {
-            const cursor = try lmdb.Cursor.open(txn, dbi);
-            self.is_open = true;
-            self.level = 0xFF;
-            self.cursor = cursor;
-            self.encoder = Encoder.init(allocator);
-            self.effects = options.effects;
-            self.trace = options.trace;
-        }
-
-        pub fn close(self: *Self) void {
-            if (self.is_open) {
-                self.is_open = false;
-                self.cursor.close();
-                self.encoder.deinit();
-            }
+        pub fn deinit(self: *Self) void {
+            self.encoder.deinit();
+            self.cursor.deinit();
         }
 
         pub fn goToRoot(self: *Self) !Node {
-            if (try self.cursor.seek(&Header.METADATA_KEY)) |_| {
-                if (try self.cursor.goToPrevious()) |k| {
-                    if (k.len == 1) {
-                        self.level = k[0];
-                        return try self.getCurrentNode();
-                    }
+            if (self.effects) |effects| effects.cursor_ops += 1;
+
+            try self.cursor.goToKey(&Header.METADATA_KEY);
+            if (try self.cursor.goToPrevious()) |k| {
+                if (k.len == 1) {
+                    self.level = k[0];
+                    return try self.getCurrentNode();
                 }
             }
 
             return error.InvalidDatabase2;
         }
 
-        pub fn goToNode(self: *Self, level: u8, key: ?[]const u8) !Node {
-            errdefer self.level = 0xFF;
+        pub fn goToNode(self: *Self, level: u8, key: ?[]const u8) !void {
+            if (self.effects) |effects| effects.cursor_ops += 1;
+
             self.level = level;
+            errdefer self.level = 0xFF;
 
             const k = try self.encoder.encodeKey(level, key);
             try self.cursor.goToKey(k);
-            return try self.getCurrentNode();
         }
 
         pub fn goToNext(self: *Self) !?Node {
+            if (self.effects) |effects| effects.cursor_ops += 1;
+
             if (self.level == 0xFF) {
                 return error.Uninitialized;
             }
@@ -90,6 +85,8 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn goToPrevious(self: *Self) !?Node {
+            if (self.effects) |effects| effects.cursor_ops += 1;
+
             if (self.level == 0xFF) {
                 return error.Uninitialized;
             }
@@ -108,6 +105,8 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn seek(self: *Self, level: u8, key: ?[]const u8) !?Node {
+            if (self.effects) |effects| effects.cursor_ops += 1;
+
             const entry_key = try self.encoder.encodeKey(level, key);
             if (try self.cursor.seek(entry_key)) |k| {
                 if (k.len == 0) {

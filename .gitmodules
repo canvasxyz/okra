@@ -1,6 +1,3 @@
 [submodule "libs/zig-cli"]
 	path = libs/zig-cli
 	url = https://github.com/sam701/zig-cli.git
-[submodule "zig-lmdb"]
-	path = libs/zig-lmdb
-	url = git@github.com:canvasxyz/zig-lmdb.git

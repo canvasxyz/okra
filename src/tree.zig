@@ -5,12 +5,11 @@ const Blake3 = std.crypto.hash.Blake3;
 
 const lmdb = @import("lmdb");
 
-const Effects = @import("effects.zig");
-const Logger = @import("logger.zig").Logger;
-const BufferPool = @import("buffer_pool.zig").BufferPool;
-
-const utils = @import("utils.zig");
-const fmtKey = utils.fmtKey;
+const Effects = @import("Effects.zig");
+const Logger = @import("Logger.zig");
+const BufferPool = @import("BufferPool.zig");
+const Entry = @import("Entry.zig");
+const Key = @import("Key.zig");
 
 const nil = [0]u8{};
 
@@ -31,8 +30,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             effects: ?*Effects = null,
         };
 
-        txn: lmdb.Transaction,
-        dbi: lmdb.Transaction.DBI,
+        db: lmdb.Database,
         cursor: Cursor,
         logger: Logger,
         pool: BufferPool,
@@ -42,32 +40,28 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         trace: ?*NodeList = null,
         hash_buffer: [K]u8 = undefined,
 
-        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !Self {
-            var tree: Self = undefined;
-            try tree.init(allocator, txn, dbi, options);
-            return tree;
-        }
+        pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
+            try Header.initialize(db);
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !void {
-            self.txn = txn;
-            self.dbi = dbi;
-            self.cursor = try Cursor.open(allocator, txn, dbi, .{
+            const cursor = try Cursor.init(allocator, db, .{
                 .effects = options.effects,
                 .trace = options.trace,
             });
 
-            self.logger = Logger.init(allocator, options.log);
-            self.pool = BufferPool.init(allocator);
-            self.encoder = Encoder.init(allocator);
-            self.new_siblings = std.ArrayList(?[]const u8).init(allocator);
-            self.effects = options.effects;
-            self.trace = options.trace;
-
-            try Header.initialize(txn, dbi);
+            return .{
+                .db = db,
+                .cursor = cursor,
+                .logger = Logger.init(allocator, options.log),
+                .pool = BufferPool.init(allocator),
+                .encoder = Encoder.init(allocator),
+                .new_siblings = std.ArrayList(?[]const u8).init(allocator),
+                .effects = options.effects,
+                .trace = options.trace,
+            };
         }
 
-        pub fn close(self: *Self) void {
-            self.cursor.close();
+        pub fn deinit(self: *Self) void {
+            self.cursor.deinit();
             self.logger.deinit();
             self.pool.deinit();
             self.encoder.deinit();
@@ -82,7 +76,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
 
         pub fn getNode(self: *Self, level: u8, key: ?[]const u8) !?Node {
             const entry_key = try self.encoder.encodeKey(level, key);
-            if (try self.txn.get(self.dbi, entry_key)) |entry_value| {
+            if (try self.db.get(entry_key)) |entry_value| {
                 return try Node.parse(entry_key, entry_value);
             } else {
                 return null;
@@ -93,26 +87,26 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             const entry = try self.encoder.encode(node);
             if (self.trace) |trace| try trace.append(node);
             if (self.effects) |effects| {
-                if (try self.txn.get(self.dbi, entry.key)) |_| {
+                if (try self.db.get(entry.key)) |_| {
                     effects.update += 1;
                 } else {
                     effects.create += 1;
                 }
             }
 
-            try self.txn.set(self.dbi, entry.key, entry.value);
+            try self.db.set(entry.key, entry.value);
         }
 
         fn deleteNode(self: *Self, level: u8, key: ?[]const u8) !void {
             const entry_key = try self.encoder.encodeKey(level, key);
             if (self.effects) |effects| effects.delete += 1;
-            try self.txn.delete(self.dbi, entry_key);
+            try self.db.delete(entry_key);
         }
 
         // External tree operations
 
         const OperationType = enum { set, delete };
-        const OperationTag = union(OperationType) {
+        const Operation = union(OperationType) {
             set: struct { key: []const u8, value: []const u8 },
             delete: struct { key: []const u8 },
         };
@@ -121,7 +115,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
 
         pub fn get(self: *Self, key: []const u8) !?[]const u8 {
             const entry_key = try self.encoder.encodeKey(0, key);
-            if (try self.txn.get(self.dbi, entry_key)) |entry_value| {
+            if (try self.db.get(entry_key)) |entry_value| {
                 const node = try Node.parse(entry_key, entry_value);
                 if (node.value) |value| {
                     return value;
@@ -141,22 +135,21 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             try self.apply(.{ .delete = .{ .key = key } });
         }
 
-        fn apply(self: *Self, tag: OperationTag) !void {
-            if (self.trace) |trace| trace.reset();
+        fn apply(self: *Self, tag: Operation) !void {
+            self.logger.reset();
+            if (self.trace) |trace| trace.clear();
             if (self.effects) |effects| effects.* = Effects{};
 
             const root = try self.getRoot();
             try self.log("root: {d} [{s}]", .{ root.level, hex(root.hash) });
 
-            var root_level = if (root.level == 0) 1 else root.level;
-
-            self.logger.reset();
+            var root_level = @max(root.level, 1);
+            try self.pool.resize(root_level - 1);
             try self.new_siblings.resize(0);
-            try self.pool.allocate(root_level - 1);
 
             const result = try switch (root.level) {
-                0 => self.applyLeaf(tag, null),
-                else => self.applyNode(tag, root_level - 1, null),
+                0, 1 => self.applyLeaf(tag, null),
+                else => self.applyNode(tag, root.level - 1, null),
             };
 
             try switch (result) {
@@ -168,7 +161,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
 
             try self.log("new_children: {d}", .{self.new_siblings.items.len});
             for (self.new_siblings.items) |child| {
-                try self.log("- {s}", .{fmtKey(child)});
+                try self.log("- {s}", .{Key.fmt(child)});
             }
 
             while (self.new_siblings.items.len > 0) {
@@ -178,12 +171,12 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 _ = try self.hashNode(root_level, null);
                 try self.log("new_children: {d}", .{self.new_siblings.items.len});
                 for (self.new_siblings.items) |child| {
-                    try self.log("- {s}", .{fmtKey(child)});
+                    try self.log("- {s}", .{Key.fmt(child)});
                 }
             }
 
             while (root_level > 0) : (root_level -= 1) {
-                _ = try self.cursor.goToNode(root_level - 1, null);
+                try self.cursor.goToNode(root_level - 1, null);
                 if (try self.cursor.goToNext()) |_| {
                     break;
                 } else {
@@ -195,32 +188,29 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             if (self.effects) |effects| effects.height = root_level + 1;
         }
 
-        fn applyLeaf(self: *Self, tag: OperationTag, first_child: ?[]const u8) !Result {
-            try self.log("applyLeaf({s})", .{fmtKey(first_child)});
+        fn applyLeaf(self: *Self, tag: Operation, first_child: ?[]const u8) !Result {
+            try self.log("applyLeaf({s})", .{Key.fmt(first_child)});
 
             switch (tag) {
                 .set => |operation| {
-                    utils.hashEntry(operation.key, operation.value, &self.hash_buffer);
+                    Entry.hash(operation.key, operation.value, &self.hash_buffer);
+
                     const leaf = Node{
                         .level = 0,
                         .key = operation.key,
                         .hash = &self.hash_buffer,
-
-                        // TODO: wtf?
-                        // some weird bug causes .value to be null if entry.value.len == 0.
-                        // setting it to another explicit empty slice seems to fix it.
-                        .value = if (operation.value.len == 0) &nil else operation.value,
+                        .value = operation.value,
                     };
 
                     try self.setNode(leaf);
 
-                    if (utils.lessThan(first_child, operation.key)) {
+                    if (Key.lessThan(first_child, operation.key)) {
                         if (leaf.isBoundary()) {
                             try self.new_siblings.append(operation.key);
                         }
 
                         return Result.update;
-                    } else if (utils.equal(first_child, operation.key)) {
+                    } else if (Key.equal(first_child, operation.key)) {
                         if (first_child == null or leaf.isBoundary()) {
                             return Result.update;
                         } else {
@@ -232,7 +222,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 },
                 .delete => |operation| {
                     try self.deleteNode(0, operation.key);
-                    if (utils.equal(operation.key, first_child)) {
+                    if (Key.equal(operation.key, first_child)) {
                         return Result.delete;
                     } else {
                         return Result.update;
@@ -241,9 +231,8 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             }
         }
 
-        fn applyNode(self: *Self, tag: OperationTag, level: u8, first_child: ?[]const u8) !Result {
-            try self.log("applyNode({d}, {s})", .{ level, fmtKey(first_child) });
-
+        fn applyNode(self: *Self, tag: Operation, level: u8, first_child: ?[]const u8) !Result {
+            try self.log("applyNode({d}, {s})", .{ level, Key.fmt(first_child) });
             try self.logger.indent();
             defer self.logger.deindent();
 
@@ -257,12 +246,12 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             };
 
             const target = try self.findTargetKey(level, first_child, key);
-            try self.log("target: {s}", .{fmtKey(target)});
+            try self.log("target: {s}", .{Key.fmt(target)});
 
             const is_left_edge = first_child == null;
             try self.log("is_left_edge: {any}", .{is_left_edge});
 
-            const is_first_child = utils.equal(target, first_child);
+            const is_first_child = Key.equal(target, first_child);
             try self.log("is_first_child: {any}", .{is_first_child});
 
             const result = try self.applyNode(tag, level - 1, target);
@@ -273,7 +262,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
 
             try self.log("new siblings: {d}", .{self.new_siblings.items.len});
             for (self.new_siblings.items) |child| {
-                try self.log("- {s}", .{fmtKey(child)});
+                try self.log("- {s}", .{Key.fmt(child)});
             }
 
             switch (result) {
@@ -282,18 +271,18 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
 
                     // delete the entry and move to the previous child
                     const previous_child_key = try self.moveToPreviousChild(level, target);
-                    try self.log("previous_child_key: {s}", .{fmtKey(previous_child_key)});
+                    try self.log("previous_child_key: {s}", .{Key.fmt(previous_child_key)});
 
                     try self.promote(level);
 
                     const is_previous_child_boundary = try self.hashNode(level, previous_child_key);
-                    if (is_first_child or utils.lessThan(previous_child_key, first_child)) {
+                    if (is_first_child or Key.lessThan(previous_child_key, first_child)) {
                         if (is_previous_child_boundary) {
                             try self.new_siblings.append(previous_child_key);
                         }
 
                         return Result.delete;
-                    } else if (utils.equal(previous_child_key, first_child)) {
+                    } else if (Key.equal(previous_child_key, first_child)) {
                         if (is_left_edge or is_previous_child_boundary) {
                             return Result.update;
                         } else {
@@ -339,10 +328,10 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 target = try self.pool.copy(id, bytes);
             }
 
-            _ = try self.cursor.goToNode(level, first_child);
+            try self.cursor.goToNode(level, first_child);
             while (try self.cursor.goToNext()) |next_child_node| {
                 if (next_child_node.key) |next_child_key| {
-                    if (utils.lessThan(key, next_child_key)) {
+                    if (Key.lessThan(key, next_child_key)) {
                         break;
                     } else {
                         target = try self.pool.copy(id, next_child_key);
@@ -361,8 +350,9 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
 
             // delete the entry and move to the previous child
 
-            _ = try self.cursor.goToNode(level, target);
+            try self.cursor.goToNode(level, target);
             try self.cursor.deleteCurrentNode();
+            if (self.effects) |effects| effects.delete += 1;
 
             while (try self.cursor.goToPrevious()) |previous_node| {
                 if (previous_node.key) |key| {
@@ -385,26 +375,27 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         /// Computes and sets the hash of the given node.
         /// Doesn't assume anything about the current cursor position.
         fn hashNode(self: *Self, level: u8, key: ?[]const u8) !bool {
-            try self.log("hashNode({d}, {s})", .{ level, fmtKey(key) });
+            try self.log("hashNode({d}, {s})", .{ level, Key.fmt(key) });
 
             var digest = Blake3.init(.{});
 
-            const first = try self.cursor.goToNode(level - 1, key);
-            try self.log("- hashing {s} <- {s}", .{ hex(first.hash), fmtKey(key) });
+            try self.cursor.goToNode(level - 1, key);
+            const first = try self.cursor.getCurrentNode();
+            try self.log("- hashing {s} <- {s}", .{ hex(first.hash), Key.fmt(key) });
             digest.update(first.hash);
 
             while (try self.cursor.goToNext()) |next| {
                 if (next.isBoundary()) {
                     break;
                 } else {
-                    try self.log("- hashing {s} <- {s}", .{ hex(next.hash), fmtKey(next.key) });
+                    try self.log("- hashing {s} <- {s}", .{ hex(next.hash), Key.fmt(next.key) });
                     digest.update(next.hash);
                 }
             }
 
             digest.final(&self.hash_buffer);
             try self.log("--------- {s}", .{hex(&self.hash_buffer)});
-            try self.log("setting {s} <- ({d}) {s}", .{ hex(&self.hash_buffer), level, fmtKey(key) });
+            try self.log("setting {s} <- ({d}) {s}", .{ hex(&self.hash_buffer), level, Key.fmt(key) });
             const node = Node{ .level = level, .key = key, .hash = &self.hash_buffer, .value = null };
 
             try self.setNode(node);

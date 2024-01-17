@@ -1,10 +1,20 @@
 const std = @import("std");
+const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const Blake3 = std.crypto.hash.Blake3;
 const hex = std.fmt.fmtSliceHexLower;
 
 const lmdb = @import("lmdb");
+const Key = @import("Key.zig");
+
+var path_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+
+pub fn open(dir: std.fs.Dir, options: lmdb.Environment.Options) !lmdb.Environment {
+    const path = try dir.realpath(".", &path_buffer);
+    path_buffer[path.len] = 0;
+    return try lmdb.Environment.init(path_buffer[0..path.len :0], options);
+}
 
 pub fn printEntries(env: lmdb.Environment, writer: std.fs.File.Writer) !void {
     const txn = try lmdb.Transaction.open(env, .{ .read_only = true });
@@ -18,80 +28,136 @@ pub fn printEntries(env: lmdb.Environment, writer: std.fs.File.Writer) !void {
     }
 }
 
-pub fn hashEntry(key: []const u8, value: []const u8, result: []u8) void {
-    var digest = Blake3.init(.{});
-    var size: [4]u8 = undefined;
-    std.mem.writeIntBig(u32, &size, @as(u32, @intCast(key.len)));
-    digest.update(&size);
-    digest.update(key);
-    std.mem.writeIntBig(u32, &size, @as(u32, @intCast(value.len)));
-    digest.update(&size);
-    digest.update(value);
-    digest.final(result);
+pub fn expectEqualEntries(db: lmdb.Database, entries: []const [2][]const u8) !void {
+    const cursor = try lmdb.Cursor.init(db);
+    defer cursor.deinit();
+
+    var i: usize = 0;
+    var key = try cursor.goToFirst();
+    while (key != null) : (key = try cursor.goToNext()) {
+        try expect(i < entries.len);
+        try expectEqualSlices(u8, entries[i][0], try cursor.getCurrentKey());
+        try expectEqualSlices(u8, entries[i][1], try cursor.getCurrentValue());
+        i += 1;
+    }
+
+    try expectEqual(entries.len, i);
 }
 
-pub fn lessThan(a: ?[]const u8, b: ?[]const u8) bool {
-    if (a) |a_bytes| {
-        if (b) |b_byte| {
-            return std.mem.lessThan(u8, a_bytes, b_byte);
-        } else {
-            return false;
+pub fn expectEqualDatabases(expected: lmdb.Database, actual: lmdb.Database) !void {
+    const expected_cursor = try expected.cursor();
+    defer expected_cursor.deinit();
+
+    const actual_cursor = try actual.cursor();
+    defer actual_cursor.deinit();
+
+    var expected_key = try expected_cursor.goToFirst();
+    var actual_key = try actual_cursor.goToFirst();
+    try Key.expectEqual(expected_key, actual_key);
+
+    while (expected_key != null and actual_key != null) {
+        expected_key = try expected_cursor.goToNext();
+        actual_key = try actual_cursor.goToNext();
+        try Key.expectEqual(expected_key, actual_key);
+    }
+}
+
+const Options = struct {
+    log: ?std.fs.File.Writer = null,
+};
+
+pub fn compareEnvironments(env_a: lmdb.Environment, env_b: lmdb.Environment, dbs: ?[][*:0]const u8, options: Options) !usize {
+    const txn_a = try lmdb.Transaction.init(env_a, .{ .mode = .ReadOnly });
+    defer txn_a.abort();
+
+    const txn_b = try lmdb.Transaction.init(env_b, .{ .mode = .ReadOnly });
+    defer txn_b.abort();
+
+    if (dbs) |names| {
+        var sum: usize = 0;
+        for (names) |name| {
+            const db_a = try txn_a.database(name, .{});
+            const db_b = try txn_b.database(name, .{});
+            sum += try compareDatabases(db_a, db_b, options);
         }
+
+        return sum;
     } else {
-        return b != null;
+        const db_a = try txn_a.database(null, .{});
+        const db_b = try txn_b.database(null, .{});
+        return try compareDatabases(db_a, db_b, options);
     }
 }
 
-pub fn equal(a: ?[]const u8, b: ?[]const u8) bool {
-    if (a) |a_bytes| {
-        if (b) |b_bytes| {
-            return std.mem.eql(u8, a_bytes, b_bytes);
+pub fn compareDatabases(expected: lmdb.Database, actual: lmdb.Database, options: Options) !usize {
+    if (options.log) |log| try log.print("{s:-<80}\n", .{"START DIFF "});
+
+    var differences: usize = 0;
+
+    const cursor_a = try lmdb.Cursor.init(expected);
+    defer cursor_a.deinit();
+
+    const cursor_b = try lmdb.Cursor.init(actual);
+    defer cursor_b.deinit();
+
+    var key_a = try cursor_a.goToFirst();
+    var key_b = try cursor_b.goToFirst();
+    while (key_a != null or key_b != null) {
+        if (key_a) |key_a_bytes| {
+            const value_a = try cursor_a.getCurrentValue();
+            if (key_b) |key_b_bytes| {
+                const value_b = try cursor_b.getCurrentValue();
+                switch (std.mem.order(u8, key_a_bytes, key_b_bytes)) {
+                    .lt => {
+                        differences += 1;
+                        if (options.log) |log|
+                            try log.print("{s}\n- expected: {s}\n- actual:   null\n", .{ hex(key_a_bytes), hex(value_a) });
+
+                        key_a = try cursor_a.goToNext();
+                    },
+                    .gt => {
+                        differences += 1;
+                        if (options.log) |log|
+                            try log.print("{s}\n- expected: null\n- actual:   {s}\n", .{
+                                hex(key_b_bytes),
+                                hex(value_b),
+                            });
+
+                        key_b = try cursor_b.goToNext();
+                    },
+                    .eq => {
+                        if (!std.mem.eql(u8, value_a, value_b)) {
+                            differences += 1;
+                            if (options.log) |log|
+                                try log.print("{s}\n- expected: {s}\n- actual:   {s}\n", .{ hex(key_a_bytes), hex(value_a), hex(value_b) });
+                        }
+
+                        key_a = try cursor_a.goToNext();
+                        key_b = try cursor_b.goToNext();
+                    },
+                }
+            } else {
+                differences += 1;
+                if (options.log) |log|
+                    try log.print("{s}\n- expected: {s}\n- actual:   null\n", .{ hex(key_a_bytes), hex(value_a) });
+
+                key_a = try cursor_a.goToNext();
+            }
         } else {
-            return false;
+            if (key_b) |bytes_b| {
+                const value_b = try cursor_b.getCurrentValue();
+                differences += 1;
+                if (options.log) |log|
+                    try log.print("{s}\n- expected: null\n- actual:   {s}\n", .{ hex(bytes_b), hex(value_b) });
+
+                key_b = try cursor_b.goToNext();
+            } else {
+                break;
+            }
         }
-    } else {
-        return b == null;
     }
-}
 
-test "key equality" {
-    try expectEqual(equal("a", "a"), true);
-    try expectEqual(equal("a", "b"), false);
-    try expectEqual(equal("b", "a"), false);
-    try expectEqual(equal(null, "a"), false);
-    try expectEqual(equal("a", null), false);
-    try expectEqual(equal(null, null), true);
-}
+    if (options.log) |log| try log.print("{s:-<80}\n", .{"END DIFF "});
 
-fn formatKey(key: ?[]const u8, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-    const charset = "0123456789abcdef";
-
-    _ = fmt;
-    _ = options;
-    var buf: [2]u8 = undefined;
-    if (key) |bytes| {
-        for (bytes) |c| {
-            buf[0] = charset[c >> 4];
-            buf[1] = charset[c & 15];
-            try writer.writeAll(&buf);
-        }
-    } else {
-        try writer.writeAll("null");
-    }
-}
-
-pub fn fmtKey(key: ?[]const u8) std.fmt.Formatter(formatKey) {
-    return .{ .data = key };
-}
-
-pub fn expectEqualKeys(actual: ?[]const u8, expected: ?[]const u8) !void {
-    if (actual) |actual_bytes| {
-        if (expected) |expected_bytes| {
-            try expectEqualSlices(u8, actual_bytes, expected_bytes);
-        } else {
-            return error.TestExpectedEqualKeys;
-        }
-    } else if (expected != null) {
-        return error.TestExpectedEqualKeys;
-    }
+    return differences;
 }

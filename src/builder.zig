@@ -5,8 +5,8 @@ const Blake3 = std.crypto.hash.Blake3;
 
 const lmdb = @import("lmdb");
 
-const Logger = @import("logger.zig").Logger;
-const utils = @import("utils.zig");
+const Logger = @import("Logger.zig");
+const Entry = @import("Entry.zig");
 
 /// Builder is naive bottom-up tree builder used for unit testing.
 /// It's is also used in the `okra rebuild` cli command.
@@ -19,47 +19,43 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
         const Self = @This();
         pub const Options = struct { log: ?std.fs.File.Writer = null };
 
-        txn: lmdb.Transaction,
-        dbi: lmdb.Transaction.DBI,
+        db: lmdb.Database,
+        hash_buffer: [K]u8 = undefined,
         key_buffer: std.ArrayList(u8),
         value_buffer: std.ArrayList(u8),
-        hash_buffer: [K]u8 = undefined,
         logger: Logger,
 
-        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !Self {
-            var builder: Self = undefined;
-            try builder.init(allocator, txn, dbi, options);
-            return builder;
-        }
+        pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
+            try Header.write(db);
 
-        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, options: Options) !void {
-            self.logger = Logger.init(allocator, options.log);
-            self.txn = txn;
-            self.dbi = dbi;
-            self.key_buffer = std.ArrayList(u8).init(allocator);
-            self.value_buffer = std.ArrayList(u8).init(allocator);
-
-            try Header.write(txn, dbi);
+            return .{
+                .db = db,
+                .key_buffer = std.ArrayList(u8).init(allocator),
+                .value_buffer = std.ArrayList(u8).init(allocator),
+                .logger = Logger.init(allocator, options.log),
+            };
         }
 
         pub fn deinit(self: *Self) void {
+            self.logger.deinit();
             self.key_buffer.deinit();
             self.value_buffer.deinit();
         }
 
         pub fn set(self: *Self, key: []const u8, value: []const u8) !void {
             try self.setNode(key, value);
-            try self.txn.set(self.dbi, self.key_buffer.items, self.value_buffer.items);
+            try self.db.set(self.key_buffer.items, self.value_buffer.items);
         }
 
         pub fn delete(self: *Self, key: []const u8) !void {
             try self.setKey(0, key);
-            try self.txn.delete(self.dbi, self.key_buffer.items);
+            try self.db.delete(self.key_buffer.items);
         }
 
         pub fn build(self: *Self) !void {
-            const cursor = try lmdb.Cursor.open(self.txn, self.dbi);
-            defer cursor.close();
+            const cursor = try self.db.cursor();
+            defer cursor.deinit();
+
             try cursor.goToKey(&[_]u8{0});
 
             var level: u8 = 0;
@@ -105,7 +101,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
                     try self.log("digest.final() => {s}", .{hex(&self.hash_buffer)});
                     parent_count += 1;
                     try self.log("setting parent {s} -> {s}", .{ hex(self.key_buffer.items), hex(&self.hash_buffer) });
-                    try self.txn.set(self.dbi, self.key_buffer.items, &self.hash_buffer);
+                    try self.db.set(self.key_buffer.items, &self.hash_buffer);
 
                     const key = try cursor.getCurrentKey();
                     try self.setKey(level + 1, key[1..]);
@@ -129,22 +125,20 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
             }
 
             digest.final(&self.hash_buffer);
-            try self.txn.set(self.dbi, self.key_buffer.items, &self.hash_buffer);
+            try self.db.set(self.key_buffer.items, &self.hash_buffer);
             return parent_count + 1;
         }
 
         fn setKey(self: *Self, level: u8, key: []const u8) !void {
             try self.key_buffer.resize(1 + key.len);
             self.key_buffer.items[0] = level;
-            // std.mem.copy(u8, self.key_buffer.items[1..], key);
             @memcpy(self.key_buffer.items[1..], key);
         }
 
         fn setNode(self: *Self, key: []const u8, value: []const u8) !void {
             try self.setKey(0, key);
             try self.value_buffer.resize(K + value.len);
-            utils.hashEntry(key, value, self.value_buffer.items[0..K]);
-            // std.mem.copy(u8, self.value_buffer.items[K..], value);
+            Entry.hash(key, value, self.value_buffer.items[0..K]);
             @memcpy(self.value_buffer.items[K..], value);
         }
 
@@ -154,7 +148,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
 
         fn isBoundary(value: *const [K]u8) bool {
             const limit: comptime_int = (1 << 32) / @as(u33, @intCast(Q));
-            return std.mem.readIntBig(u32, value[0..4]) < limit;
+            return std.mem.readInt(u32, value[0..4], .big) < limit;
         }
 
         fn getNodeHash(value: []const u8) !*const [K]u8 {

@@ -92,22 +92,22 @@ Here's a diagram of an example tree. Arrows are drawn vertically for the first c
 
 The key/value entries are the leaves of the tree (level 0), sorted lexicographically by key. Each level begins with an initial _anchor node_ labelled "null", and the rest are labelled with the key of their first child.
 
-Every node, including the leaves and the anchor nodes of each level, stores a 16-byte Blake3 hash. The leaves hash their key/value entry, and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the anchor leaf stores the hash of the empty string `Blake3() = af1349b9...`. For example, the hash value for the anchor node at `(1, null)` would be `Blake3(Blake3(), hashEntry("a", "foo"))` since `(0, null)` and `(0, "a")` are its only children. `hashEntry` is implemented like this:
+Every node, including the leaves and the anchor nodes of each level, stores a 16-byte Blake3 hash. The leaves hash their key/value entry, and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the anchor leaf stores the hash of the empty string `Blake3() = af1349b9...`. For example, the hash value for the anchor node at `(1, null)` would be `Blake3(Blake3(), hash("a", "foo"))` since `(0, null)` and `(0, "a")` are its only children. `hash` is implemented like this:
 
 ```zig
-fn hashEntry(key: []const u8, value: []const u8, result: []u8) void {
+fn hash(key: []const u8, value: []const u8, result: []u8) void {
     var digest = Blake3.init(.{});
 
     {
         var size: [4]u8 = undefined;
-        std.mem.writeIntBig(u32, &size, @intCast(u32, key.len));
+        std.mem.writeInt(u32, &size, @intCast(u32, key.len), .big);
         digest.update(&size);
         digest.update(key);
     }
 
     {
         var size: [4]u8 = undefined;
-        std.mem.writeIntBig(u32, &size, @intCast(u32, value.len));
+        std.mem.writeInt(u32, &size, @intCast(u32, value.len), .big);
         digest.update(&size);
         digest.update(value);
     }

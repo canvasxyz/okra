@@ -17,7 +17,6 @@ pub fn Iterator(comptime K: u8, comptime Q: u32) type {
 
         const Self = @This();
 
-        is_open: bool = false,
         is_live: bool = false,
         is_done: bool = false,
         cursor: lmdb.Cursor,
@@ -29,54 +28,45 @@ pub fn Iterator(comptime K: u8, comptime Q: u32) type {
         upper_bound_inclusive: bool,
         reverse: bool,
 
-        pub fn open(allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, range: Range) !Self {
-            var iterator: Self = undefined;
-            try iterator.init(allocator, txn, dbi, range);
-            return iterator;
-        }
-
-        pub fn init(self: *Self, allocator: std.mem.Allocator, txn: lmdb.Transaction, dbi: lmdb.Transaction.DBI, range: Range) !void {
-            const cursor = try lmdb.Cursor.open(txn, dbi);
+        pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, range: Range) !Self {
+            var self: Self = undefined;
             self.lower_bound = std.ArrayList(u8).init(allocator);
             self.upper_bound = std.ArrayList(u8).init(allocator);
-            self.is_open = true;
-            self.cursor = cursor;
             try self.reset(range);
+
+            self.cursor = try lmdb.Cursor.init(db);
+
+            return self;
         }
 
-        pub fn close(self: *Self) void {
-            if (self.is_open) {
-                self.is_open = false;
-                self.is_live = false;
-                self.is_done = true;
-                self.cursor.close();
-                self.lower_bound.deinit();
-                self.upper_bound.deinit();
-            }
+        pub fn deinit(self: *Self) void {
+            self.is_live = false;
+            self.is_done = true;
+            self.cursor.deinit();
+            self.lower_bound.deinit();
+            self.upper_bound.deinit();
         }
 
         pub fn reset(self: *Self, range: Range) !void {
-            if (self.is_open) {
-                self.is_live = false;
-                self.is_done = false;
-                self.level = range.level;
-                self.reverse = range.reverse;
+            self.is_live = false;
+            self.is_done = false;
+            self.level = range.level;
+            self.reverse = range.reverse;
 
-                if (range.lower_bound) |bound| {
-                    try Self.copy(&self.lower_bound, range.level, bound.key);
-                    self.lower_bound_inclusive = bound.inclusive;
-                } else {
-                    try Self.copy(&self.lower_bound, range.level, null);
-                    self.lower_bound_inclusive = true;
-                }
+            if (range.lower_bound) |bound| {
+                try copy(&self.lower_bound, range.level, bound.key);
+                self.lower_bound_inclusive = bound.inclusive;
+            } else {
+                try copy(&self.lower_bound, range.level, null);
+                self.lower_bound_inclusive = true;
+            }
 
-                if (range.upper_bound) |bound| {
-                    try Self.copy(&self.upper_bound, range.level, bound.key);
-                    self.upper_bound_inclusive = bound.inclusive;
-                } else {
-                    try Self.copy(&self.upper_bound, range.level + 1, null);
-                    self.upper_bound_inclusive = false;
-                }
+            if (range.upper_bound) |bound| {
+                try copy(&self.upper_bound, range.level, bound.key);
+                self.upper_bound_inclusive = bound.inclusive;
+            } else {
+                try copy(&self.upper_bound, range.level + 1, null);
+                self.upper_bound_inclusive = false;
             }
         }
 
@@ -187,7 +177,7 @@ pub fn Iterator(comptime K: u8, comptime Q: u32) type {
             if (key) |bytes| {
                 try buffer.resize(1 + bytes.len);
                 buffer.items[0] = level;
-                std.mem.copy(u8, buffer.items[1..], bytes);
+                @memcpy(buffer.items[1..], bytes);
             } else {
                 try buffer.resize(1);
                 buffer.items[0] = level;
