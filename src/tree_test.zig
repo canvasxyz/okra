@@ -11,7 +11,7 @@ const K = 32;
 const Q = 4;
 
 const Builder = @import("builder.zig").Builder(K, Q);
-const Tree = @import("tree.zig").Tree(K, Q);
+const SkipList = @import("skiplist.zig").SkipList(K, Q);
 const Key = @import("Key.zig");
 const library = @import("library.zig");
 const utils = @import("utils.zig");
@@ -29,7 +29,7 @@ fn leaf(hash: *const [64]u8, value: u8) [33]u8 {
     return result;
 }
 
-test "open a Tree" {
+test "open a SkipList" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -42,8 +42,8 @@ test "open a Tree" {
     const db = try txn.database(null, .{});
 
     {
-        var tree = try Tree.init(allocator, db, .{});
-        defer tree.deinit();
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
         try utils.expectEqualEntries(db, &.{
             .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
@@ -65,17 +65,17 @@ test "basic get/set/delete operations" {
     const db = try txn.database(null, .{});
 
     {
-        var tree = try Tree.init(allocator, db, .{});
-        defer tree.deinit();
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
-        try tree.set("a", "foo");
-        try tree.set("b", "bar");
-        try tree.set("c", "baz");
+        try sl.set("a", "foo");
+        try sl.set("b", "bar");
+        try sl.set("c", "baz");
 
-        try Key.expectEqual("foo", try tree.get("a"));
-        try Key.expectEqual("bar", try tree.get("b"));
-        try Key.expectEqual("baz", try tree.get("c"));
-        try Key.expectEqual(null, try tree.get("d"));
+        try Key.expectEqual("foo", try sl.get("a"));
+        try Key.expectEqual("bar", try sl.get("b"));
+        try Key.expectEqual("baz", try sl.get("c"));
+        try Key.expectEqual(null, try sl.get("d"));
     }
 }
 
@@ -92,41 +92,54 @@ test "set empty values" {
     const db = try txn.database(null, .{});
 
     {
-        var tree = try Tree.init(allocator, db, .{});
-        defer tree.deinit();
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
-        try tree.set("a", "");
-        try tree.set("b", "");
-        try tree.set("c", "");
+        try sl.set("a", "");
+        try sl.set("b", "");
+        try sl.set("c", "");
 
-        try Key.expectEqual("", try tree.get("a"));
-        try Key.expectEqual("", try tree.get("b"));
-        try Key.expectEqual("", try tree.get("c"));
-        try Key.expectEqual(null, try tree.get("d"));
+        try Key.expectEqual("", try sl.get("a"));
+        try Key.expectEqual("", try sl.get("b"));
+        try Key.expectEqual("", try sl.get("c"));
+        try Key.expectEqual(null, try sl.get("d"));
     }
 }
 
 test "library tests" {
     for (&library.tests) |t| {
+        const log = std.io.getStdErr().writer();
+        try log.writeByte('\n');
+
         var tmp = std.testing.tmpDir(.{});
         defer tmp.cleanup();
 
-        const env = try utils.open(tmp.dir, .{});
+        const env = try utils.open(tmp.dir, .{ .max_dbs = 2 });
         defer env.deinit();
 
         const txn = try env.transaction(.{ .mode = .ReadWrite });
         defer txn.abort();
 
-        const db = try txn.database(null, .{});
+        const expected = try txn.database("expected", .{ .create = true });
+        const actual = try txn.database("actual", .{ .create = true });
 
         {
-            var tree = try Tree.init(allocator, db, .{});
-            defer tree.deinit();
+            var builder = try Builder.init(allocator, expected, .{});
+            defer builder.deinit();
 
-            for (t.leaves) |entry| try tree.set(entry[0], entry[1]);
+            for (t.leaves) |entry| try builder.set(entry[0], entry[1]);
+            try builder.build();
         }
 
-        try utils.expectEqualEntries(db, t.entries);
+        {
+            var sl = try SkipList.init(allocator, actual, .{ .log = null });
+            defer sl.deinit();
+
+            for (t.leaves) |entry| try sl.set(entry[0], entry[1]);
+        }
+
+        try utils.expectEqualDatabases(expected, actual);
+        // try expectEqual(@as(usize, 0), try utils.compareDatabases(expected, actual, .{ .log = log }));
     }
 }
 
@@ -143,17 +156,20 @@ test "set the same entry twice" {
     const db = try txn.database(null, .{});
 
     {
-        var tree = try Tree.init(allocator, db, .{});
-        defer tree.deinit();
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
-        try tree.set("a", "foo");
-        try tree.set("a", "foo");
+        try sl.set("a", "foo");
+        try sl.set("a", "foo");
 
-        try if (try tree.get("a")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
+        try if (try sl.get("a")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
     }
 }
 
 test "delete a leaf boundary" {
+    const log = std.io.getStdErr().writer();
+    try log.writeByte('\n');
+
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -166,14 +182,14 @@ test "delete a leaf boundary" {
     const db = try txn.database(null, .{});
 
     {
-        var tree = try Tree.init(allocator, db, .{});
-        defer tree.deinit();
+        var sl = try SkipList.init(allocator, db, .{ .log = null });
+        defer sl.deinit();
 
         for (library.tests[2].leaves) |entry| {
-            try tree.set(entry[0], entry[1]);
+            try sl.set(entry[0], entry[1]);
         }
 
-        try tree.delete("d");
+        try sl.delete("d");
     }
 
     try utils.expectEqualEntries(db, &.{
@@ -208,15 +224,15 @@ test "overwrite a leaf boundary with another boundary" {
     const db = try txn.database(null, .{});
 
     {
-        var tree = try Tree.init(allocator, db, .{});
-        defer tree.deinit();
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
         for (library.tests[2].leaves) |entry| {
-            try tree.set(entry[0], entry[1]);
+            try sl.set(entry[0], entry[1]);
         }
 
-        try tree.delete("d");
-        try tree.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
+        try sl.delete("d");
+        try sl.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
     }
 
     try utils.expectEqualEntries(db, &.{
@@ -253,15 +269,15 @@ test "overwrite a leaf boundary with a non-boundary" {
     const db = try txn.database(null, .{});
 
     {
-        var tree = try Tree.init(allocator, db, .{});
-        defer tree.deinit();
+        var sl = try SkipList.init(allocator, db, .{});
+        defer sl.deinit();
 
         for (library.tests[2].leaves) |entry| {
-            try tree.set(entry[0], entry[1]);
+            try sl.set(entry[0], entry[1]);
         }
 
-        try tree.delete("d");
-        try tree.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
+        try sl.delete("d");
+        try sl.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
     }
 
     try utils.expectEqualEntries(db, &.{
@@ -352,8 +368,8 @@ fn testPseudoRandomPermutations(
         }
 
         {
-            var tree = try Tree.init(allocator, actual, .{});
-            defer tree.deinit();
+            var sl = try SkipList.init(allocator, actual, .{ .log = options.log });
+            defer sl.deinit();
 
             {
                 for (permutation, 0..) |i, j| {
@@ -362,12 +378,12 @@ fn testPseudoRandomPermutations(
 
                     std.mem.writeInt(u16, &key, i, .big);
                     Sha256.hash(&key, &value, .{});
-                    try tree.set(&key, &value);
+                    try sl.set(&key, &value);
                 }
 
                 for (permutations[(p + 1) % N][0..R]) |i| {
                     std.mem.writeInt(u16, &key, i, .big);
-                    try tree.delete(&key);
+                    try sl.delete(&key);
                 }
             }
         }
@@ -381,17 +397,21 @@ fn testPseudoRandomPermutations(
         // }
 
         try utils.expectEqualDatabases(expected, actual);
+        // try expectEqual(@as(usize, 0), try utils.compareDatabases(expected, actual, .{ .log = options.log }));
     }
 }
 
 test "1 pseudo-random permutations of 10, deleting 0" {
-    try testPseudoRandomPermutations(1, 10, 0, .{});
+    // const log = std.io.getStdErr().writer();
+    // try log.writeByte('\n');
+    try testPseudoRandomPermutations(1, 10, 0, .{ .log = null });
 }
 
 test "100 pseudo-random permutations of 50, deleting 0" {
     // const log = std.io.getStdErr().writer();
-    // try log.print("\n", .{});
-    try testPseudoRandomPermutations(100, 50, 0, .{});
+    // try log.writeByte('\n');
+    // try testPseudoRandomPermutations(100, 50, 0, .{ .log = log });
+    try testPseudoRandomPermutations(100, 50, 0, .{ .log = null });
 }
 
 test "100 pseudo-random permutations of 500, deleting 50" {

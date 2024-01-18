@@ -72,17 +72,12 @@ pub fn build(b: *std.Build) void {
         const iterator_test_artifact = b.addRunArtifact(iterator_tests);
         b.step("test-iterator", "Run Iterator tests").dependOn(&iterator_test_artifact.step);
 
-        const skiplist_tests = b.addTest(.{ .root_source_file = LazyPath.relative("src/skiplist_test.zig") });
-        skiplist_tests.root_module.addImport("lmdb", lmdb.module("lmdb"));
-        const skiplist_test_artifact = b.addRunArtifact(skiplist_tests);
-        b.step("test-skiplist", "Run SkipList tests").dependOn(&skiplist_test_artifact.step);
-
-        // const test_step = b.step("test", "Run unit tests");
-        // test_step.dependOn(&run_header_tests.step);
-        // test_step.dependOn(&run_builder_tests.step);
-        // test_step.dependOn(&run_cursor_tests.step);
-        // test_step.dependOn(&run_tree_tests.step);
-        // test_step.dependOn(&run_iterator_tests.step);
+        const test_step = b.step("test", "Run unit tests");
+        test_step.dependOn(&header_test_artifact.step);
+        test_step.dependOn(&builder_test_artifact.step);
+        test_step.dependOn(&cursor_test_artifact.step);
+        test_step.dependOn(&tree_test_artifact.step);
+        test_step.dependOn(&iterator_test_artifact.step);
     }
 
     {
@@ -97,37 +92,8 @@ pub fn build(b: *std.Build) void {
         effect.root_module.addImport("lmdb", lmdb.module("lmdb"));
         effect.root_module.addImport("okra", okra);
 
-        // effect.addIncludePath(LazyPath.relative("tracy-0.10"));
-        // effect.addCSourceFile(.{
-        //     .file = LazyPath.relative("tracy-0.10/public/TracyClient.cpp"),
-        //     .flags = &.{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" },
-        // });
-
-        // if (!enable_llvm) {
-        // effect.root_module.linkSystemLibrary("c++", .{});
-        // effect.linkSystemLibraryName("c++");
-        // }
-
-        // effect.linkLibC();
-
         const run_effects = b.addRunArtifact(effect);
         b.step("bench-effect", "Collect Tree effect stats").dependOn(&run_effects.step);
-    }
-
-    {
-        // SkipList effect simulations
-        const effect = b.addExecutable(.{
-            .name = "bench-effect-skiplist",
-            .root_source_file = LazyPath.relative("benchmarks/effects_sl.zig"),
-            .optimize = .ReleaseFast,
-            .target = target,
-        });
-
-        effect.root_module.addImport("lmdb", lmdb.module("lmdb"));
-        effect.root_module.addImport("okra", okra);
-
-        const run_effects = b.addRunArtifact(effect);
-        b.step("bench-effect-skiplist", "Collect SkipList effect stats").dependOn(&run_effects.step);
     }
 
     // Benchmarks
