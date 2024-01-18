@@ -120,7 +120,7 @@ Okra has no external concept of versioning or time-travel. LMDB is copy-on-write
 
 Run all tests with `zig build test`.
 
-Okra is currently built with zig version `0.11.0`.
+Okra is currently built with zig version `0.12.0-dev.2158+4f2009de1`.
 
 ## Benchmarks
 
