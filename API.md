@@ -26,47 +26,12 @@ const Tree = struct {
         effects: ?*Effects = null,
     };
 
-    pub fn open(
-        allocator: std.mem.Allocator,
-        txn: lmdb.Transaction,
-        dbi: lmdb.Transaction.DBI,
-        options: Options,
-    ) !Tree
-
-    pub fn close(self: *Tree) void
+    pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Tree
+    pub fn deinit(self: *Tree) void
 }
 ```
 
-Trees are initialized with an LMDB transaction and database ID. They must be closed by calling `tree.close()` **before** the LMDB transaction is committed or aborted. Unfortunately, there's no way to detect this case or handle it gracefully due to how cursors work in LMDB.
-
-> ⚠️ Failing to close the tree before committing or aborting the transaction WILL crash your code.
-
-An easy way to make sure this happens is to always open trees within their own block.
-
-```zig
-const env = try lmdb.Environment.open("path/to/db", .{});
-defer env.close();
-
-const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
-errdefer txn.abort();
-
-const dbi = try txn.openDatabase(null, .{});
-
-// scope the tree to its own block so that
-// it closes before the transaction commits
-{
-    var tree = try okra.Tree.open(txn, dbi, .{});
-    defer tree.close();
-
-    try tree.set("a", "foo");
-    try tree.set("b", "bar");
-    // ...
-}
-
-try txn.commit();
-```
-
-See the [zig-lmdb repo](https://github.com/canvasxyz/zig-lmdb) for documentation on LMDB environments, transactions, and database IDs.
+Trees are initialized with an LMDB database. They must be closed by calling `tree.deinit()` before the LMDB transaction is committed or aborted. See the [zig-lmdb repo](https://github.com/canvasxyz/zig-lmdb) for documentation on LMDB environments, transactions, and databases.
 
 ## Node
 
@@ -77,7 +42,8 @@ pub const Node = struct {
     hash: *const [K]u8,
     value: ?[]const u8,
 
-    pub fn isBoundary(self: Node) bool
+    pub fn isBoundary(self: Self) bool
+    pub fn isAnchor(self: Self) bool
     pub fn equal(self: Node, other: Node) bool
 };
 ```
@@ -96,40 +62,32 @@ pub const Iterator = struct {
         reverse: bool = false,
     };
 
-    pub fn open(
-        allocator: std.mem.Allocator,
-        txn: lmdb.Transaction,
-        dbi: lmdb.Transaction.DBI,
-        range: Range,
-    ) !Iterator
-
-    pub fn close(self: *Iterator) void
-    pub fn reset(self: *Iterator, range: Range) !void
+    pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, range: Range) !Iterator
+    pub fn deinit(self: *Iterator) void
 
     pub fn next(self: *Self) !?Node
+    pub fn reset(self: *Iterator, range: Range) !void
 }
 ```
 
 ```zig
-const env = try lmdb.Environment.open("path/to/db", .{});
-defer env.close();
+const env = try lmdb.Environment.init("path/to/db", .{});
+defer env.deinit();
 
-const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });
+const txn = try env.transaction(.{ .mode = .ReadOnly });
 defer txn.abort();
 
-const dbi = try txn.openDatabase(null, .{});
+const db = try txn.database(null, .{});
 
-{
-    var tree = try okra.Tree.open(txn, dbi, .{});
-    defer tree.close();
+var tree = try okra.Tree.init(db, .{});
+defer tree.deinit();
 
-    var iterator = try Iterator.open(allocator, &txn, .{ .level = 0 });
-    defer iterator.close();
+var iterator = try Iterator.init(allocator, db, .{ .level = 0 });
+defer iterator.deinit();
 
-    while (try iterator.next()) |node| {
-        // ...
-    }
+while (try iterator.next()) |node| {
+    // ...
 }
 ```
 
-Iterators must be closed before its LMDB transaction is aborted or committed. The iterator yields a `node: Node`, whose fields `key`, `hash`, and `value` are only valid until the next yield.
+Iterators must also be closed before its LMDB transaction is aborted or committed. The iterator yields `Node` values whose fields `key`, `hash`, and `value` are only valid until the next yield.
