@@ -11,7 +11,7 @@ const K = 32;
 const Q = 4;
 
 const Builder = @import("builder.zig").Builder(K, Q);
-const SkipList = @import("skiplist.zig").SkipList(K, Q);
+const Tree = @import("tree.zig").Tree(K, Q);
 const Key = @import("Key.zig");
 const library = @import("library.zig");
 const utils = @import("utils.zig");
@@ -29,7 +29,7 @@ fn leaf(hash: *const [64]u8, value: u8) [33]u8 {
     return result;
 }
 
-test "open a SkipList" {
+test "open a Tree" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -42,7 +42,7 @@ test "open a SkipList" {
     const db = try txn.database(null, .{});
 
     {
-        var sl = try SkipList.init(allocator, db, .{});
+        var sl = try Tree.init(allocator, db, .{});
         defer sl.deinit();
 
         try utils.expectEqualEntries(db, &.{
@@ -65,7 +65,7 @@ test "basic get/set/delete operations" {
     const db = try txn.database(null, .{});
 
     {
-        var sl = try SkipList.init(allocator, db, .{});
+        var sl = try Tree.init(allocator, db, .{});
         defer sl.deinit();
 
         try sl.set("a", "foo");
@@ -92,7 +92,7 @@ test "set empty values" {
     const db = try txn.database(null, .{});
 
     {
-        var sl = try SkipList.init(allocator, db, .{});
+        var sl = try Tree.init(allocator, db, .{});
         defer sl.deinit();
 
         try sl.set("a", "");
@@ -132,7 +132,7 @@ test "library tests" {
         }
 
         {
-            var sl = try SkipList.init(allocator, actual, .{ .log = null });
+            var sl = try Tree.init(allocator, actual, .{ .log = null });
             defer sl.deinit();
 
             for (t.leaves) |entry| try sl.set(entry[0], entry[1]);
@@ -156,7 +156,7 @@ test "set the same entry twice" {
     const db = try txn.database(null, .{});
 
     {
-        var sl = try SkipList.init(allocator, db, .{});
+        var sl = try Tree.init(allocator, db, .{});
         defer sl.deinit();
 
         try sl.set("a", "foo");
@@ -182,7 +182,7 @@ test "delete a leaf boundary" {
     const db = try txn.database(null, .{});
 
     {
-        var sl = try SkipList.init(allocator, db, .{ .log = null });
+        var sl = try Tree.init(allocator, db, .{ .log = null });
         defer sl.deinit();
 
         for (library.tests[2].leaves) |entry| {
@@ -224,7 +224,7 @@ test "overwrite a leaf boundary with another boundary" {
     const db = try txn.database(null, .{});
 
     {
-        var sl = try SkipList.init(allocator, db, .{});
+        var sl = try Tree.init(allocator, db, .{});
         defer sl.deinit();
 
         for (library.tests[2].leaves) |entry| {
@@ -269,7 +269,7 @@ test "overwrite a leaf boundary with a non-boundary" {
     const db = try txn.database(null, .{});
 
     {
-        var sl = try SkipList.init(allocator, db, .{});
+        var sl = try Tree.init(allocator, db, .{});
         defer sl.deinit();
 
         for (library.tests[2].leaves) |entry| {
@@ -368,7 +368,7 @@ fn testPseudoRandomPermutations(
         }
 
         {
-            var sl = try SkipList.init(allocator, actual, .{ .log = options.log });
+            var sl = try Tree.init(allocator, actual, .{ .log = options.log });
             defer sl.deinit();
 
             {

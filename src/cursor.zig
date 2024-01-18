@@ -112,18 +112,5 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
             const entry = try self.cursor.getCurrentEntry();
             return try Node.parse(entry.key, entry.value);
         }
-
-        // pub fn setCurrentNode(self: Self, hash: *const [K]u8, value: ?[]const u8) !void {
-        //     const entry_value = try self.encoder.encodeValue(hash, value);
-        //     try self.cursor.setCurrentValue(entry_value);
-        //     if (self.trace) |trace| {
-        //         const node = try self.getCurrentNode();
-        //         try trace.append(node);
-        //     }
-        // }
-
-        pub fn deleteCurrentNode(self: *Self) Error!void {
-            try self.cursor.deleteCurrentKey();
-        }
     };
 }

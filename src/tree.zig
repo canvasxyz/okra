@@ -7,8 +7,6 @@ const lmdb = @import("lmdb");
 
 const Error = @import("error.zig").Error;
 const Effects = @import("Effects.zig");
-const Logger = @import("Logger.zig");
-const BufferPool = @import("BufferPool.zig");
 const Entry = @import("Entry.zig");
 const Key = @import("Key.zig");
 
@@ -28,11 +26,10 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             effects: ?*Effects = null,
         };
 
-        allocator: std.mem.Allocator,
+        arena: std.heap.ArenaAllocator,
         db: lmdb.Database,
         cursor: Cursor,
         encoder: Encoder,
-        pool: BufferPool,
         logger: ?std.fs.File.Writer,
         effects: ?*Effects,
 
@@ -42,20 +39,19 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             const cursor = try Cursor.init(allocator, db);
 
             return .{
-                .allocator = allocator,
+                .arena = std.heap.ArenaAllocator.init(allocator),
                 .db = db,
                 .cursor = cursor,
                 .encoder = Encoder.init(allocator),
-                .pool = BufferPool.init(allocator),
                 .logger = options.log,
                 .effects = options.effects,
             };
         }
 
         pub fn deinit(self: *Self) void {
+            self.arena.deinit();
             self.cursor.deinit();
             self.encoder.deinit();
-            self.pool.deinit();
         }
 
         pub fn get(self: *Self, key: []const u8) Error!?[]const u8 {
@@ -64,10 +60,10 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn set(self: *Self, key: []const u8, value: []const u8) Error!void {
-            if (self.effects) |effects| effects.reset();
+            const allocator = self.arena.allocator();
+            defer assert(self.arena.reset(.free_all));
 
-            const root = try self.cursor.goToRoot();
-            try self.pool.resize(root.level + 1);
+            if (self.effects) |effects| effects.reset();
 
             var hash: [K]u8 = undefined;
             Entry.hash(key, value, &hash);
@@ -87,7 +83,8 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                         try self.setNode(new_leaf);
                         try self.deleteNode(1, key);
 
-                        const new_parent = try self.getParent(0, key);
+                        const new_parent = try self.getParent(allocator, 0, key);
+                        defer if (new_parent) |bytes| allocator.free(bytes);
 
                         try self.updateNode(1, new_parent);
                     }
@@ -97,33 +94,29 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             } else {
                 try self.dispatch(new_leaf);
             }
-
-            // try self.log("------------------------\n", .{});
         }
 
         pub fn delete(self: *Self, key: []const u8) Error!void {
-            try self.log("------------------------\n", .{});
-            try self.log("delete({s})\n", .{hex(key)});
-            try self.print();
+            const allocator = self.arena.allocator();
+            defer assert(self.arena.reset(.free_all));
 
             if (self.effects) |effects| effects.reset();
-
-            const root = try self.cursor.goToRoot();
-            try self.pool.resize(root.level + 1);
 
             if (try self.getNode(0, key)) |_| {
                 try self.deleteNode(0, key);
 
-                const new_parent = try self.getParent(0, key);
+                const new_parent = try self.getParent(allocator, 0, key);
+                defer if (new_parent) |bytes| allocator.free(bytes);
 
                 try self.updateNode(1, new_parent);
             }
-
-            try self.log("------------------------\n", .{});
         }
 
         fn dispatch(self: *Self, node: Node) Error!void {
-            const old_parent = try self.getParent(node.level, node.key);
+            const allocator = self.arena.allocator();
+
+            const old_parent = try self.getParent(allocator, node.level, node.key);
+            defer if (old_parent) |bytes| allocator.free(bytes);
 
             try self.setNode(node);
 
@@ -135,6 +128,8 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         }
 
         fn updateNode(self: *Self, level: u8, key: ?[]const u8) Error!void {
+            const allocator = self.arena.allocator();
+
             var hash: [K]u8 = undefined;
             try self.getHash(level, key, &hash);
 
@@ -162,7 +157,8 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                     try self.deleteNode(level + 1, key);
                     try self.setNode(new_node);
 
-                    const new_parent = try self.getParent(level, key);
+                    const new_parent = try self.getParent(allocator, level, key);
+                    defer if (new_parent) |bytes| allocator.free(bytes);
 
                     try self.updateNode(level + 1, new_parent);
                 }
@@ -201,7 +197,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             }
         }
 
-        fn getNode(self: *Self, level: u8, key: ?[]const u8) Error!?Node {
+        inline fn getNode(self: *Self, level: u8, key: ?[]const u8) Error!?Node {
             const entry_key = try self.encoder.encodeKey(level, key);
             if (try self.db.get(entry_key)) |entry_value| {
                 return try Node.parse(entry_key, entry_value);
@@ -210,32 +206,9 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             }
         }
 
-        fn setNode(self: *Self, node: Node) Error!void {
+        inline fn setNode(self: *Self, node: Node) Error!void {
             const entry = try self.encoder.encode(node);
             try self.db.set(entry.key, entry.value);
-        }
-
-        fn getParent(self: *Self, level: u8, key: ?[]const u8) Error!?[]const u8 {
-            assert(key != null);
-            if (key == null) {
-                return null;
-            }
-
-            if (try self.cursor.seek(level, key)) |next| {
-                if (Key.equal(next.key, key) and next.isBoundary()) {
-                    return try self.pool.copy(level, next.key.?);
-                }
-            }
-
-            while (try self.cursor.goToPrevious()) |previous| {
-                if (previous.isAnchor()) {
-                    return null;
-                } else if (previous.isBoundary()) {
-                    return try self.pool.copy(level, previous.key.?);
-                }
-            }
-
-            return error.InvalidDatabase;
         }
 
         fn getHash(self: *Self, level: u8, key: ?[]const u8, hash: *[K]u8) Error!void {
@@ -259,46 +232,52 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             digest.final(hash);
         }
 
-        fn isAnchor(key: []const u8) bool {
+        fn getParent(self: *Self, allocator: std.mem.Allocator, level: u8, key: ?[]const u8) Error!?[]const u8 {
+            assert(key != null);
+            if (key == null) {
+                return null;
+            }
+
+            if (try self.cursor.seek(level, key)) |next| {
+                if (Key.equal(next.key, key) and next.isBoundary()) {
+                    return try copyKey(allocator, next.key);
+                }
+            }
+
+            while (try self.cursor.goToPrevious()) |previous| {
+                if (previous.isAnchor()) {
+                    return null;
+                } else if (previous.isBoundary()) {
+                    return try copyKey(allocator, previous.key);
+                }
+            }
+
+            return error.InvalidDatabase;
+        }
+
+        inline fn copyKey(allocator: std.mem.Allocator, key: ?[]const u8) !?[]const u8 {
+            if (key) |bytes| {
+                const result = try allocator.alloc(u8, bytes.len);
+                @memcpy(result, bytes);
+                return result;
+            } else {
+                return null;
+            }
+        }
+
+        inline fn isAnchor(key: []const u8) bool {
             return key.len == 1;
         }
 
-        fn isBoundary(hash: *const [K]u8) bool {
+        inline fn isBoundary(hash: *const [K]u8) bool {
             const limit: comptime_int = (1 << 32) / @as(u33, @intCast(Q));
             return std.mem.readInt(u32, hash[0..4], .big) < limit;
         }
 
-        fn log(self: Self, comptime format: []const u8, args: anytype) std.fs.File.WriteError!void {
+        inline fn log(self: Self, comptime format: []const u8, args: anytype) std.fs.File.WriteError!void {
             if (self.logger) |writer| {
                 try writer.print(format, args);
             }
-        }
-
-        fn print(self: Self) !void {
-            if (self.logger == null) {
-                return;
-            }
-
-            const cursor = try self.db.cursor();
-            defer cursor.deinit();
-
-            try self.log("------------\n", .{});
-
-            if (try cursor.goToFirst()) |key| {
-                const value = try cursor.getCurrentValue();
-                try self.log("{s}\t{s}\n", .{ hex(key), hex(value) });
-            }
-
-            while (try cursor.goToNext()) |key| {
-                const value = try cursor.getCurrentValue();
-                if (std.mem.eql(u8, key, &Header.METADATA_KEY)) {
-                    try self.log("{s}\t{s}\n", .{ hex(key), hex(value) });
-                } else {
-                    try self.log("{s}\t{s}\t[{any}]\n", .{ hex(key), hex(value), isBoundary(value[0..K]) });
-                }
-            }
-
-            try self.log("------------\n", .{});
         }
     };
 }

@@ -5,7 +5,6 @@ const Blake3 = std.crypto.hash.Blake3;
 
 const lmdb = @import("lmdb");
 
-const Logger = @import("Logger.zig");
 const Entry = @import("Entry.zig");
 
 /// Builder is naive bottom-up tree builder used for unit testing.
@@ -23,7 +22,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
         hash_buffer: [K]u8 = undefined,
         key_buffer: std.ArrayList(u8),
         value_buffer: std.ArrayList(u8),
-        logger: Logger,
+        logger: ?std.fs.File.Writer,
 
         pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
             try Header.write(db);
@@ -32,12 +31,11 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
                 .db = db,
                 .key_buffer = std.ArrayList(u8).init(allocator),
                 .value_buffer = std.ArrayList(u8).init(allocator),
-                .logger = Logger.init(allocator, options.log),
+                .logger = options.log,
             };
         }
 
         pub fn deinit(self: *Self) void {
-            self.logger.deinit();
             self.key_buffer.deinit();
             self.value_buffer.deinit();
         }
@@ -142,11 +140,13 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
             @memcpy(self.value_buffer.items[K..], value);
         }
 
-        fn log(self: *Self, comptime format: []const u8, args: anytype) !void {
-            try self.logger.print(format, args);
+        inline fn log(self: Self, comptime format: []const u8, args: anytype) std.fs.File.WriteError!void {
+            if (self.logger) |writer| {
+                try writer.print(format, args);
+            }
         }
 
-        fn isBoundary(value: *const [K]u8) bool {
+        inline fn isBoundary(value: *const [K]u8) bool {
             const limit: comptime_int = (1 << 32) / @as(u33, @intCast(Q));
             return std.mem.readInt(u32, value[0..4], .big) < limit;
         }

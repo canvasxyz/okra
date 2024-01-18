@@ -2,7 +2,6 @@ const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
-const Blake3 = std.crypto.hash.Blake3;
 const hex = std.fmt.fmtSliceHexLower;
 
 const lmdb = @import("lmdb");
@@ -62,11 +61,11 @@ pub fn expectEqualDatabases(expected: lmdb.Database, actual: lmdb.Database) !voi
     }
 }
 
-const Options = struct {
+pub const CompareOptions = struct {
     log: ?std.fs.File.Writer = null,
 };
 
-pub fn compareEnvironments(env_a: lmdb.Environment, env_b: lmdb.Environment, dbs: ?[][*:0]const u8, options: Options) !usize {
+pub fn compareEnvironments(env_a: lmdb.Environment, env_b: lmdb.Environment, dbs: ?[][*:0]const u8, options: CompareOptions) !usize {
     const txn_a = try lmdb.Transaction.init(env_a, .{ .mode = .ReadOnly });
     defer txn_a.abort();
 
@@ -89,7 +88,7 @@ pub fn compareEnvironments(env_a: lmdb.Environment, env_b: lmdb.Environment, dbs
     }
 }
 
-pub fn compareDatabases(expected: lmdb.Database, actual: lmdb.Database, options: Options) !usize {
+pub fn compareDatabases(expected: lmdb.Database, actual: lmdb.Database, options: CompareOptions) !usize {
     if (options.log) |log| try log.print("{s:-<80}\n", .{"START DIFF "});
 
     var differences: usize = 0;

@@ -36,7 +36,7 @@ test "basic cursor operations" {
     try builder.set("c", "baz");
     try builder.build();
 
-    var cursor = try Cursor.init(allocator, db, .{});
+    var cursor = try Cursor.init(allocator, db);
     defer cursor.deinit();
 
     const root = try cursor.goToRoot();
