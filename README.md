@@ -43,12 +43,12 @@ okra is a deterministic pseudo-random merkle tree built on LMDB
 
 COMMANDS:
   init     initialize an empty database environment
-  cat      Print the key/value entries to stdout
+  cat      print the key/value entries to stdout
   ls       list the children of an internal node
-  tree     Print the tree structure
-  get      Get a value by key
-  set      Set a value by key
-  delete   Delete a value by key
+  tree     print the tree structure
+  get      get a value by key
+  set      set a value by key
+  delete   delete a value by key
 
 OPTIONS:
   -h, --help   Prints help information

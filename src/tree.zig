@@ -110,6 +110,24 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             }
         }
 
+        pub fn getRoot(self: *Self) !Node {
+            return try self.cursor.goToRoot();
+        }
+
+        pub fn getNode(self: *Self, level: u8, key: ?[]const u8) Error!?Node {
+            const entry_key = try self.encoder.encodeKey(level, key);
+            if (try self.db.get(entry_key)) |entry_value| {
+                return try Node.parse(entry_key, entry_value);
+            } else {
+                return null;
+            }
+        }
+
+        inline fn setNode(self: *Self, node: Node) Error!void {
+            const entry = try self.encoder.encode(node);
+            try self.db.set(entry.key, entry.value);
+        }
+
         fn dispatch(self: *Self, allocator: std.mem.Allocator, node: Node) Error!void {
             const old_parent = try self.getParent(allocator, node.level, node.key);
             defer if (old_parent) |bytes| allocator.free(bytes);
@@ -181,20 +199,6 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 try self.setNode(node);
                 if (self.effects) |effects| effects.create += 1;
             }
-        }
-
-        inline fn getNode(self: *Self, level: u8, key: ?[]const u8) Error!?Node {
-            const entry_key = try self.encoder.encodeKey(level, key);
-            if (try self.db.get(entry_key)) |entry_value| {
-                return try Node.parse(entry_key, entry_value);
-            } else {
-                return null;
-            }
-        }
-
-        inline fn setNode(self: *Self, node: Node) Error!void {
-            const entry = try self.encoder.encode(node);
-            try self.db.set(entry.key, entry.value);
         }
 
         fn getHash(self: *Self, level: u8, key: ?[]const u8, hash: *[K]u8) Error!void {

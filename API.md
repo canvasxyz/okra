@@ -23,7 +23,6 @@ const lmdb = @import("lmdb");
 const Tree = struct {
     pub const Options = struct {
         log: ?std.fs.File.Writer = null,
-        trace: ?*NodeList = null,
         effects: ?*Effects = null,
     };
 

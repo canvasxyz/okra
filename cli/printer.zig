@@ -12,12 +12,11 @@ iter: okra.Iterator,
 writer: std.fs.File.Writer,
 encoding: utils.Encoding,
 prefix: std.ArrayList(u8),
-trace: ?*okra.NodeList,
 is_a_tty: bool,
 
-pub fn init(allocator: std.mem.Allocator, tree: *okra.Tree, encoding: utils.Encoding, trace: ?*okra.NodeList) !Printer {
+pub fn init(allocator: std.mem.Allocator, tree: *okra.Tree, encoding: utils.Encoding) !Printer {
     const stdout = std.io.getStdOut();
-    const iter = try okra.Iterator.open(allocator, tree.txn, tree.dbi, .{ .level = 0 });
+    const iter = try okra.Iterator.init(allocator, tree.db, .{ .level = 0 });
     return .{
         .allocator = allocator,
         .tree = tree,
@@ -26,12 +25,11 @@ pub fn init(allocator: std.mem.Allocator, tree: *okra.Tree, encoding: utils.Enco
         .is_a_tty = std.os.isatty(stdout.handle),
         .encoding = encoding,
         .prefix = std.ArrayList(u8).init(allocator),
-        .trace = trace,
     };
 }
 
 pub fn deinit(self: *Printer) void {
-    self.iter.close();
+    self.iter.deinit();
     self.prefix.deinit();
 }
 
@@ -52,7 +50,7 @@ pub fn printRoot(self: *Printer, height: ?u8, depth: ?u8) !void {
         try self.prefix.appendSlice(last_indentation_unit);
     }
 
-    try self.writer.writeByte("\n");
+    try self.writer.writeByte('\n');
     _ = try self.writer.write(self.prefix.items);
 
     const len = if (depth) |d| d else root.level;
@@ -159,17 +157,6 @@ fn printKey(self: *const Printer, key: ?[]const u8) !void {
 }
 
 fn printHash(self: *const Printer, hash: *const [okra.K]u8) !void {
-    if (self.trace) |trace| {
-        for (trace.nodes.items) |node| {
-            if (std.mem.eql(u8, node.hash, hash)) {
-                try self.printColor(color_highlight);
-                try self.writer.print(" {s} ", .{hex(hash[0..hash_size])});
-                try self.printColor(color_clear);
-                return;
-            }
-        }
-    }
-
     try self.writer.print(" {s} ", .{hex(hash[0..hash_size])});
 }
 

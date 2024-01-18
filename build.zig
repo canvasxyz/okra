@@ -4,71 +4,66 @@ const LazyPath = std.Build.LazyPath;
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    _ = optimize; // autofix
 
-    const lmdb = b.dependency("lmdb", .{});
+    const lmdb_dep = b.dependency("zig-lmdb", .{});
+    const lmdb = lmdb_dep.module("lmdb");
+
+    const cli_dep = b.dependency("zig-cli", .{});
 
     const okra = b.addModule("okra", .{
         .root_source_file = LazyPath.relative("src/lib.zig"),
     });
 
-    okra.addImport("lmdb", lmdb.module("lmdb"));
+    okra.addImport("lmdb", lmdb);
 
-    // {
-    //     // CLI
-    //     const cli = b.addExecutable(.{
-    //         .name = "okra",
-    //         .root_source_file = LazyPath.relative("./cli/main.zig"),
-    //         .optimize = optimize,
-    //         .target = target,
-    //     });
+    {
+        // CLI
+        const cli = b.addExecutable(.{
+            .name = "okra",
+            .root_source_file = LazyPath.relative("./cli/main.zig"),
+            .optimize = optimize,
+            .target = target,
+        });
 
-    //     const zig_cli = b.anonymousDependency("libs/zig-cli/", @import("libs/zig-cli/build.zig"), .{});
+        // const zig_cli = b.anonymousDependency("libs/zig-cli/", @import("libs/zig-cli/build.zig"), .{});
 
-    //     // cli.addIncludePath(lmdb_include_path);
-    //     // cli.addCSourceFiles(&lmdb_source_files, &.{});
-    //     cli.root_module.addImport("lmdb", lmdb.module("lmdb"));
-    //     cli.root_module.addImport("okra", okra);
-    //     cli.root_module.addImport("zig-cli", zig_cli.module("zig-cli"));
+        // cli.addIncludePath(lmdb_include_path);
+        // cli.addCSourceFiles(&lmdb_source_files, &.{});
+        cli.root_module.addImport("lmdb", lmdb);
+        cli.root_module.addImport("okra", okra);
+        cli.root_module.addImport("zig-cli", cli_dep.module("zig-cli"));
 
-    //     cli.linkLibC();
-    //     b.installArtifact(cli);
+        cli.linkLibC();
+        b.installArtifact(cli);
 
-    //     const cli_artifact = b.addInstallArtifact(cli, .{});
-    //     b.step("cli", "Build the CLI").dependOn(&cli_artifact.step);
-    // }
-
-    // const tests = b.addTest(.{ .root_source_file = LazyPath.relative("test/main.zig") });
-    // tests.root_module.addImport("lmdb", lmdb.module("lmdb"));
-    // // tests.root_module.addImport("okra", okra);
-
-    // const test_runner = b.addRunArtifact(tests);
-    // b.step("test", "Run unit tests").dependOn(&test_runner.step);
+        const cli_artifact = b.addInstallArtifact(cli, .{});
+        b.step("cli", "Build the CLI").dependOn(&cli_artifact.step);
+    }
 
     {
         // Tests
         const header_tests = b.addTest(.{ .root_source_file = LazyPath.relative("src/header_test.zig") });
-        header_tests.root_module.addImport("lmdb", lmdb.module("lmdb"));
+        header_tests.root_module.addImport("lmdb", lmdb);
         const header_test_artifact = b.addRunArtifact(header_tests);
         b.step("test-header", "Run Header tests").dependOn(&header_test_artifact.step);
 
         const builder_tests = b.addTest(.{ .root_source_file = LazyPath.relative("src/builder_test.zig") });
-        builder_tests.root_module.addImport("lmdb", lmdb.module("lmdb"));
+        builder_tests.root_module.addImport("lmdb", lmdb);
         const builder_test_artifact = b.addRunArtifact(builder_tests);
         b.step("test-builder", "Run Builder tests").dependOn(&builder_test_artifact.step);
 
         const cursor_tests = b.addTest(.{ .root_source_file = LazyPath.relative("src/cursor_test.zig") });
-        cursor_tests.root_module.addImport("lmdb", lmdb.module("lmdb"));
+        cursor_tests.root_module.addImport("lmdb", lmdb);
         const cursor_test_artifact = b.addRunArtifact(cursor_tests);
         b.step("test-cursor", "Run Cursor tests").dependOn(&cursor_test_artifact.step);
 
         const tree_tests = b.addTest(.{ .root_source_file = LazyPath.relative("src/tree_test.zig") });
-        tree_tests.root_module.addImport("lmdb", lmdb.module("lmdb"));
+        tree_tests.root_module.addImport("lmdb", lmdb);
         const tree_test_artifact = b.addRunArtifact(tree_tests);
         b.step("test-tree", "Run Tree tests").dependOn(&tree_test_artifact.step);
 
         const iterator_tests = b.addTest(.{ .root_source_file = LazyPath.relative("src/iterator_test.zig") });
-        iterator_tests.root_module.addImport("lmdb", lmdb.module("lmdb"));
+        iterator_tests.root_module.addImport("lmdb", lmdb);
         const iterator_test_artifact = b.addRunArtifact(iterator_tests);
         b.step("test-iterator", "Run Iterator tests").dependOn(&iterator_test_artifact.step);
 
@@ -89,7 +84,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
         });
 
-        effect.root_module.addImport("lmdb", lmdb.module("lmdb"));
+        effect.root_module.addImport("lmdb", lmdb);
         effect.root_module.addImport("okra", okra);
 
         const run_effects = b.addRunArtifact(effect);
@@ -104,7 +99,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
-    benchmark.root_module.addImport("lmdb", lmdb.module("lmdb"));
+    benchmark.root_module.addImport("lmdb", lmdb);
     benchmark.root_module.addImport("okra", okra);
 
     const benchmark_artifact = b.addRunArtifact(benchmark);

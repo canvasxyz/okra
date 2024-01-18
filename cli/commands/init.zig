@@ -1,6 +1,5 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
-const allocator = std.heap.c_allocator;
 
 const cli = @import("zig-cli");
 const lmdb = @import("lmdb");
@@ -8,23 +7,18 @@ const okra = @import("okra");
 
 const utils = @import("../utils.zig");
 
-pub const command = &cli.Command{
-    .name = "init",
-    .help = "initialize an empty database environment",
-    .description = "okra init [path]",
-    .action = run,
-    .options = &.{
-        &databases_option,
-        &name_option,
-        &iota_option,
-    },
-};
-
 var config = struct {
+    path: []const u8 = "",
     databases: usize = 0,
     name: []const u8 = "",
     iota: u32 = 0,
 }{};
+
+var path_arg = cli.PositionalArg{
+    .name = "path",
+    .help = "path to data directory",
+    .value_ref = cli.mkRef(&config.path),
+};
 
 var databases_option = cli.Option{
     .long_name = "databases",
@@ -45,42 +39,39 @@ var iota_option = cli.Option{
     .value_ref = cli.mkRef(&config.iota),
 };
 
-fn run(args: []const []const u8) !void {
-    if (args.len > 1) {
-        utils.fail("too many arguments", .{});
-    } else if (args.len == 0) {
-        utils.fail("path argument required", .{});
-    }
+pub const command = &cli.Command{
+    .name = "init",
+    .description = .{ .one_line = "initialize an empty database environment" },
+    .target = .{ .action = .{ .exec = run, .positional_args = .{ .args = &.{&path_arg} } } },
+    .options = &.{
+        &databases_option,
+        &name_option,
+        &iota_option,
+    },
+};
 
-    if (config.iota < 0) {
-        utils.fail("iota must be a non-negative integer", .{});
-    }
+fn run() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+
+    try std.fs.cwd().makePath(config.path);
+
+    var dir = try std.fs.cwd().openDir(config.path, .{});
+    defer dir.close();
+
+    const env = try utils.open(dir, .{});
+    defer env.deinit();
+
+    const txn = try env.transaction(.{ .mode = .ReadWrite });
+    errdefer txn.abort();
+
+    const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
+
+    var builder = try okra.Builder.init(gpa.allocator(), db, .{});
+    defer builder.deinit();
 
     var key: [4]u8 = undefined;
     var value = [4]u8{ 0xff, 0xff, 0xff, 0xff };
-
-    std.fs.cwd().access(args[0], .{ .mode = .read_write }) catch |err| {
-        switch (err) {
-            error.FileNotFound => try std.fs.cwd().makeDir(args[0]),
-            else => {
-                return err;
-            },
-        }
-    };
-
-    try std.fs.cwd().makePath(args[0]);
-
-    const env = try lmdb.Environment.open(args[0], .{});
-    defer env.close();
-
-    const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
-    errdefer txn.abort();
-
-    const name = if (config.name.len == 0) null else config.name;
-    const dbi = try txn.openDatabase(name, .{});
-
-    var builder = try okra.Builder.open(allocator, txn, dbi, .{});
-    defer builder.deinit();
 
     var i: u32 = 0;
     while (i < config.iota) : (i += 1) {

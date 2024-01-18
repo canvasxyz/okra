@@ -1,3 +1,0 @@
-[submodule "libs/zig-cli"]
-	path = libs/zig-cli
-	url = https://github.com/sam701/zig-cli.git

@@ -1,6 +1,5 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
-const allocator = std.heap.c_allocator;
 
 const cli = @import("zig-cli");
 const lmdb = @import("lmdb");
@@ -8,25 +7,19 @@ const okra = @import("okra");
 
 const utils = @import("../utils.zig");
 
-pub const command = &cli.Command{
-    .name = "ls",
-    .help = "list the children of an internal node",
-    .description = "okra ls [path]",
-    .action = run,
-    .options = &.{
-        &name_option,
-        &level_option,
-        &key_option,
-        &key_encoding_option,
-    },
-};
-
 var config = struct {
+    path: []const u8 = "",
     name: []const u8 = "",
     level: i32 = -1,
     key: []const u8 = "",
     key_encoding: utils.Encoding = .hex,
 }{};
+
+var path_arg = cli.PositionalArg{
+    .name = "path",
+    .help = "path to data directory",
+    .value_ref = cli.mkRef(&config.path),
+};
 
 var name_option = cli.Option{
     .long_name = "name",
@@ -56,21 +49,30 @@ var key_encoding_option = cli.Option{
     .value_ref = cli.mkRef(&config.key_encoding),
 };
 
-fn run(args: []const []const u8) !void {
-    if (args.len > 1) {
-        utils.fail("too many arguments", .{});
-    } else if (args.len == 0) {
-        utils.fail("missing path argument", .{});
-    }
+pub const command = &cli.Command{
+    .name = "ls",
+    .description = .{ .one_line = "list the children of an internal node" },
+    .target = .{ .action = .{ .exec = run, .positional_args = .{ .args = &.{&path_arg} } } },
+    .options = &.{
+        &name_option,
+        &level_option,
+        &key_option,
+        &key_encoding_option,
+    },
+};
 
-    var key_buffer = std.ArrayList(u8).init(allocator);
+fn run() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+
+    var key_buffer = std.ArrayList(u8).init(gpa.allocator());
     defer key_buffer.deinit();
 
     if (config.key.len > 0) {
         switch (config.key_encoding) {
             .raw => {
                 try key_buffer.resize(config.key.len);
-                std.mem.copy(u8, key_buffer.items, config.key);
+                @memcpy(key_buffer.items, config.key);
             },
             .hex => {
                 if (config.key.len % 2 != 0) {
@@ -95,19 +97,25 @@ fn run(args: []const []const u8) !void {
 
     const stdout = std.io.getStdOut().writer();
 
-    const env = try lmdb.Environment.open(args[0], .{});
-    defer env.close();
+    var dir = try std.fs.cwd().openDir(config.path, .{});
+    defer dir.close();
 
-    const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });
-    defer txn.abort();
+    const env = try utils.open(dir, .{});
+    defer env.deinit();
 
-    const name = if (config.name.len == 0) null else config.name;
-    const dbi = try txn.openDatabase(name, .{});
+    const txn = try env.transaction(.{ .mode = .ReadOnly });
+    errdefer txn.abort();
 
-    var tree = try okra.Tree.open(allocator, txn, dbi, .{});
-    defer tree.close();
+    const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
-    const root = if (config.level == -1) try tree.getRoot() else try tree.getNode(@intCast(config.level), key_buffer.items) orelse utils.fail("node not found", .{});
+    var tree = try okra.Tree.init(gpa.allocator(), db, .{});
+    defer tree.deinit();
+
+    const root = if (config.level == -1)
+        try tree.getRoot()
+    else
+        try tree.getNode(@intCast(config.level), key_buffer.items) orelse
+            utils.fail("node not found", .{});
 
     try stdout.print("level | {s: <32} | key\n", .{"hash"});
     try stdout.print("----- | {s:-<32} | {s:-<32}\n", .{ "", "" });
@@ -121,8 +129,8 @@ fn run(args: []const []const u8) !void {
             .lower_bound = .{ .key = root.key, .inclusive = true },
         };
 
-        var iterator = try okra.Iterator.open(allocator, txn, dbi, range);
-        defer iterator.close();
+        var iterator = try okra.Iterator.init(gpa.allocator(), db, range);
+        defer iterator.deinit();
 
         var i: usize = 0;
         while (try iterator.next()) |node| : (i += 1) {

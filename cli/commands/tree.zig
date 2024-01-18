@@ -9,26 +9,20 @@ const okra = @import("okra");
 const Printer = @import("../printer.zig");
 const utils = @import("../utils.zig");
 
-pub const command = &cli.Command{
-    .name = "tree",
-    .help = "Print the tree structure",
-    .action = run,
-    .options = &.{
-        &name_option,
-        &depth_option,
-        &height_option,
-        // &key_option,
-        &key_encoding_option,
-    },
-};
-
 var config = struct {
+    path: []const u8 = "",
     name: []const u8 = "",
     level: i32 = -1,
     depth: i32 = -1,
     height: i32 = -1,
     key_encoding: utils.Encoding = .hex,
 }{};
+
+var path_arg = cli.PositionalArg{
+    .name = "path",
+    .help = "path to data directory",
+    .value_ref = cli.mkRef(&config.path),
+};
 
 var name_option = cli.Option{
     .long_name = "name",
@@ -61,16 +55,26 @@ var height_option = cli.Option{
 var key_encoding_option = cli.Option{
     .long_name = "key-encoding",
     .short_alias = 'K',
-    .help = "\"raw\" or \"hex\" (default \"raw\")",
+    .help = "\"raw\" or \"hex\" (default \"hex\")",
     .value_ref = cli.mkRef(&config.key_encoding),
 };
 
-fn run(args: []const []const u8) !void {
-    if (args.len > 1) {
-        utils.fail("too many arguments", .{});
-    } else if (args.len == 0) {
-        utils.fail("path argument required", .{});
-    }
+pub const command = &cli.Command{
+    .name = "tree",
+    .description = .{ .one_line = "print the tree structure" },
+    .target = .{ .action = .{ .exec = run, .positional_args = .{ .args = &.{&path_arg} } } },
+    .options = &.{
+        &name_option,
+        &depth_option,
+        &height_option,
+        // &key_option,
+        &key_encoding_option,
+    },
+};
+
+fn run() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
 
     if (config.level < -1) {
         utils.fail("level must be -1 or a non-negative integer", .{});
@@ -90,19 +94,21 @@ fn run(args: []const []const u8) !void {
         utils.fail("height must be less than 255", .{});
     }
 
-    const env = try lmdb.Environment.open(args[0], .{});
-    defer env.close();
+    var dir = try std.fs.cwd().openDir(config.path, .{});
+    defer dir.close();
 
-    const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadOnly });
-    defer txn.abort();
+    const env = try utils.open(dir, .{});
+    defer env.deinit();
 
-    const name = if (config.name.len == 0) null else config.name;
-    const dbi = try txn.openDatabase(name, .{});
+    const txn = try env.transaction(.{ .mode = .ReadWrite });
+    errdefer txn.abort();
 
-    var tree = try okra.Tree.open(allocator, txn, dbi, .{});
-    defer tree.close();
+    const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
-    var printer = try Printer.init(allocator, &tree, config.key_encoding, null);
+    var tree = try okra.Tree.init(allocator, db, .{});
+    defer tree.deinit();
+
+    var printer = try Printer.init(allocator, &tree, config.key_encoding);
     defer printer.deinit();
 
     try printer.printRoot(

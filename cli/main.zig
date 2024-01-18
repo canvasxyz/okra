@@ -16,7 +16,7 @@ const delete = @import("./commands/delete.zig").command;
 var app = &cli.App{
     .command = .{
         .name = "okra",
-        .description = "okra is a deterministic pseudo-random merkle tree built on LMDB",
+        .description = .{ .one_line = "okra is a deterministic pseudo-random merkle tree built on LMDB" },
         .target = .{
             .subcommands = &.{
                 init,

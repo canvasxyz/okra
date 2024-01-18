@@ -1,6 +1,5 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
-const allocator = std.heap.c_allocator;
 
 const cli = @import("zig-cli");
 const lmdb = @import("lmdb");
@@ -8,26 +7,20 @@ const okra = @import("okra");
 
 const utils = @import("../utils.zig");
 
-pub const command = &cli.Command{
-    .name = "set",
-    .help = "Set a value by key",
-    .action = run,
-    .options = &.{
-        &name_option,
-        &key_option,
-        &key_encoding_option,
-        &value_option,
-        &value_encoding_option,
-    },
-};
-
 var config = struct {
+    path: []const u8 = "",
     name: []const u8 = "",
     key: []const u8 = "",
     key_encoding: utils.Encoding = .hex,
     value: []const u8 = "",
     value_encoding: utils.Encoding = .hex,
 }{};
+
+var path_arg = cli.PositionalArg{
+    .name = "path",
+    .help = "path to data directory",
+    .value_ref = cli.mkRef(&config.path),
+};
 
 var name_option = cli.Option{
     .long_name = "name",
@@ -66,24 +59,30 @@ var value_encoding_option = cli.Option{
     .value_ref = cli.mkRef(&config.value_encoding),
 };
 
-fn run(args: []const []const u8) !void {
-    if (args.len > 1) {
-        utils.fail("too many arguments", .{});
-    } else if (args.len == 0) {
-        utils.fail("missing path argument", .{});
-    }
+pub const command = &cli.Command{
+    .name = "set",
+    .description = .{ .one_line = "set a value by key" },
+    .target = .{ .action = .{ .exec = run, .positional_args = .{ .args = &.{&path_arg} } } },
+    .options = &.{
+        &name_option,
+        &key_option,
+        &key_encoding_option,
+        &value_option,
+        &value_encoding_option,
+    },
+};
 
-    if (config.key.len == 0) {
-        utils.fail("key cannot be empty", .{});
-    }
+fn run() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
 
-    var key_buffer = std.ArrayList(u8).init(allocator);
+    var key_buffer = std.ArrayList(u8).init(gpa.allocator());
     defer key_buffer.deinit();
 
     switch (config.key_encoding) {
         .raw => {
             try key_buffer.resize(config.key.len);
-            std.mem.copy(u8, key_buffer.items, config.key);
+            @memcpy(key_buffer.items, config.key);
         },
         .hex => {
             if (config.key.len % 2 != 0) {
@@ -95,13 +94,13 @@ fn run(args: []const []const u8) !void {
         },
     }
 
-    var value_buffer = std.ArrayList(u8).init(allocator);
+    var value_buffer = std.ArrayList(u8).init(gpa.allocator());
     defer value_buffer.deinit();
 
     switch (config.value_encoding) {
         .raw => {
             try value_buffer.resize(config.value.len);
-            std.mem.copy(u8, value_buffer.items, config.value);
+            @memcpy(value_buffer.items, config.value);
         },
         .hex => {
             if (config.value.len % 2 != 0) {
@@ -113,18 +112,20 @@ fn run(args: []const []const u8) !void {
         },
     }
 
-    const env = try lmdb.Environment.open(args[0], .{});
-    defer env.close();
+    var dir = try std.fs.cwd().openDir(config.path, .{});
+    defer dir.close();
 
-    const txn = try lmdb.Transaction.open(env, .{ .mode = .ReadWrite });
+    const env = try utils.open(dir, .{});
+    defer env.deinit();
+
+    const txn = try env.transaction(.{ .mode = .ReadWrite });
     errdefer txn.abort();
 
-    const name = if (config.name.len > 0) config.name else null;
-    const dbi = try txn.openDatabase(name, .{});
+    const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
     {
-        var tree = try okra.Tree.open(allocator, txn, dbi, .{});
-        defer tree.close();
+        var tree = try okra.Tree.init(gpa.allocator(), db, .{});
+        defer tree.deinit();
 
         try tree.set(key_buffer.items, value_buffer.items);
     }
