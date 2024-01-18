@@ -5,6 +5,7 @@ const Blake3 = std.crypto.hash.Blake3;
 
 const lmdb = @import("lmdb");
 
+const Error = @import("error.zig").Error;
 const Effects = @import("Effects.zig");
 const Logger = @import("Logger.zig");
 const BufferPool = @import("BufferPool.zig");
@@ -31,23 +32,23 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
         db: lmdb.Database,
         cursor: Cursor,
         encoder: Encoder,
+        pool: BufferPool,
         logger: ?std.fs.File.Writer,
         effects: ?*Effects,
-        pool: BufferPool,
 
-        pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
+        pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) Error!Self {
             try Header.initialize(db);
 
-            const cursor = try Cursor.init(allocator, db, .{ .effects = options.effects });
+            const cursor = try Cursor.init(allocator, db);
 
             return .{
                 .allocator = allocator,
                 .db = db,
                 .cursor = cursor,
                 .encoder = Encoder.init(allocator),
+                .pool = BufferPool.init(allocator),
                 .logger = options.log,
                 .effects = options.effects,
-                .pool = BufferPool.init(allocator),
             };
         }
 
@@ -57,16 +58,12 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             self.pool.deinit();
         }
 
-        pub fn get(self: *Self, key: []const u8) !?[]const u8 {
+        pub fn get(self: *Self, key: []const u8) Error!?[]const u8 {
             const node = try self.getNode(0, key) orelse return null;
             return node.value orelse error.InvalidDatabase;
         }
 
-        pub fn set(self: *Self, key: []const u8, value: []const u8) !void {
-            try self.log("------------------------\n", .{});
-            try self.log("set({s}, {s})\n", .{ hex(key), hex(value) });
-            try self.print();
-
+        pub fn set(self: *Self, key: []const u8, value: []const u8) Error!void {
             if (self.effects) |effects| effects.reset();
 
             const root = try self.cursor.goToRoot();
@@ -95,32 +92,16 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
                         try self.updateNode(1, new_parent);
                     }
                 } else {
-                    const old_parent = try self.getParent(0, key);
-
-                    try self.setNode(new_leaf);
-
-                    if (new_leaf.isBoundary()) {
-                        try self.createNode(1, key);
-                    }
-
-                    try self.updateNode(1, old_parent);
+                    try self.dispatch(new_leaf);
                 }
             } else {
-                const old_parent = try self.getParent(0, key);
-
-                try self.setNode(new_leaf);
-
-                if (new_leaf.isBoundary()) {
-                    try self.createNode(1, key);
-                }
-
-                try self.updateNode(1, old_parent);
+                try self.dispatch(new_leaf);
             }
 
-            try self.log("------------------------\n", .{});
+            // try self.log("------------------------\n", .{});
         }
 
-        pub fn delete(self: *Self, key: []const u8) !void {
+        pub fn delete(self: *Self, key: []const u8) Error!void {
             try self.log("------------------------\n", .{});
             try self.log("delete({s})\n", .{hex(key)});
             try self.print();
@@ -141,7 +122,19 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             try self.log("------------------------\n", .{});
         }
 
-        fn updateNode(self: *Self, level: u8, key: ?[]const u8) !void {
+        fn dispatch(self: *Self, node: Node) Error!void {
+            const old_parent = try self.getParent(node.level, node.key);
+
+            try self.setNode(node);
+
+            if (node.isBoundary()) {
+                try self.createNode(node.level + 1, node.key);
+            }
+
+            try self.updateNode(node.level + 1, old_parent);
+        }
+
+        fn updateNode(self: *Self, level: u8, key: ?[]const u8) Error!void {
             var hash: [K]u8 = undefined;
             try self.getHash(level, key, &hash);
 
@@ -174,19 +167,11 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
                     try self.updateNode(level + 1, new_parent);
                 }
             } else {
-                const old_parent = try self.getParent(level, key);
-
-                try self.setNode(new_node);
-
-                if (new_node.isBoundary()) {
-                    try self.createNode(level + 1, key);
-                }
-
-                try self.updateNode(level + 1, old_parent);
+                try self.dispatch(new_node);
             }
         }
 
-        fn deleteNode(self: *Self, level: u8, key: ?[]const u8) !void {
+        fn deleteNode(self: *Self, level: u8, key: ?[]const u8) Error!void {
             const entry_key = try self.encoder.encodeKey(level, key);
             while (try self.db.get(entry_key)) |_| {
                 try self.db.delete(entry_key);
@@ -216,7 +201,7 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             }
         }
 
-        fn getNode(self: *Self, level: u8, key: ?[]const u8) !?Node {
+        fn getNode(self: *Self, level: u8, key: ?[]const u8) Error!?Node {
             const entry_key = try self.encoder.encodeKey(level, key);
             if (try self.db.get(entry_key)) |entry_value| {
                 return try Node.parse(entry_key, entry_value);
@@ -225,13 +210,12 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             }
         }
 
-        fn setNode(self: *Self, node: Node) !void {
+        fn setNode(self: *Self, node: Node) Error!void {
             const entry = try self.encoder.encode(node);
             try self.db.set(entry.key, entry.value);
         }
 
-        // fn getParent(self: *Self, allocator: std.mem.Allocator, level: u8, key: ?[]const u8) !?[]const u8 {
-        fn getParent(self: *Self, level: u8, key: ?[]const u8) !?[]const u8 {
+        fn getParent(self: *Self, level: u8, key: ?[]const u8) Error!?[]const u8 {
             assert(key != null);
             if (key == null) {
                 return null;
@@ -254,17 +238,7 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             return error.InvalidDatabase;
         }
 
-        // fn copyKey(allocator: std.mem.Allocator, key: ?[]const u8) !?[]const u8 {
-        //     if (key) |bytes| {
-        //         const result = try allocator.alloc(u8, bytes.len);
-        //         @memcpy(result, bytes);
-        //         return result;
-        //     } else {
-        //         return null;
-        //     }
-        // }
-
-        fn getHash(self: *Self, level: u8, key: ?[]const u8, hash: *[K]u8) !void {
+        fn getHash(self: *Self, level: u8, key: ?[]const u8, hash: *[K]u8) Error!void {
             var digest = std.crypto.hash.Blake3.init(.{});
 
             try self.cursor.goToNode(level - 1, key);
@@ -294,13 +268,17 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             return std.mem.readInt(u32, hash[0..4], .big) < limit;
         }
 
-        fn log(self: Self, comptime format: []const u8, args: anytype) !void {
+        fn log(self: Self, comptime format: []const u8, args: anytype) std.fs.File.WriteError!void {
             if (self.logger) |writer| {
                 try writer.print(format, args);
             }
         }
 
         fn print(self: Self) !void {
+            if (self.logger == null) {
+                return;
+            }
+
             const cursor = try self.db.cursor();
             defer cursor.deinit();
 

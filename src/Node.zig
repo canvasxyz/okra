@@ -49,11 +49,11 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
 
         pub fn parse(key: []const u8, value: []const u8) !Self {
             if (key.len == 0) {
-                return error.InvalidDatabase9;
+                return error.InvalidDatabase;
             }
 
             if (value.len < K) {
-                return error.InvalidDatabase10;
+                return error.InvalidDatabase;
             }
 
             return .{

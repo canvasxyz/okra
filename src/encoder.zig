@@ -23,13 +23,13 @@ pub fn Encoder(comptime K: u8, comptime Q: u32) type {
             self.value_buffer.deinit();
         }
 
-        pub fn encode(self: *Self, node: Node) !Entry {
+        pub fn encode(self: *Self, node: Node) std.mem.Allocator.Error!Entry {
             const key = try self.encodeKey(node.level, node.key);
             const value = try self.encodeValue(node.hash, node.value);
             return .{ .key = key, .value = value };
         }
 
-        pub fn encodeKey(self: *Self, level: u8, key: ?[]const u8) ![]u8 {
+        pub fn encodeKey(self: *Self, level: u8, key: ?[]const u8) std.mem.Allocator.Error![]u8 {
             if (key) |bytes| {
                 try self.key_buffer.resize(1 + bytes.len);
                 self.key_buffer.items[0] = level;
@@ -42,7 +42,7 @@ pub fn Encoder(comptime K: u8, comptime Q: u32) type {
             return self.key_buffer.items;
         }
 
-        pub fn encodeValue(self: *Self, hash: *const [K]u8, value: ?[]const u8) ![]u8 {
+        pub fn encodeValue(self: *Self, hash: *const [K]u8, value: ?[]const u8) std.mem.Allocator.Error![]u8 {
             if (value) |bytes| {
                 try self.value_buffer.resize(K + bytes.len);
                 @memcpy(self.value_buffer.items[0..K], hash);
@@ -55,7 +55,7 @@ pub fn Encoder(comptime K: u8, comptime Q: u32) type {
             return self.value_buffer.items;
         }
 
-        pub fn decode(self: *Self, key: []const u8, value: []const u8) !Node {
+        pub fn decode(self: *Self, key: []const u8, value: []const u8) std.mem.Allocator.Error!Node {
             try self.key_buffer.resize(key.len);
             @memcpy(self.key_buffer.items, key);
 
@@ -65,7 +65,7 @@ pub fn Encoder(comptime K: u8, comptime Q: u32) type {
             return Node.parse(self.key_buffer.items, self.value_buffer.items);
         }
 
-        pub fn createLeaf(self: *Self, key: []const u8, value: []const u8) !Node {
+        pub fn createLeaf(self: *Self, key: []const u8, value: []const u8) std.mem.Allocator.Error!Node {
             var hash: [K]u8 = undefined;
             Entry.hash(key, value, &hash);
 
@@ -77,7 +77,7 @@ pub fn Encoder(comptime K: u8, comptime Q: u32) type {
             });
         }
 
-        pub fn copyKey(self: *Self, level: u8, key: ?[]const u8) !?[]const u8 {
+        pub fn copyKey(self: *Self, level: u8, key: ?[]const u8) std.mem.Allocator.Error!?[]const u8 {
             if (key) |bytes| {
                 try self.key_buffer.resize(1 + bytes.len);
                 self.key_buffer.items[0] = level;
@@ -88,7 +88,7 @@ pub fn Encoder(comptime K: u8, comptime Q: u32) type {
             }
         }
 
-        pub fn copy(self: *Self, node: Node) !Node {
+        pub fn copy(self: *Self, node: Node) std.mem.Allocator.Error!Node {
             const entry = try self.encode(node);
             return try Node.parse(entry);
         }

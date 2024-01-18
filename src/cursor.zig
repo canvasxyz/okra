@@ -1,37 +1,27 @@
 const std = @import("std");
 
 const lmdb = @import("lmdb");
-
-const Effects = @import("Effects.zig");
+const Error = @import("error.zig").Error;
 
 pub fn Cursor(comptime K: u8, comptime Q: u32) type {
     const Header = @import("header.zig").Header(K, Q);
     const Node = @import("node.zig").Node(K, Q);
-    const NodeList = @import("node_list.zig").NodeList(K, Q);
     const Encoder = @import("encoder.zig").Encoder(K, Q);
 
     return struct {
         const Self = @This();
 
-        pub const Options = struct {
-            effects: ?*Effects = null,
-            trace: ?*NodeList = null,
-        };
-
         level: u8 = 0xFF,
         cursor: lmdb.Cursor,
         encoder: Encoder,
-        effects: ?*Effects = null,
-        trace: ?*NodeList = null,
 
-        pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
+        pub fn init(allocator: std.mem.Allocator, db: lmdb.Database) Error!Self {
             const cursor = try db.cursor();
+
             return .{
                 .level = 0xFF,
                 .cursor = cursor,
                 .encoder = Encoder.init(allocator),
-                .effects = options.effects,
-                .trace = options.trace,
             };
         }
 
@@ -40,55 +30,29 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
             self.cursor.deinit();
         }
 
-        pub fn goToRoot(self: *Self) !Node {
-            if (self.effects) |effects| {
-                effects.cursor_ops += 1;
-                effects.timer.reset();
-            }
-
+        pub fn goToRoot(self: *Self) Error!Node {
             try self.cursor.goToKey(&Header.METADATA_KEY);
-            if (try self.cursor.goToPrevious()) |k| {
-                if (k.len == 1) {
-                    self.level = k[0];
-                    return try self.getCurrentNode();
+            if (try self.cursor.goToPrevious()) |root| {
+                if (root.len != 1) {
+                    return error.InvalidDatabase;
                 }
+
+                self.level = root[0];
+                return try self.getCurrentNode();
             }
 
             return error.InvalidDatabase;
         }
 
-        pub fn goToNode(self: *Self, level: u8, key: ?[]const u8) !void {
+        pub fn goToNode(self: *Self, level: u8, key: ?[]const u8) Error!void {
             const entry_key = try self.encoder.encodeKey(level, key);
-            self.level = level;
-
-            if (self.effects) |effects| {
-                effects.cursor_ops += 1;
-                effects.timer.reset();
-            }
-
-            defer {
-                if (self.effects) |effects| {
-                    effects.cursor_goto_latency += @floatFromInt(effects.timer.read());
-                }
-            }
-
             try self.cursor.goToKey(entry_key);
+            self.level = level;
         }
 
-        pub fn goToNext(self: *Self) !?Node {
+        pub fn goToNext(self: *Self) Error!?Node {
             if (self.level == 0xFF) {
                 return error.Uninitialized;
-            }
-
-            if (self.effects) |effects| {
-                effects.cursor_ops += 1;
-                effects.timer.reset();
-            }
-
-            defer {
-                if (self.effects) |effects| {
-                    effects.cursor_next_latency += @floatFromInt(effects.timer.read());
-                }
             }
 
             if (try self.cursor.goToNext()) |entry_key| {
@@ -103,20 +67,9 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
             return null;
         }
 
-        pub fn goToPrevious(self: *Self) !?Node {
+        pub fn goToPrevious(self: *Self) Error!?Node {
             if (self.level == 0xFF) {
                 return error.Uninitialized;
-            }
-
-            if (self.effects) |effects| {
-                effects.cursor_ops += 1;
-                effects.timer.reset();
-            }
-
-            defer {
-                if (self.effects) |effects| {
-                    effects.cursor_prev_latency += @floatFromInt(effects.timer.read());
-                }
             }
 
             if (try self.cursor.goToPrevious()) |entry_key| {
@@ -132,35 +85,26 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
             return null;
         }
 
-        pub fn seek(self: *Self, level: u8, key: ?[]const u8) !?Node {
-            self.level = level;
-            errdefer self.level = 0xFF;
-
+        pub fn seek(self: *Self, level: u8, key: ?[]const u8) Error!?Node {
             const entry_key = try self.encoder.encodeKey(level, key);
-
-            if (self.effects) |effects| {
-                effects.cursor_ops += 1;
-                effects.timer.reset();
-            }
-
-            defer {
-                if (self.effects) |effects| {
-                    effects.cursor_seek_latency += @floatFromInt(effects.timer.read());
-                }
-            }
 
             if (try self.cursor.seek(entry_key)) |needle| {
                 if (needle.len == 0) {
                     return error.InvalidDatabase;
-                } else if (needle[0] == level) {
+                }
+
+                self.level = level;
+                if (needle[0] == level) {
                     return try self.getCurrentNode();
+                } else {
+                    return null;
                 }
             }
 
-            return null;
+            return error.InvalidDatabase;
         }
 
-        pub fn getCurrentNode(self: Self) !Node {
+        pub fn getCurrentNode(self: Self) Error!Node {
             if (self.level == 0xFF) {
                 return error.Uninitialized;
             }
@@ -178,9 +122,8 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         //     }
         // }
 
-        pub fn deleteCurrentNode(self: *Self) !void {
+        pub fn deleteCurrentNode(self: *Self) Error!void {
             try self.cursor.deleteCurrentKey();
-            if (self.effects) |effects| effects.delete += 1;
         }
     };
 }

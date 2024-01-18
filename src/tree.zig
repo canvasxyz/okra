@@ -43,10 +43,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
             try Header.initialize(db);
 
-            const cursor = try Cursor.init(allocator, db, .{
-                .effects = options.effects,
-                .trace = options.trace,
-            });
+            const cursor = try Cursor.init(allocator, db);
 
             return .{
                 .db = db,
@@ -364,6 +361,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                     }
 
                     try self.cursor.deleteCurrentNode();
+                    if (self.effects) |effects| effects.delete += 1;
                 } else {
                     return null;
                 }
