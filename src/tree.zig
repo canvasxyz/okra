@@ -138,7 +138,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         fn apply(self: *Self, tag: Operation) !void {
             self.logger.reset();
             if (self.trace) |trace| trace.clear();
-            if (self.effects) |effects| effects.* = Effects{};
+            if (self.effects) |effects| effects.reset();
 
             const root = try self.getRoot();
             try self.log("root: {d} [{s}]", .{ root.level, hex(root.hash) });

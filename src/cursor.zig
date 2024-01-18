@@ -41,7 +41,10 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn goToRoot(self: *Self) !Node {
-            if (self.effects) |effects| effects.cursor_ops += 1;
+            if (self.effects) |effects| {
+                effects.cursor_ops += 1;
+                effects.timer.reset();
+            }
 
             try self.cursor.goToKey(&Header.METADATA_KEY);
             if (try self.cursor.goToPrevious()) |k| {
@@ -55,20 +58,37 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn goToNode(self: *Self, level: u8, key: ?[]const u8) !void {
-            if (self.effects) |effects| effects.cursor_ops += 1;
-
+            const entry_key = try self.encoder.encodeKey(level, key);
             self.level = level;
-            errdefer self.level = 0xFF;
 
-            const k = try self.encoder.encodeKey(level, key);
-            try self.cursor.goToKey(k);
+            if (self.effects) |effects| {
+                effects.cursor_ops += 1;
+                effects.timer.reset();
+            }
+
+            defer {
+                if (self.effects) |effects| {
+                    effects.cursor_goto_latency += @floatFromInt(effects.timer.read());
+                }
+            }
+
+            try self.cursor.goToKey(entry_key);
         }
 
         pub fn goToNext(self: *Self) !?Node {
-            if (self.effects) |effects| effects.cursor_ops += 1;
-
             if (self.level == 0xFF) {
                 return error.Uninitialized;
+            }
+
+            if (self.effects) |effects| {
+                effects.cursor_ops += 1;
+                effects.timer.reset();
+            }
+
+            defer {
+                if (self.effects) |effects| {
+                    effects.cursor_next_latency += @floatFromInt(effects.timer.read());
+                }
             }
 
             if (try self.cursor.goToNext()) |entry_key| {
@@ -84,10 +104,19 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn goToPrevious(self: *Self) !?Node {
-            if (self.effects) |effects| effects.cursor_ops += 1;
-
             if (self.level == 0xFF) {
                 return error.Uninitialized;
+            }
+
+            if (self.effects) |effects| {
+                effects.cursor_ops += 1;
+                effects.timer.reset();
+            }
+
+            defer {
+                if (self.effects) |effects| {
+                    effects.cursor_prev_latency += @floatFromInt(effects.timer.read());
+                }
             }
 
             if (try self.cursor.goToPrevious()) |entry_key| {
@@ -104,12 +133,22 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn seek(self: *Self, level: u8, key: ?[]const u8) !?Node {
-            if (self.effects) |effects| effects.cursor_ops += 1;
-
             self.level = level;
             errdefer self.level = 0xFF;
 
             const entry_key = try self.encoder.encodeKey(level, key);
+
+            if (self.effects) |effects| {
+                effects.cursor_ops += 1;
+                effects.timer.reset();
+            }
+
+            defer {
+                if (self.effects) |effects| {
+                    effects.cursor_seek_latency += @floatFromInt(effects.timer.read());
+                }
+            }
+
             if (try self.cursor.seek(entry_key)) |needle| {
                 if (needle.len == 0) {
                     return error.InvalidDatabase;

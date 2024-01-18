@@ -10,16 +10,7 @@ const lmdb = @import("lmdb");
 const okra = @import("okra");
 
 const utils = @import("utils.zig");
-
-const Sample = struct {
-    node_count: f64 = 0,
-    height: f64 = 0,
-    degree: f64 = 0,
-    create: f64 = 0,
-    update: f64 = 0,
-    delete: f64 = 0,
-    cursor_ops: f64 = 0,
-};
+const Sample = @import("Sample.zig");
 
 fn testSetEffects(comptime T: u8, iterations: u32) !void {
     var tmp = std.testing.tmpDir(.{});
@@ -63,25 +54,28 @@ fn testSetEffects(comptime T: u8, iterations: u32) !void {
     const samples = try allocator.alloc(Sample, iterations);
     defer allocator.free(samples);
 
-    var avg = Sample{};
+    timer.reset();
 
     {
         const txn = try env.transaction(.{ .mode = .ReadWrite });
         defer txn.abort();
 
+        var apply_timer = try std.time.Timer.start();
+
         const db = try txn.database(null, .{});
 
-        var effects = okra.Effects{};
+        var effects = try okra.Effects.init();
         var sl = try okra.SkipList.init(allocator, db, .{ .effects = &effects });
         defer sl.deinit();
 
         var i: u32 = 0;
         while (i < iterations) : (i += 1) {
-            {
-                std.mem.writeInt(u32, &seed, i, .big);
-                std.crypto.hash.Blake3.hash(&seed, &hash, .{});
-                try sl.set(&hash, seed[(seed_size - T)..]);
-            }
+            std.mem.writeInt(u32, &seed, i, .big);
+            std.crypto.hash.Blake3.hash(&seed, &hash, .{});
+
+            apply_timer.reset();
+            try sl.set(&hash, seed[(seed_size - T)..]);
+            const t: f64 = @floatFromInt(apply_timer.read());
 
             const stat = try env.stat();
 
@@ -96,48 +90,20 @@ fn testSetEffects(comptime T: u8, iterations: u32) !void {
                 .update = @floatFromInt(effects.update),
                 .delete = @floatFromInt(effects.delete),
                 .cursor_ops = @floatFromInt(effects.cursor_ops),
+                .cursor_goto_latency = effects.cursor_goto_latency,
+                .cursor_next_latency = effects.cursor_next_latency,
+                .cursor_prev_latency = effects.cursor_prev_latency,
+                .cursor_seek_latency = effects.cursor_seek_latency,
+                .apply_latency = t / 1_000_000,
             };
-
-            avg.node_count += samples[i].node_count;
-            avg.height += samples[i].height;
-            avg.degree += samples[i].degree;
-            avg.create += samples[i].create;
-            avg.update += samples[i].update;
-            avg.delete += samples[i].delete;
-            avg.cursor_ops += samples[i].cursor_ops;
         }
     }
 
     const final_time = timer.read();
     try log.print("updated {d} random entries in {d}ms\n", .{ iterations, final_time / 1000000 });
 
-    const iters = @as(f64, @floatFromInt(iterations));
-    avg.node_count /= iters;
-    avg.height /= iters;
-    avg.degree /= iters;
-    avg.create /= iters;
-    avg.update /= iters;
-    avg.delete /= iters;
-    avg.cursor_ops /= iters;
-
-    var sigma = Sample{};
-    for (samples) |sample| {
-        sigma.node_count += std.math.pow(f64, sample.node_count - avg.node_count, 2);
-        sigma.height += std.math.pow(f64, sample.height - avg.height, 2);
-        sigma.degree += std.math.pow(f64, sample.degree - avg.degree, 2);
-        sigma.create += std.math.pow(f64, sample.create - avg.create, 2);
-        sigma.update += std.math.pow(f64, sample.update - avg.update, 2);
-        sigma.delete += std.math.pow(f64, sample.delete - avg.delete, 2);
-        sigma.cursor_ops += std.math.pow(f64, sample.cursor_ops - avg.cursor_ops, 2);
-    }
-
-    sigma.node_count = std.math.sqrt(sigma.node_count / iters);
-    sigma.height = std.math.sqrt(sigma.height / iters);
-    sigma.degree = std.math.sqrt(sigma.degree / iters);
-    sigma.create = std.math.sqrt(sigma.create / iters);
-    sigma.update = std.math.sqrt(sigma.update / iters);
-    sigma.delete = std.math.sqrt(sigma.delete / iters);
-    sigma.cursor_ops = std.math.sqrt(sigma.cursor_ops / iters);
+    const avg = Sample.getAverage(samples);
+    const sigma = Sample.getSigma(samples, &avg);
 
     try log.writeByte('\n');
     try log.print("           | {s: >12} | {s: >6}\n", .{ "avg", "std" });
@@ -149,6 +115,15 @@ fn testSetEffects(comptime T: u8, iterations: u32) !void {
     try log.print("updated    | {d: >12.3} | {d: >6.3}\n", .{ avg.update, sigma.update });
     try log.print("deleted    | {d: >12.3} | {d: >6.3}\n", .{ avg.delete, sigma.delete });
     try log.print("cursor ops | {d: >12.3} | {d: >6.3}\n", .{ avg.cursor_ops, sigma.cursor_ops });
+    try log.print("apply      | {d: >12.3} | {d: >6.3}\n", .{ avg.apply_latency, sigma.apply_latency });
+    try log.print("---------- | {s:->12} | {s:->6}\n", .{ "", "" });
+    try log.print("goto       | {d: >12.3} | {d: >6.3}\n", .{ avg.cursor_goto_latency, sigma.cursor_goto_latency });
+    try log.print("next       | {d: >12.3} | {d: >6.3}\n", .{ avg.cursor_next_latency, sigma.cursor_next_latency });
+    try log.print("prev       | {d: >12.3} | {d: >6.3}\n", .{ avg.cursor_prev_latency, sigma.cursor_prev_latency });
+    try log.print("seek       | {d: >12.3} | {d: >6.3}\n", .{ avg.cursor_seek_latency, sigma.cursor_seek_latency });
+
+    const total_latency = avg.cursor_goto_latency + avg.cursor_next_latency + avg.cursor_prev_latency + avg.cursor_seek_latency;
+    try log.print("total      | {d: >12.3} |\n", .{total_latency});
 }
 
 pub fn main() !void {

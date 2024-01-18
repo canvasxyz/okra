@@ -97,12 +97,25 @@ pub fn build(b: *std.Build) void {
         effect.root_module.addImport("lmdb", lmdb.module("lmdb"));
         effect.root_module.addImport("okra", okra);
 
+        // effect.addIncludePath(LazyPath.relative("tracy-0.10"));
+        // effect.addCSourceFile(.{
+        //     .file = LazyPath.relative("tracy-0.10/public/TracyClient.cpp"),
+        //     .flags = &.{ "-DTRACY_ENABLE=1", "-fno-sanitize=undefined" },
+        // });
+
+        // if (!enable_llvm) {
+        // effect.root_module.linkSystemLibrary("c++", .{});
+        // effect.linkSystemLibraryName("c++");
+        // }
+
+        // effect.linkLibC();
+
         const run_effects = b.addRunArtifact(effect);
-        b.step("bench-effect", "Collect tree effect stats").dependOn(&run_effects.step);
+        b.step("bench-effect", "Collect Tree effect stats").dependOn(&run_effects.step);
     }
 
     {
-        // Skiplist effect simulations
+        // SkipList effect simulations
         const effect = b.addExecutable(.{
             .name = "bench-effect-skiplist",
             .root_source_file = LazyPath.relative("benchmarks/effects_sl.zig"),
@@ -114,7 +127,7 @@ pub fn build(b: *std.Build) void {
         effect.root_module.addImport("okra", okra);
 
         const run_effects = b.addRunArtifact(effect);
-        b.step("bench-effect-skiplist", "Collect skiplist effect stats").dependOn(&run_effects.step);
+        b.step("bench-effect-skiplist", "Collect SkipList effect stats").dependOn(&run_effects.step);
     }
 
     // Benchmarks

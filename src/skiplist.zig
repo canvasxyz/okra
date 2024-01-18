@@ -22,8 +22,6 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
     return struct {
         const Self = @This();
 
-        const Operation = struct { key: []const u8, value: ?[]const u8 };
-
         pub const Options = struct {
             log: ?std.fs.File.Writer = null,
             effects: ?*Effects = null,
@@ -35,6 +33,7 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
         encoder: Encoder,
         logger: ?std.fs.File.Writer,
         effects: ?*Effects,
+        pool: BufferPool,
 
         pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
             try Header.initialize(db);
@@ -48,12 +47,14 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
                 .encoder = Encoder.init(allocator),
                 .logger = options.log,
                 .effects = options.effects,
+                .pool = BufferPool.init(allocator),
             };
         }
 
         pub fn deinit(self: *Self) void {
             self.cursor.deinit();
             self.encoder.deinit();
+            self.pool.deinit();
         }
 
         pub fn get(self: *Self, key: []const u8) !?[]const u8 {
@@ -67,6 +68,9 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             try self.print();
 
             if (self.effects) |effects| effects.reset();
+
+            const root = try self.cursor.goToRoot();
+            try self.pool.resize(root.level + 1);
 
             var hash: [K]u8 = undefined;
             Entry.hash(key, value, &hash);
@@ -86,14 +90,12 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
                         try self.setNode(new_leaf);
                         try self.deleteNode(1, key);
 
-                        const new_parent = try self.getParent(self.allocator, 0, key);
-                        defer if (new_parent) |bytes| self.allocator.free(bytes);
+                        const new_parent = try self.getParent(0, key);
 
                         try self.updateNode(1, new_parent);
                     }
                 } else {
-                    const old_parent = try self.getParent(self.allocator, 0, key);
-                    defer if (old_parent) |bytes| self.allocator.free(bytes);
+                    const old_parent = try self.getParent(0, key);
 
                     try self.setNode(new_leaf);
 
@@ -104,8 +106,7 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
                     try self.updateNode(1, old_parent);
                 }
             } else {
-                const old_parent = try self.getParent(self.allocator, 0, key);
-                defer if (old_parent) |bytes| self.allocator.free(bytes);
+                const old_parent = try self.getParent(0, key);
 
                 try self.setNode(new_leaf);
 
@@ -126,11 +127,13 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
 
             if (self.effects) |effects| effects.reset();
 
+            const root = try self.cursor.goToRoot();
+            try self.pool.resize(root.level + 1);
+
             if (try self.getNode(0, key)) |_| {
                 try self.deleteNode(0, key);
 
-                const new_parent = try self.getParent(self.allocator, 0, key);
-                defer if (new_parent) |bytes| self.allocator.free(bytes);
+                const new_parent = try self.getParent(0, key);
 
                 try self.updateNode(1, new_parent);
             }
@@ -166,14 +169,12 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
                     try self.deleteNode(level + 1, key);
                     try self.setNode(new_node);
 
-                    const new_parent = try self.getParent(self.allocator, level, key);
-                    defer if (new_parent) |bytes| self.allocator.free(bytes);
+                    const new_parent = try self.getParent(level, key);
 
                     try self.updateNode(level + 1, new_parent);
                 }
             } else {
-                const old_parent = try self.getParent(self.allocator, level, key);
-                defer if (old_parent) |bytes| self.allocator.free(bytes);
+                const old_parent = try self.getParent(level, key);
 
                 try self.setNode(new_node);
 
@@ -229,36 +230,39 @@ pub fn SkipList(comptime K: u8, comptime Q: u32) type {
             try self.db.set(entry.key, entry.value);
         }
 
-        fn getParent(self: *Self, allocator: std.mem.Allocator, level: u8, key: ?[]const u8) !?[]const u8 {
+        // fn getParent(self: *Self, allocator: std.mem.Allocator, level: u8, key: ?[]const u8) !?[]const u8 {
+        fn getParent(self: *Self, level: u8, key: ?[]const u8) !?[]const u8 {
+            assert(key != null);
             if (key == null) {
                 return null;
             }
 
             if (try self.cursor.seek(level, key)) |next| {
-                try self.log("cursor.seek({d}, {s}) -> {s}\n", .{ level, Key.fmt(key), Key.fmt(next.key) });
                 if (Key.equal(next.key, key) and next.isBoundary()) {
-                    return copyKey(allocator, next.key);
+                    return try self.pool.copy(level, next.key.?);
                 }
             }
 
             while (try self.cursor.goToPrevious()) |previous| {
-                if (previous.isAnchor() or previous.isBoundary()) {
-                    return copyKey(allocator, previous.key);
+                if (previous.isAnchor()) {
+                    return null;
+                } else if (previous.isBoundary()) {
+                    return try self.pool.copy(level, previous.key.?);
                 }
             }
 
             return error.InvalidDatabase;
         }
 
-        fn copyKey(allocator: std.mem.Allocator, key: ?[]const u8) !?[]const u8 {
-            if (key) |bytes| {
-                const result = try allocator.alloc(u8, bytes.len);
-                @memcpy(result, bytes);
-                return result;
-            } else {
-                return null;
-            }
-        }
+        // fn copyKey(allocator: std.mem.Allocator, key: ?[]const u8) !?[]const u8 {
+        //     if (key) |bytes| {
+        //         const result = try allocator.alloc(u8, bytes.len);
+        //         @memcpy(result, bytes);
+        //         return result;
+        //     } else {
+        //         return null;
+        //     }
+        // }
 
         fn getHash(self: *Self, level: u8, key: ?[]const u8, hash: *[K]u8) !void {
             var digest = std.crypto.hash.Blake3.init(.{});
