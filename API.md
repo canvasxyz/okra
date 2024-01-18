@@ -28,6 +28,13 @@ const Tree = struct {
 
     pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Tree
     pub fn deinit(self: *Tree) void
+
+    pub fn get(self: *Tree, key: []const u8) !?[]const u8
+    pub fn set(self: *Tree, key: []const u8, value: []const u8) !void
+    pub fn delete(self: *Tree, key: []const u8) !void
+
+    pub fn getRoot(self: *Tree) !Node
+    pub fn getNode(self: *Tree, level: u8, key: ?[]const u8) !?Node
 }
 ```
 
