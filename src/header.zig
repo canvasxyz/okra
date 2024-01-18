@@ -49,10 +49,10 @@ pub fn Header(comptime K: u8, comptime Q: u32) type {
                 if (std.mem.eql(u8, value, &header)) {
                     return;
                 } else {
-                    return error.InvalidDatabase7;
+                    return error.InvalidDatabase;
                 }
             } else {
-                return error.InvalidDatabase8;
+                return error.InvalidDatabase;
             }
         }
     };

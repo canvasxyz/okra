@@ -12,13 +12,9 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
         hash: *const [K]u8,
         value: ?[]const u8 = null,
 
-        pub inline fn isBoundaryHash(hash: *const [K]u8) bool {
-            const limit: comptime_int = (1 << 32) / @as(u33, @intCast(Q));
-            return std.mem.readInt(u32, hash[0..4], .big) < limit;
-        }
-
         pub inline fn isBoundary(self: Self) bool {
-            return Self.isBoundaryHash(self.hash);
+            const limit: comptime_int = (1 << 32) / @as(u33, @intCast(Q));
+            return std.mem.readInt(u32, self.hash[0..4], .big) < limit;
         }
 
         pub inline fn isAnchor(self: Self) bool {
@@ -48,11 +44,7 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
         }
 
         pub fn parse(key: []const u8, value: []const u8) !Self {
-            if (key.len == 0) {
-                return error.InvalidDatabase;
-            }
-
-            if (value.len < K) {
+            if (key.len == 0 or value.len < K) {
                 return error.InvalidDatabase;
             }
 

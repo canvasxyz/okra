@@ -10,8 +10,6 @@ const Effects = @import("Effects.zig");
 const Entry = @import("Entry.zig");
 const Key = @import("Key.zig");
 
-const nil = [0]u8{};
-
 pub fn Tree(comptime K: u8, comptime Q: u32) type {
     const Header = @import("header.zig").Header(K, Q);
     const Node = @import("node.zig").Node(K, Q);
@@ -78,7 +76,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 if (old_leaf.isBoundary()) {
                     if (new_leaf.isBoundary()) {
                         try self.setNode(new_leaf);
-                        try self.updateNode(1, key);
+                        try self.updateNode(allocator, 1, key);
                     } else {
                         try self.setNode(new_leaf);
                         try self.deleteNode(1, key);
@@ -86,13 +84,13 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                         const new_parent = try self.getParent(allocator, 0, key);
                         defer if (new_parent) |bytes| allocator.free(bytes);
 
-                        try self.updateNode(1, new_parent);
+                        try self.updateNode(allocator, 1, new_parent);
                     }
                 } else {
-                    try self.dispatch(new_leaf);
+                    try self.dispatch(allocator, new_leaf);
                 }
             } else {
-                try self.dispatch(new_leaf);
+                try self.dispatch(allocator, new_leaf);
             }
         }
 
@@ -108,13 +106,11 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 const new_parent = try self.getParent(allocator, 0, key);
                 defer if (new_parent) |bytes| allocator.free(bytes);
 
-                try self.updateNode(1, new_parent);
+                try self.updateNode(allocator, 1, new_parent);
             }
         }
 
-        fn dispatch(self: *Self, node: Node) Error!void {
-            const allocator = self.arena.allocator();
-
+        fn dispatch(self: *Self, allocator: std.mem.Allocator, node: Node) Error!void {
             const old_parent = try self.getParent(allocator, node.level, node.key);
             defer if (old_parent) |bytes| allocator.free(bytes);
 
@@ -124,12 +120,10 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 try self.createNode(node.level + 1, node.key);
             }
 
-            try self.updateNode(node.level + 1, old_parent);
+            try self.updateNode(allocator, node.level + 1, old_parent);
         }
 
-        fn updateNode(self: *Self, level: u8, key: ?[]const u8) Error!void {
-            const allocator = self.arena.allocator();
-
+        fn updateNode(self: *Self, allocator: std.mem.Allocator, level: u8, key: ?[]const u8) Error!void {
             var hash: [K]u8 = undefined;
             try self.getHash(level, key, &hash);
 
@@ -138,7 +132,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 try self.setNode(new_node);
                 try self.cursor.goToNode(level, key);
                 if (try self.cursor.goToNext()) |_| {
-                    try self.updateNode(level + 1, null);
+                    try self.updateNode(allocator, level + 1, null);
                 } else {
                     try self.deleteNode(level + 1, null);
                 }
@@ -152,7 +146,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             if (old_node.isBoundary()) {
                 if (new_node.isBoundary()) {
                     try self.setNode(new_node);
-                    try self.updateNode(level + 1, key);
+                    try self.updateNode(allocator, level + 1, key);
                 } else {
                     try self.deleteNode(level + 1, key);
                     try self.setNode(new_node);
@@ -160,20 +154,20 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                     const new_parent = try self.getParent(allocator, level, key);
                     defer if (new_parent) |bytes| allocator.free(bytes);
 
-                    try self.updateNode(level + 1, new_parent);
+                    try self.updateNode(allocator, level + 1, new_parent);
                 }
             } else {
-                try self.dispatch(new_node);
+                try self.dispatch(allocator, new_node);
             }
         }
 
         fn deleteNode(self: *Self, level: u8, key: ?[]const u8) Error!void {
             const entry_key = try self.encoder.encodeKey(level, key);
-            while (try self.db.get(entry_key)) |_| {
+            if (try self.db.get(entry_key)) |_| {
                 try self.db.delete(entry_key);
                 if (self.effects) |effects| effects.delete += 1;
 
-                entry_key[0] += 1;
+                try self.deleteNode(level + 1, key);
             }
         }
 
@@ -181,19 +175,11 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             assert(level > 0);
 
             var hash: [K]u8 = undefined;
-            var l = level;
-            while (true) : (l += 1) {
-                try self.getHash(l, key, &hash);
-
-                const entry_key = try self.encoder.encodeKey(l, key);
-                try self.db.set(entry_key, &hash);
+            var node = Node{ .level = level, .key = key, .hash = &hash };
+            while (node.level == level or node.isBoundary()) : (node.level += 1) {
+                try self.getHash(node.level, key, &hash);
+                try self.setNode(node);
                 if (self.effects) |effects| effects.create += 1;
-
-                if (isBoundary(&hash)) {
-                    continue;
-                } else {
-                    break;
-                }
             }
         }
 
@@ -233,9 +219,8 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         }
 
         fn getParent(self: *Self, allocator: std.mem.Allocator, level: u8, key: ?[]const u8) Error!?[]const u8 {
-            assert(key != null);
             if (key == null) {
-                return null;
+                return error.InvalidDatabase;
             }
 
             if (try self.cursor.seek(level, key)) |next| {
@@ -263,15 +248,6 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             } else {
                 return null;
             }
-        }
-
-        inline fn isAnchor(key: []const u8) bool {
-            return key.len == 1;
-        }
-
-        inline fn isBoundary(hash: *const [K]u8) bool {
-            const limit: comptime_int = (1 << 32) / @as(u33, @intCast(Q));
-            return std.mem.readInt(u32, hash[0..4], .big) < limit;
         }
 
         inline fn log(self: Self, comptime format: []const u8, args: anytype) std.fs.File.WriteError!void {

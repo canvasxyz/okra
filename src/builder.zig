@@ -153,7 +153,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
 
         fn getNodeHash(value: []const u8) !*const [K]u8 {
             if (value.len < K) {
-                return error.InvalidDatabase1;
+                return error.InvalidDatabase;
             } else {
                 return value[0..K];
             }
