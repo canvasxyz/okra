@@ -1,5 +1,5 @@
 .{
-    .paths = .{ "src", "build.zig", "build.zig.zon", "README.md" },
+    .paths = .{ "src", "build.zig", "build.zig.zon" },
     .name = "zig-okra",
     .version = "0.1.0",
     .dependencies = .{
