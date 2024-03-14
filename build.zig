@@ -25,10 +25,6 @@ pub fn build(b: *std.Build) void {
             .target = target,
         });
 
-        // const zig_cli = b.anonymousDependency("libs/zig-cli/", @import("libs/zig-cli/build.zig"), .{});
-
-        // cli.addIncludePath(lmdb_include_path);
-        // cli.addCSourceFiles(&lmdb_source_files, &.{});
         cli.root_module.addImport("lmdb", lmdb);
         cli.root_module.addImport("okra", okra);
         cli.root_module.addImport("zig-cli", cli_dep.module("zig-cli"));
