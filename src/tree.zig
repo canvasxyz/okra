@@ -74,23 +74,17 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 }
 
                 if (old_leaf.isBoundary()) {
-                    if (new_leaf.isBoundary()) {
-                        try self.setNode(new_leaf);
-                        try self.updateNode(allocator, 1, key);
-                    } else {
-                        try self.setNode(new_leaf);
-                        try self.deleteNode(1, key);
-
-                        const new_parent = try self.getParent(allocator, 0, key);
-                        defer if (new_parent) |bytes| allocator.free(bytes);
-
-                        try self.updateNode(allocator, 1, new_parent);
-                    }
+                    try self.updateBoundary(allocator, new_leaf);
                 } else {
                     try self.dispatch(allocator, new_leaf);
                 }
             } else {
                 try self.dispatch(allocator, new_leaf);
+            }
+
+            if (self.effects) |effects| {
+                const root = try self.getRoot();
+                effects.height = root.level + 1;
             }
         }
 
@@ -100,32 +94,23 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
 
             if (self.effects) |effects| effects.reset();
 
-            if (try self.getNode(0, key)) |_| {
+            if (try self.getNode(0, key)) |old_leaf| {
+                if (old_leaf.isBoundary()) {
+                    try self.deleteParents(0, key);
+                }
+
                 try self.deleteNode(0, key);
 
-                const new_parent = try self.getParent(allocator, 0, key);
-                defer if (new_parent) |bytes| allocator.free(bytes);
+                const parent = try self.getParent(allocator, 0, key);
+                defer if (parent) |bytes| allocator.free(bytes);
 
-                try self.updateNode(allocator, 1, new_parent);
+                try self.updateNode(allocator, 1, parent);
             }
-        }
 
-        pub fn getRoot(self: *Self) !Node {
-            return try self.cursor.goToRoot();
-        }
-
-        pub fn getNode(self: *Self, level: u8, key: ?[]const u8) Error!?Node {
-            const entry_key = try self.encoder.encodeKey(level, key);
-            if (try self.db.get(entry_key)) |entry_value| {
-                return try Node.parse(entry_key, entry_value);
-            } else {
-                return null;
+            if (self.effects) |effects| {
+                const root = try self.getRoot();
+                effects.height = root.level + 1;
             }
-        }
-
-        inline fn setNode(self: *Self, node: Node) Error!void {
-            const entry = try self.encoder.encode(node);
-            try self.db.set(entry.key, entry.value);
         }
 
         fn dispatch(self: *Self, allocator: std.mem.Allocator, node: Node) Error!void {
@@ -133,75 +118,84 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             defer if (old_parent) |bytes| allocator.free(bytes);
 
             try self.setNode(node);
-
             if (node.isBoundary()) {
-                try self.createNode(node.level + 1, node.key);
+                try self.createParents(node.level, node.key);
             }
 
             try self.updateNode(allocator, node.level + 1, old_parent);
         }
 
         fn updateNode(self: *Self, allocator: std.mem.Allocator, level: u8, key: ?[]const u8) Error!void {
+            if (key == null) {
+                try self.updateAnchor(level);
+                return;
+            }
+
             var hash: [K]u8 = undefined;
             try self.getHash(level, key, &hash);
 
             const new_node = Node{ .level = level, .key = key, .hash = &hash };
-            if (new_node.isAnchor()) {
-                try self.setNode(new_node);
-                try self.cursor.goToNode(level, key);
-                if (try self.cursor.goToNext()) |_| {
-                    try self.updateNode(allocator, level + 1, null);
-                } else {
-                    try self.deleteNode(level + 1, null);
-                }
-
-                return;
-            }
 
             if (self.effects) |effects| effects.update += 1;
 
             const old_node = try self.getNode(level, key) orelse return error.NotFound;
             if (old_node.isBoundary()) {
-                if (new_node.isBoundary()) {
-                    try self.setNode(new_node);
-                    try self.updateNode(allocator, level + 1, key);
-                } else {
-                    try self.deleteNode(level + 1, key);
-                    try self.setNode(new_node);
-
-                    const new_parent = try self.getParent(allocator, level, key);
-                    defer if (new_parent) |bytes| allocator.free(bytes);
-
-                    try self.updateNode(allocator, level + 1, new_parent);
-                }
+                try self.updateBoundary(allocator, new_node);
             } else {
                 try self.dispatch(allocator, new_node);
             }
         }
 
-        fn deleteNode(self: *Self, level: u8, key: ?[]const u8) Error!void {
-            const entry_key = try self.encoder.encodeKey(level, key);
-            if (try self.db.get(entry_key)) |_| {
-                try self.db.delete(entry_key);
+        fn updateBoundary(self: *Self, allocator: std.mem.Allocator, new_node: Node) Error!void {
+            if (new_node.isBoundary()) {
+                try self.setNode(new_node);
+                try self.updateNode(allocator, new_node.level + 1, new_node.key);
+            } else {
+                try self.setNode(new_node);
+                try self.deleteParents(new_node.level, new_node.key);
+
+                const new_parent = try self.getParent(allocator, new_node.level, new_node.key);
+                defer if (new_parent) |bytes| allocator.free(bytes);
+
+                try self.updateNode(allocator, new_node.level + 1, new_parent);
+            }
+        }
+
+        fn updateAnchor(self: *Self, level: u8) Error!void {
+            var hash: [K]u8 = undefined;
+            try self.getHash(level, null, &hash);
+            try self.setNode(.{ .level = level, .key = null, .hash = &hash });
+
+            try self.cursor.goToNode(level, null);
+            if (try self.cursor.goToNext()) |_| {
+                try self.updateAnchor(level + 1);
+            } else {
+                try self.deleteParents(level, null);
+            }
+        }
+
+        fn deleteParents(self: *Self, level: u8, key: ?[]const u8) Error!void {
+            if (try self.getNode(level + 1, key)) |_| {
+                try self.deleteNode(level + 1, key);
                 if (self.effects) |effects| effects.delete += 1;
 
-                try self.deleteNode(level + 1, key);
+                try self.deleteParents(level + 1, key);
             }
         }
 
-        fn createNode(self: *Self, level: u8, key: ?[]const u8) !void {
-            assert(level > 0);
-
+        fn createParents(self: *Self, level: u8, key: ?[]const u8) Error!void {
             var hash: [K]u8 = undefined;
-            var node = Node{ .level = level, .key = key, .hash = &hash };
-            while (node.level == level or node.isBoundary()) : (node.level += 1) {
-                try self.getHash(node.level, key, &hash);
-                try self.setNode(node);
-                if (self.effects) |effects| effects.create += 1;
+            try self.getHash(level + 1, key, &hash);
+
+            const parent = Node{ .level = level + 1, .key = key, .hash = &hash };
+            try self.setNode(parent);
+
+            if (parent.isBoundary()) {
+                try self.createParents(parent.level, key);
             }
         }
 
-        fn getHash(self: *Self, level: u8, key: ?[]const u8, hash: *[K]u8) Error!void {
+        fn getHash(self: *Self, level: u8, key: ?[]const u8, result: *[K]u8) Error!void {
             var digest = std.crypto.hash.Blake3.init(.{});
 
             try self.cursor.goToNode(level - 1, key);
@@ -219,7 +213,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 }
             }
 
-            digest.final(hash);
+            digest.final(result);
         }
 
         fn getParent(self: *Self, allocator: std.mem.Allocator, level: u8, key: ?[]const u8) Error!?[]const u8 {
@@ -244,7 +238,30 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             return error.InvalidDatabase;
         }
 
-        inline fn copyKey(allocator: std.mem.Allocator, key: ?[]const u8) !?[]const u8 {
+        pub inline fn getRoot(self: *Self) Error!Node {
+            return try self.cursor.goToRoot();
+        }
+
+        pub fn getNode(self: *Self, level: u8, key: ?[]const u8) Error!?Node {
+            const entry_key = try self.encoder.encodeKey(level, key);
+            if (try self.db.get(entry_key)) |entry_value| {
+                return try Node.parse(entry_key, entry_value);
+            } else {
+                return null;
+            }
+        }
+
+        inline fn setNode(self: *Self, node: Node) Error!void {
+            const entry = try self.encoder.encode(node);
+            try self.db.set(entry.key, entry.value);
+        }
+
+        inline fn deleteNode(self: *Self, level: u8, key: ?[]const u8) Error!void {
+            const entry_key = try self.encoder.encodeKey(level, key);
+            try self.db.delete(entry_key);
+        }
+
+        inline fn copyKey(allocator: std.mem.Allocator, key: ?[]const u8) std.mem.Allocator.Error!?[]const u8 {
             if (key) |bytes| {
                 const result = try allocator.alloc(u8, bytes.len);
                 @memcpy(result, bytes);
