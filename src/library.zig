@@ -6,61 +6,61 @@ const Entry = [2][]const u8;
 
 pub const Test = struct { leaves: []const Entry, entries: []const Entry };
 
-// Blake3() = af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262
+// Sha256() = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 
 pub const tests = [_]Test{
     .{
         .leaves = &.{},
         .entries = &.{
-            .{ &[_]u8{0}, &node("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
+            .{ &[_]u8{0}, &node("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
             .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
         },
     },
     .{
         .leaves = &.{
-            .{ "a", "\x00" }, // a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02
-            .{ "b", "\x01" }, // d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9
-            .{ "c", "\x02" }, // 690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192
+            .{ "a", "\x00" }, // f39bd65e0288b1f54b1f9d0aed56898742f58eaa1a48ab7570de9cb39e0b6ef1
+            .{ "b", "\x01" }, // 89902f000cf47c6c01c66da838aadb70fc63a434b1742d3617d688b394cff2dd
+            .{ "c", "\x02" }, // 0bcff62fc85f03c136c9cb7fbd35821698d92e168c58fbdb794b1df4566e291d
         },
         .entries = &.{
-            .{ &[_]u8{0}, &node("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-            .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
-            .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
-            .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
-            .{ &[_]u8{1}, &node("70ff616136e6ca5726aa564f5db211806ee00a5beb72bbe8d5ce29e95351e092") },
+            .{ &[_]u8{0}, &node("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
+            .{ &[_]u8{ 0, 'a' }, &leaf("f39bd65e0288b1f54b1f9d0aed56898742f58eaa1a48ab7570de9cb39e0b6ef1", 0x00) },
+            .{ &[_]u8{ 0, 'b' }, &leaf("89902f000cf47c6c01c66da838aadb70fc63a434b1742d3617d688b394cff2dd", 0x01) },
+            .{ &[_]u8{ 0, 'c' }, &leaf("0bcff62fc85f03c136c9cb7fbd35821698d92e168c58fbdb794b1df4566e291d", 0x02) },
+            .{ &[_]u8{1}, &node("61d1b2573fd5fe5d4f0888a08f7a0f203eb55d18a905688103c5937be7235234") },
+            .{ &[_]u8{ 1, 'c' }, &node("c7bba63ef64ca26da2a9580dc89fcb08817fd92398e55a9b416c520e593f862c") },
+            .{ &[_]u8{2}, &node("93da8808149acea3cc8c9dfb30b90e327e2cf725e3125d502fadd7a443f861b3") },
             .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
         },
     },
     .{
         .leaves = &.{
-            .{ "a", "\x00" }, // a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02
-            .{ "b", "\x01" }, // d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9
-            .{ "c", "\x02" }, // 690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192
-            .{ "d", "\x03" }, // 283fc563889411201d0d09674fd9d0ad2ddb6da4631b104c81d0d46bfae972d4
-            .{ "e", "\x04" }, // e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19
-            .{ "f", "\x05" }, // 3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1
-            .{ "g", "\x06" }, // 1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387
-            .{ "h", "\x07" }, // 9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514
-            .{ "i", "\x08" }, // 7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a
-            .{ "j", "\x09" }, // 661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d
+            .{ "a", "\x00" }, // f39bd65e0288b1f54b1f9d0aed56898742f58eaa1a48ab7570de9cb39e0b6ef1
+            .{ "b", "\x01" }, // 89902f000cf47c6c01c66da838aadb70fc63a434b1742d3617d688b394cff2dd
+            .{ "c", "\x02" }, // 0bcff62fc85f03c136c9cb7fbd35821698d92e168c58fbdb794b1df4566e291d
+            .{ "d", "\x03" }, // 44c2b8aa88501e2a4c7f421e6e51ed3b3cc61aab4f17a4083c4d1ff17d5384de
+            .{ "e", "\x04" }, // 8d43c7102a89ffcc3c92870ccd274123ed283dd99c1f8579a3ca2ac77860a1e1
+            .{ "f", "\x05" }, // edd8af13d204466eb5012817d59cabcee535ea89e4701f9fd7eb79f4da91725f
+            .{ "g", "\x06" }, // b6dd4ac2b6f02aa5cef5a1f271b12a971670f7805af859de1c0b2f7b750f0af7
+            .{ "h", "\x07" }, // b62f220f0b56f6132093314a89ac6b56440b5e46664b78630b3174038353b45a
+            .{ "i", "\x08" }, // db92b989b3dfd1c90c344d51894bcb0267b580102b6f21dda19ad320965be59c
+            .{ "j", "\x09" }, // d3e590efcc1e808909ad4daa28ff9db3b2e86b9762ed2838e604c210fc6898dd
         },
         .entries = &.{
-            .{ &[_]u8{0}, &node("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-            .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
-            .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
-            .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
-            .{ &[_]u8{ 0, 'd' }, &leaf("283fc563889411201d0d09674fd9d0ad2ddb6da4631b104c81d0d46bfae972d4", 0x03) },
-            .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
-            .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
-            .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
-            .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
-            .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
-            .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
-            .{ &[_]u8{1}, &node("70ff616136e6ca5726aa564f5db211806ee00a5beb72bbe8d5ce29e95351e092") },
-            .{ &[_]u8{ 1, 'd' }, &node("9020fa923ffc2eeafe4197a26afb7e1efd7176912d8ac7e86ddc2f3a7c106452") },
-            .{ &[_]u8{ 1, 'f' }, &node("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
-            .{ &[_]u8{ 1, 'g' }, &node("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
-            .{ &[_]u8{2}, &node("2e5d52802433b30f1bf5ed26d55c4b2cf2df1ac40db1639a44c213e612878cff") },
+            .{ &[_]u8{0}, &node("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
+            .{ &[_]u8{ 0, 'a' }, &leaf("f39bd65e0288b1f54b1f9d0aed56898742f58eaa1a48ab7570de9cb39e0b6ef1", 0x00) },
+            .{ &[_]u8{ 0, 'b' }, &leaf("89902f000cf47c6c01c66da838aadb70fc63a434b1742d3617d688b394cff2dd", 0x01) },
+            .{ &[_]u8{ 0, 'c' }, &leaf("0bcff62fc85f03c136c9cb7fbd35821698d92e168c58fbdb794b1df4566e291d", 0x02) },
+            .{ &[_]u8{ 0, 'd' }, &leaf("44c2b8aa88501e2a4c7f421e6e51ed3b3cc61aab4f17a4083c4d1ff17d5384de", 0x03) },
+            .{ &[_]u8{ 0, 'e' }, &leaf("8d43c7102a89ffcc3c92870ccd274123ed283dd99c1f8579a3ca2ac77860a1e1", 0x04) },
+            .{ &[_]u8{ 0, 'f' }, &leaf("edd8af13d204466eb5012817d59cabcee535ea89e4701f9fd7eb79f4da91725f", 0x05) },
+            .{ &[_]u8{ 0, 'g' }, &leaf("b6dd4ac2b6f02aa5cef5a1f271b12a971670f7805af859de1c0b2f7b750f0af7", 0x06) },
+            .{ &[_]u8{ 0, 'h' }, &leaf("b62f220f0b56f6132093314a89ac6b56440b5e46664b78630b3174038353b45a", 0x07) },
+            .{ &[_]u8{ 0, 'i' }, &leaf("db92b989b3dfd1c90c344d51894bcb0267b580102b6f21dda19ad320965be59c", 0x08) },
+            .{ &[_]u8{ 0, 'j' }, &leaf("d3e590efcc1e808909ad4daa28ff9db3b2e86b9762ed2838e604c210fc6898dd", 0x09) },
+            .{ &[_]u8{1}, &node("61d1b2573fd5fe5d4f0888a08f7a0f203eb55d18a905688103c5937be7235234") },
+            .{ &[_]u8{ 1, 'c' }, &node("f9176bfe8ff9df7573ace13a5c494214849d1ee54c08068fa8ba4369139b285f") },
+            .{ &[_]u8{2}, &node("0ab7cb2bcc8cf5448fa502a4084709fdd1eb3f23eaeb15f098a8576ff7098f71") },
             .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
         },
     },

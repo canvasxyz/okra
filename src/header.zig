@@ -1,5 +1,5 @@
 const std = @import("std");
-const Blake3 = std.crypto.hash.Blake3;
+const Sha256 = std.crypto.hash.sha2.Sha256;
 
 const lmdb = @import("lmdb");
 
@@ -38,9 +38,9 @@ pub fn Header(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn write(db: lmdb.Database) !void {
-            var anchor_hash: [K]u8 = undefined;
-            Blake3.hash(&[0]u8{}, &anchor_hash, .{});
-            try db.set(&ANCHOR_KEY, &anchor_hash);
+            var anchor_hash: [Sha256.digest_length]u8 = undefined;
+            Sha256.hash(&[0]u8{}, &anchor_hash, .{});
+            try db.set(&ANCHOR_KEY, anchor_hash[0..K]);
             try db.set(&METADATA_KEY, &header);
         }
 

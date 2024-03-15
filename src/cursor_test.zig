@@ -1,5 +1,4 @@
 const std = @import("std");
-const Blake3 = std.crypto.hash.Blake3;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
@@ -31,34 +30,34 @@ test "basic cursor operations" {
     var builder = try Builder.init(allocator, db, .{});
     defer builder.deinit();
 
-    try builder.set("a", "foo");
-    try builder.set("b", "bar");
-    try builder.set("c", "baz");
+    try builder.set("a", "\x00");
+    try builder.set("b", "\x01");
+    try builder.set("c", "\x02");
     try builder.build();
 
     var cursor = try Cursor.init(allocator, db);
     defer cursor.deinit();
 
     const root = try cursor.goToRoot();
-    try expect(root.level == 3);
+    try expect(root.level == 2);
     try expect(root.key == null);
     try expect(root.value == null);
 
     if (try cursor.seek(0, "a")) |node| {
         try expectEqual(0, node.level);
         try Key.expectEqual("a", node.key);
-        try Key.expectEqual("foo", node.value);
+        try Key.expectEqual("\x00", node.value);
     } else return error.NotFound;
 
     if (try cursor.goToNext()) |node| {
         try expectEqual(0, node.level);
         try Key.expectEqual("b", node.key);
-        try Key.expectEqual("bar", node.value);
+        try Key.expectEqual("\x01", node.value);
     } else return error.NotFound;
 
     if (try cursor.goToNext()) |node| {
         try expectEqual(0, node.level);
         try Key.expectEqual("c", node.key);
-        try Key.expectEqual("baz", node.value);
+        try Key.expectEqual("\x02", node.value);
     } else return error.NotFound;
 }
