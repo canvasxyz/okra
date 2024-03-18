@@ -92,11 +92,15 @@ Here's a diagram of an example tree. Arrows are drawn vertically for the first c
 
 The key/value entries are the leaves of the tree (level 0), sorted lexicographically by key. Each level begins with an initial _anchor node_ labelled "null", and the rest are labelled with the key of their first child.
 
-Every node, including the leaves and the anchor nodes of each level, stores a 16-byte Blake3 hash. The leaves hash their key/value entry, and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the anchor leaf stores the hash of the empty string `Blake3() = af1349b9...`. For example, the hash value for the anchor node at `(1, null)` would be `Blake3(Blake3(), hash("a", "foo"))` since `(0, null)` and `(0, "a")` are its only children. `hash` is implemented like this:
+Every node, including the leaves and the anchor nodes of each level, stores a 16-byte Sha256 hash. The leaves hash their key/value entry, and nodes of higher levels hash the concatenation of their children's hashes. As a special case, the anchor leaf stores the hash of the empty string `Sha256() = e3b0c442...`. For example, the hash value for the anchor node at `(1, null)` would be `Sha256(Sha256(), hash("a", "foo"))` since `(0, null)` and `(0, "a")` are its only children. `hash` is implemented like this:
 
 ```zig
+const std = @import("std");
+const Sha256 = std.crypto.hash.sha2.Sha256;
+
 pub fn hash(key: []const u8, value: []const u8, result: []u8) void {
-    var digest = std.crypto.hash.Blake3.init(.{});
+    var hash_buffer: [Sha256.digest_length]u8 = undefined;
+    var digest = Sha256.init(.{});
     var size: [4]u8 = undefined;
     std.mem.writeInt(u32, &size, @intCast(key.len), .big);
     digest.update(&size);
@@ -104,7 +108,8 @@ pub fn hash(key: []const u8, value: []const u8, result: []u8) void {
     std.mem.writeInt(u32, &size, @intCast(value.len), .big);
     digest.update(&size);
     digest.update(value);
-    digest.final(result);
+    digest.final(&hash_buffer);
+    @memcpy(result, hash_buffer[0..result.len]);
 }
 ```
 
@@ -120,7 +125,7 @@ Okra has no external concept of versioning or time-travel. LMDB is copy-on-write
 
 Run all tests with `zig build test`.
 
-Okra is currently built with zig version `0.12.0-dev.2158+4f2009de1`.
+Okra is currently built with zig version `0.12.0-dev.3180+83e578a18`.
 
 ## Benchmarks
 
