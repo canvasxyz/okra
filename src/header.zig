@@ -14,7 +14,7 @@ pub fn Header(comptime K: u8, comptime Q: u32) type {
         pub const ANCHOR_KEY = [1]u8{0x00};
         pub const METADATA_KEY = [1]u8{0xff};
 
-        pub const DATABASE_VERSION = 0x01;
+        pub const DATABASE_VERSION = 0x02;
 
         const header = [_]u8{ 'o', 'k', 'r', 'a', DATABASE_VERSION, K } ++ getFanoutDegree(Q);
 

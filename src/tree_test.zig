@@ -47,7 +47,7 @@ test "open a Tree" {
 
         try utils.expectEqualEntries(db, &.{
             .{ &[_]u8{0}, &h("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
-            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
+            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
         });
     }
 }

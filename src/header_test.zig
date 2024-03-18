@@ -33,7 +33,7 @@ test "initialize a header in default database" {
 
     try utils.expectEqualEntries(db, &.{
         .{ &[_]u8{0x00}, &empty_hash },
-        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
     });
 }
 
@@ -54,8 +54,8 @@ test "initialize a header in named databases" {
     try Header.write(db_b);
 
     try if (try db_a.get(&[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
-    try if (try db_a.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
+    try if (try db_a.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
 
     try if (try db_b.get(&[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
-    try if (try db_b.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
+    try if (try db_b.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
 }
