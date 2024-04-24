@@ -1,18 +1,5 @@
 const std = @import("std");
 
-pub fn create(allocator: std.mem.Allocator, level: u8, key: ?[]const u8) ![]const u8 {
-    if (key) |bytes| {
-        const data = try allocator.alloc(u8, 1 + bytes.len);
-        data[0] = level;
-        @memcpy(data[1..], bytes);
-        return data;
-    } else {
-        const data = try allocator.alloc(u8, 1);
-        data[0] = level;
-        return data;
-    }
-}
-
 pub fn lessThan(a: ?[]const u8, b: ?[]const u8) bool {
     if (a) |a_bytes| {
         if (b) |b_byte| {
