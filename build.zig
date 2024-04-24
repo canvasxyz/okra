@@ -1,5 +1,4 @@
 const std = @import("std");
-const LazyPath = std.Build.LazyPath;
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -11,7 +10,7 @@ pub fn build(b: *std.Build) void {
     const cli_dep = b.dependency("zig-cli", .{});
 
     const okra = b.addModule("okra", .{
-        .root_source_file = LazyPath.relative("src/lib.zig"),
+        .root_source_file = b.path("src/lib.zig"),
     });
 
     okra.addImport("lmdb", lmdb);
@@ -20,7 +19,7 @@ pub fn build(b: *std.Build) void {
         // CLI
         const cli = b.addExecutable(.{
             .name = "okra",
-            .root_source_file = LazyPath.relative("./cli/main.zig"),
+            .root_source_file = b.path("./cli/main.zig"),
             .optimize = optimize,
             .target = target,
         });
@@ -38,27 +37,27 @@ pub fn build(b: *std.Build) void {
 
     {
         // Tests
-        const header_tests = b.addTest(.{ .root_source_file = LazyPath.relative("src/header_test.zig") });
+        const header_tests = b.addTest(.{ .root_source_file = b.path("src/header_test.zig") });
         header_tests.root_module.addImport("lmdb", lmdb);
         const header_test_artifact = b.addRunArtifact(header_tests);
         b.step("test-header", "Run Header tests").dependOn(&header_test_artifact.step);
 
-        const builder_tests = b.addTest(.{ .root_source_file = LazyPath.relative("src/builder_test.zig") });
+        const builder_tests = b.addTest(.{ .root_source_file = b.path("src/builder_test.zig") });
         builder_tests.root_module.addImport("lmdb", lmdb);
         const builder_test_artifact = b.addRunArtifact(builder_tests);
         b.step("test-builder", "Run Builder tests").dependOn(&builder_test_artifact.step);
 
-        const cursor_tests = b.addTest(.{ .root_source_file = LazyPath.relative("src/cursor_test.zig") });
+        const cursor_tests = b.addTest(.{ .root_source_file = b.path("src/cursor_test.zig") });
         cursor_tests.root_module.addImport("lmdb", lmdb);
         const cursor_test_artifact = b.addRunArtifact(cursor_tests);
         b.step("test-cursor", "Run Cursor tests").dependOn(&cursor_test_artifact.step);
 
-        const tree_tests = b.addTest(.{ .root_source_file = LazyPath.relative("src/tree_test.zig") });
+        const tree_tests = b.addTest(.{ .root_source_file = b.path("src/tree_test.zig") });
         tree_tests.root_module.addImport("lmdb", lmdb);
         const tree_test_artifact = b.addRunArtifact(tree_tests);
         b.step("test-tree", "Run Tree tests").dependOn(&tree_test_artifact.step);
 
-        const iterator_tests = b.addTest(.{ .root_source_file = LazyPath.relative("src/iterator_test.zig") });
+        const iterator_tests = b.addTest(.{ .root_source_file = b.path("src/iterator_test.zig") });
         iterator_tests.root_module.addImport("lmdb", lmdb);
         const iterator_test_artifact = b.addRunArtifact(iterator_tests);
         b.step("test-iterator", "Run Iterator tests").dependOn(&iterator_test_artifact.step);
@@ -75,7 +74,7 @@ pub fn build(b: *std.Build) void {
         // Tree effect simulations
         const effect = b.addExecutable(.{
             .name = "bench-effect",
-            .root_source_file = LazyPath.relative("benchmarks/effects.zig"),
+            .root_source_file = b.path("benchmarks/effects.zig"),
             .optimize = .ReleaseFast,
             .target = target,
         });
@@ -90,7 +89,7 @@ pub fn build(b: *std.Build) void {
     // Benchmarks
     const benchmark = b.addExecutable(.{
         .name = "okra-benchmark",
-        .root_source_file = LazyPath.relative("benchmarks/main.zig"),
+        .root_source_file = b.path("benchmarks/main.zig"),
         .optimize = .ReleaseFast,
         .target = target,
     });

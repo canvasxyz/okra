@@ -9,7 +9,7 @@ pub fn fail(comptime fmt: []const u8, args: anytype) noreturn {
     std.fmt.format(w, "ERROR: ", .{}) catch unreachable;
     std.fmt.format(w, fmt, args) catch unreachable;
     std.fmt.format(w, "\n", .{}) catch unreachable;
-    std.os.exit(1);
+    std.posix.exit(1);
 }
 
 var path_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;

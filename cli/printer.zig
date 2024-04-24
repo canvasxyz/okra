@@ -22,7 +22,7 @@ pub fn init(allocator: std.mem.Allocator, tree: *okra.Tree, encoding: utils.Enco
         .tree = tree,
         .iter = iter,
         .writer = stdout.writer(),
-        .is_a_tty = std.os.isatty(stdout.handle),
+        .is_a_tty = std.posix.isatty(stdout.handle),
         .encoding = encoding,
         .prefix = std.ArrayList(u8).init(allocator),
     };
