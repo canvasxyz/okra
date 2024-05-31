@@ -11,7 +11,7 @@ const K = 32;
 const Q = 4;
 
 const Builder = @import("builder.zig").Builder(K, Q);
-const Tree = @import("tree.zig").Tree(K, Q);
+const Map = @import("map.zig").Map(K, Q);
 const Key = @import("Key.zig");
 const library = @import("library.zig");
 const utils = @import("utils.zig");
@@ -42,8 +42,8 @@ test "open a Tree" {
     const db = try txn.database(null, .{});
 
     {
-        var sl = try Tree.init(allocator, db, .{});
-        defer sl.deinit();
+        var map = try Map.init(allocator, db, .{});
+        defer map.deinit();
 
         try utils.expectEqualEntries(db, &.{
             .{ &[_]u8{0}, &h("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
@@ -65,17 +65,17 @@ test "basic get/set/delete operations" {
     const db = try txn.database(null, .{});
 
     {
-        var sl = try Tree.init(allocator, db, .{});
-        defer sl.deinit();
+        var map = try Map.init(allocator, db, .{});
+        defer map.deinit();
 
-        try sl.set("a", "foo");
-        try sl.set("b", "bar");
-        try sl.set("c", "baz");
+        try map.set("a", "foo");
+        try map.set("b", "bar");
+        try map.set("c", "baz");
 
-        try Key.expectEqual("foo", try sl.get("a"));
-        try Key.expectEqual("bar", try sl.get("b"));
-        try Key.expectEqual("baz", try sl.get("c"));
-        try Key.expectEqual(null, try sl.get("d"));
+        try Key.expectEqual("foo", try map.get("a"));
+        try Key.expectEqual("bar", try map.get("b"));
+        try Key.expectEqual("baz", try map.get("c"));
+        try Key.expectEqual(null, try map.get("d"));
     }
 }
 
@@ -92,17 +92,17 @@ test "set empty values" {
     const db = try txn.database(null, .{});
 
     {
-        var sl = try Tree.init(allocator, db, .{});
-        defer sl.deinit();
+        var map = try Map.init(allocator, db, .{});
+        defer map.deinit();
 
-        try sl.set("a", "");
-        try sl.set("b", "");
-        try sl.set("c", "");
+        try map.set("a", "");
+        try map.set("b", "");
+        try map.set("c", "");
 
-        try Key.expectEqual("", try sl.get("a"));
-        try Key.expectEqual("", try sl.get("b"));
-        try Key.expectEqual("", try sl.get("c"));
-        try Key.expectEqual(null, try sl.get("d"));
+        try Key.expectEqual("", try map.get("a"));
+        try Key.expectEqual("", try map.get("b"));
+        try Key.expectEqual("", try map.get("c"));
+        try Key.expectEqual(null, try map.get("d"));
     }
 }
 
@@ -132,10 +132,10 @@ test "library tests" {
         }
 
         {
-            var sl = try Tree.init(allocator, actual, .{ .log = null });
-            defer sl.deinit();
+            var map = try Map.init(allocator, actual, .{ .log = null });
+            defer map.deinit();
 
-            for (t.leaves) |entry| try sl.set(entry[0], entry[1]);
+            for (t.leaves) |entry| try map.set(entry[0], entry[1]);
         }
 
         try utils.expectEqualDatabases(expected, actual);
@@ -156,13 +156,13 @@ test "set the same entry twice" {
     const db = try txn.database(null, .{});
 
     {
-        var sl = try Tree.init(allocator, db, .{});
-        defer sl.deinit();
+        var map = try Map.init(allocator, db, .{});
+        defer map.deinit();
 
-        try sl.set("a", "foo");
-        try sl.set("a", "foo");
+        try map.set("a", "foo");
+        try map.set("a", "foo");
 
-        try if (try sl.get("a")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
+        try if (try map.get("a")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
     }
 }
 
@@ -182,14 +182,14 @@ test "set the same entry twice" {
 //     const db = try txn.database(null, .{});
 
 //     {
-//         var sl = try Tree.init(allocator, db, .{ .log = null });
-//         defer sl.deinit();
+//         var map = try Map.init(allocator, db, .{ .log = null });
+//         defer map.deinit();
 
 //         for (library.tests[2].leaves) |entry| {
-//             try sl.set(entry[0], entry[1]);
+//             try map.set(entry[0], entry[1]);
 //         }
 
-//         try sl.delete("d");
+//         try map.delete("d");
 //     }
 
 //     try utils.expectEqualEntries(db, &.{
@@ -224,15 +224,15 @@ test "set the same entry twice" {
 //     const db = try txn.database(null, .{});
 
 //     {
-//         var sl = try Tree.init(allocator, db, .{});
-//         defer sl.deinit();
+//         var map = try Map.init(allocator, db, .{});
+//         defer map.deinit();
 
 //         for (library.tests[2].leaves) |entry| {
-//             try sl.set(entry[0], entry[1]);
+//             try map.set(entry[0], entry[1]);
 //         }
 
-//         try sl.delete("d");
-//         try sl.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
+//         try map.delete("d");
+//         try map.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
 //     }
 
 //     try utils.expectEqualEntries(db, &.{
@@ -269,15 +269,15 @@ test "set the same entry twice" {
 //     const db = try txn.database(null, .{});
 
 //     {
-//         var sl = try Tree.init(allocator, db, .{});
-//         defer sl.deinit();
+//         var map = try Map.init(allocator, db, .{});
+//         defer map.deinit();
 
 //         for (library.tests[2].leaves) |entry| {
-//             try sl.set(entry[0], entry[1]);
+//             try map.set(entry[0], entry[1]);
 //         }
 
-//         try sl.delete("d");
-//         try sl.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
+//         try map.delete("d");
+//         try map.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
 //     }
 
 //     try utils.expectEqualEntries(db, &.{
@@ -368,8 +368,8 @@ fn testPseudoRandomPermutations(
         }
 
         {
-            var sl = try Tree.init(allocator, actual, .{ .log = options.log });
-            defer sl.deinit();
+            var map = try Map.init(allocator, actual, .{ .log = options.log });
+            defer map.deinit();
 
             {
                 for (permutation, 0..) |i, j| {
@@ -378,12 +378,12 @@ fn testPseudoRandomPermutations(
 
                     std.mem.writeInt(u16, &key, i, .big);
                     Sha256.hash(&key, &value, .{});
-                    try sl.set(&key, &value);
+                    try map.set(&key, &value);
                 }
 
                 for (permutations[(p + 1) % N][0..R]) |i| {
                     std.mem.writeInt(u16, &key, i, .big);
-                    try sl.delete(&key);
+                    try map.delete(&key);
                 }
             }
         }

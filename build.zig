@@ -52,10 +52,10 @@ pub fn build(b: *std.Build) void {
         const cursor_test_artifact = b.addRunArtifact(cursor_tests);
         b.step("test-cursor", "Run Cursor tests").dependOn(&cursor_test_artifact.step);
 
-        const tree_tests = b.addTest(.{ .root_source_file = b.path("src/tree_test.zig") });
-        tree_tests.root_module.addImport("lmdb", lmdb);
-        const tree_test_artifact = b.addRunArtifact(tree_tests);
-        b.step("test-tree", "Run Tree tests").dependOn(&tree_test_artifact.step);
+        const map_tests = b.addTest(.{ .root_source_file = b.path("src/map_test.zig") });
+        map_tests.root_module.addImport("lmdb", lmdb);
+        const map_test_artifact = b.addRunArtifact(map_tests);
+        b.step("test-map", "Run Map tests").dependOn(&map_test_artifact.step);
 
         const iterator_tests = b.addTest(.{ .root_source_file = b.path("src/iterator_test.zig") });
         iterator_tests.root_module.addImport("lmdb", lmdb);
@@ -66,7 +66,7 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&header_test_artifact.step);
         test_step.dependOn(&builder_test_artifact.step);
         test_step.dependOn(&cursor_test_artifact.step);
-        test_step.dependOn(&tree_test_artifact.step);
+        test_step.dependOn(&map_test_artifact.step);
         test_step.dependOn(&iterator_test_artifact.step);
     }
 

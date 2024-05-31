@@ -99,10 +99,10 @@ fn run() !void {
 
     const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
-    var tree = try okra.Tree.init(gpa.allocator(), db, .{});
-    defer tree.deinit();
+    var map = try okra.Map.init(gpa.allocator(), db, .{});
+    defer map.deinit();
 
-    if (try tree.get(key_buffer.items)) |value| {
+    if (try map.get(key_buffer.items)) |value| {
         const stdout = std.io.getStdOut().writer();
         switch (config.value_encoding) {
             .raw => {

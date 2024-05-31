@@ -35,7 +35,7 @@ var name_option = cli.Option{
 
 var iota_option = cli.Option{
     .long_name = "iota",
-    .help = "Initialize the tree with hashes of the first iota positive integers as sample data",
+    .help = "Initialize a map with hashes of the first iota positive integers as sample data",
     .value_ref = cli.mkRef(&config.iota),
 };
 

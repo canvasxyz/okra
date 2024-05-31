@@ -10,7 +10,7 @@ const Effects = @import("Effects.zig");
 const Entry = @import("Entry.zig");
 const Key = @import("Key.zig");
 
-pub fn Tree(comptime K: u8, comptime Q: u32) type {
+pub fn Map(comptime K: u8, comptime Q: u32) type {
     const Header = @import("header.zig").Header(K, Q);
     const Node = @import("node.zig").Node(K, Q);
     const Cursor = @import("cursor.zig").Cursor(K, Q);

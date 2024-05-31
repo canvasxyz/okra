@@ -62,15 +62,15 @@ fn testSetEffects(comptime T: u8, iterations: u32) !void {
 
         var effects = okra.Effects{};
 
-        var tree = try okra.Tree.init(allocator, db, .{ .effects = &effects });
-        defer tree.deinit();
+        var map = try okra.Map.init(allocator, db, .{ .effects = &effects });
+        defer map.deinit();
 
         var i: u32 = 0;
         while (i < iterations) : (i += 1) {
             std.mem.writeInt(u32, &seed, i, .big);
             std.crypto.hash.Blake3.hash(&seed, &hash, .{});
 
-            try tree.set(&hash, seed[(seed_size - T)..]);
+            try map.set(&hash, seed[(seed_size - T)..]);
 
             const stat = try env.stat();
 

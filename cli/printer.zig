@@ -7,19 +7,19 @@ const utils = @import("utils.zig");
 const Printer = @This();
 
 allocator: std.mem.Allocator,
-tree: *okra.Tree,
+map: *okra.Map,
 iter: okra.Iterator,
 writer: std.fs.File.Writer,
 encoding: utils.Encoding,
 prefix: std.ArrayList(u8),
 is_a_tty: bool,
 
-pub fn init(allocator: std.mem.Allocator, tree: *okra.Tree, encoding: utils.Encoding) !Printer {
+pub fn init(allocator: std.mem.Allocator, map: *okra.Map, encoding: utils.Encoding) !Printer {
     const stdout = std.io.getStdOut();
-    const iter = try okra.Iterator.init(allocator, tree.db, .{ .level = 0 });
+    const iter = try okra.Iterator.init(allocator, map.db, .{ .level = 0 });
     return .{
         .allocator = allocator,
-        .tree = tree,
+        .map = map,
         .iter = iter,
         .writer = stdout.writer(),
         .is_a_tty = std.posix.isatty(stdout.handle),
@@ -34,7 +34,7 @@ pub fn deinit(self: *Printer) void {
 }
 
 pub fn printRoot(self: *Printer, height: ?u8, depth: ?u8) !void {
-    const root = try self.tree.getRoot();
+    const root = try self.map.getRoot();
 
     var pad: u8 = 0;
     if (height) |h| {

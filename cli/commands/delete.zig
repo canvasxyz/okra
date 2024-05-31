@@ -87,10 +87,10 @@ fn run() !void {
     const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
     {
-        var tree = try okra.Tree.init(allocator, db, .{});
-        defer tree.deinit();
+        var map = try okra.Map.init(allocator, db, .{});
+        defer map.deinit();
 
-        try tree.delete(key_buffer.items);
+        try map.delete(key_buffer.items);
     }
 
     try txn.commit();

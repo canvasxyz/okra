@@ -101,15 +101,15 @@ const Context = struct {
             const db = try txn.database(null, .{});
 
             {
-                var tree = try okra.Tree.init(allocator, db, .{});
-                defer tree.deinit();
+                var map = try okra.Map.init(allocator, db, .{});
+                defer map.deinit();
 
                 var key: [4]u8 = undefined;
 
                 var n: u32 = 0;
                 while (n < batch_size) : (n += 1) {
                     std.mem.writeInt(u32, &key, random.uintLessThan(u32, ctx.size), .big);
-                    const value = try tree.get(&key);
+                    const value = try map.get(&key);
                     std.debug.assert(value.?.len == value_size);
                 }
             }
@@ -134,8 +134,8 @@ const Context = struct {
             const db = try txn.database(null, .{});
 
             {
-                var tree = try okra.Tree.init(allocator, db, .{});
-                defer tree.deinit();
+                var map = try okra.Map.init(allocator, db, .{});
+                defer map.deinit();
 
                 var key: [4]u8 = undefined;
                 var seed: [12]u8 = undefined;
@@ -149,7 +149,7 @@ const Context = struct {
                     std.mem.writeInt(u32, &key, random.uintLessThan(u32, ctx.size), .big);
                     std.mem.writeInt(u32, seed[8..], n, .big);
                     std.crypto.hash.Blake3.hash(&seed, &value, .{});
-                    try tree.set(&key, &value);
+                    try map.set(&key, &value);
                 }
             }
 
