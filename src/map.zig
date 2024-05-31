@@ -6,7 +6,6 @@ const Sha256 = std.crypto.hash.sha2.Sha256;
 const lmdb = @import("lmdb");
 
 const Error = @import("error.zig").Error;
-const Effects = @import("Effects.zig");
 const Entry = @import("Entry.zig");
 const Key = @import("Key.zig");
 
@@ -21,7 +20,6 @@ pub fn Map(comptime K: u8, comptime Q: u32) type {
 
         pub const Options = struct {
             log: ?std.fs.File.Writer = null,
-            effects: ?*Effects = null,
         };
 
         arena: std.heap.ArenaAllocator,
@@ -29,7 +27,6 @@ pub fn Map(comptime K: u8, comptime Q: u32) type {
         cursor: Cursor,
         encoder: Encoder,
         logger: ?std.fs.File.Writer,
-        effects: ?*Effects,
 
         pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) Error!Self {
             try Header.initialize(db);
@@ -42,7 +39,6 @@ pub fn Map(comptime K: u8, comptime Q: u32) type {
                 .cursor = cursor,
                 .encoder = Encoder.init(allocator),
                 .logger = options.log,
-                .effects = options.effects,
             };
         }
 
@@ -61,8 +57,6 @@ pub fn Map(comptime K: u8, comptime Q: u32) type {
             const allocator = self.arena.allocator();
             defer assert(self.arena.reset(.free_all));
 
-            if (self.effects) |effects| effects.reset();
-
             var hash: [K]u8 = undefined;
             Entry.hash(key, value, &hash);
             const new_leaf = Node{ .level = 0, .key = key, .hash = &hash, .value = value };
@@ -71,28 +65,27 @@ pub fn Map(comptime K: u8, comptime Q: u32) type {
                 const old_value = old_leaf.value orelse return error.InvalidDatabase;
                 if (std.mem.eql(u8, old_value, value)) {
                     return;
-                }
-
-                if (old_leaf.isBoundary()) {
+                } else if (old_leaf.isBoundary()) {
+                    try self.setNode(new_leaf);
                     try self.updateBoundary(allocator, new_leaf);
-                } else {
-                    try self.dispatch(allocator, new_leaf);
+                    return;
                 }
-            } else {
-                try self.dispatch(allocator, new_leaf);
             }
 
-            if (self.effects) |effects| {
-                const root = try self.getRoot();
-                effects.height = root.level + 1;
+            const old_parent = try self.getParent(allocator, 0, key);
+            defer if (old_parent) |bytes| allocator.free(bytes);
+
+            try self.setNode(new_leaf);
+            if (new_leaf.isBoundary()) {
+                try self.createParents(0, key);
             }
+
+            try self.updateNode(allocator, 1, old_parent);
         }
 
         pub fn delete(self: *Self, key: []const u8) Error!void {
             const allocator = self.arena.allocator();
             defer assert(self.arena.reset(.free_all));
-
-            if (self.effects) |effects| effects.reset();
 
             if (try self.getNode(0, key)) |old_leaf| {
                 if (old_leaf.isBoundary()) {
@@ -105,11 +98,6 @@ pub fn Map(comptime K: u8, comptime Q: u32) type {
                 defer if (parent) |bytes| allocator.free(bytes);
 
                 try self.updateNode(allocator, 1, parent);
-            }
-
-            if (self.effects) |effects| {
-                const root = try self.getRoot();
-                effects.height = root.level + 1;
             }
         }
 
@@ -136,22 +124,27 @@ pub fn Map(comptime K: u8, comptime Q: u32) type {
 
             const new_node = Node{ .level = level, .key = key, .hash = &hash };
 
-            if (self.effects) |effects| effects.update += 1;
-
             const old_node = try self.getNode(level, key) orelse return error.NotFound;
             if (old_node.isBoundary()) {
+                try self.setNode(new_node);
                 try self.updateBoundary(allocator, new_node);
             } else {
-                try self.dispatch(allocator, new_node);
+                const old_parent = try self.getParent(allocator, level, new_node.key);
+                defer if (old_parent) |bytes| allocator.free(bytes);
+
+                try self.setNode(new_node);
+                if (new_node.isBoundary()) {
+                    try self.createParents(level, new_node.key);
+                }
+
+                try self.updateNode(allocator, level + 1, old_parent);
             }
         }
 
         fn updateBoundary(self: *Self, allocator: std.mem.Allocator, new_node: Node) Error!void {
             if (new_node.isBoundary()) {
-                try self.setNode(new_node);
                 try self.updateNode(allocator, new_node.level + 1, new_node.key);
             } else {
-                try self.setNode(new_node);
                 try self.deleteParents(new_node.level, new_node.key);
 
                 const new_parent = try self.getParent(allocator, new_node.level, new_node.key);
@@ -177,7 +170,6 @@ pub fn Map(comptime K: u8, comptime Q: u32) type {
         fn deleteParents(self: *Self, level: u8, key: ?[]const u8) Error!void {
             if (try self.getNode(level + 1, key)) |_| {
                 try self.deleteNode(level + 1, key);
-                if (self.effects) |effects| effects.delete += 1;
 
                 try self.deleteParents(level + 1, key);
             }

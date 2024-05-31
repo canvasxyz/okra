@@ -2,7 +2,6 @@ const std = @import("std");
 
 const lmdb = @import("lmdb");
 const okra = @import("okra");
-const Sample = @import("Sample.zig");
 
 var path_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
 

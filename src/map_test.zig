@@ -29,7 +29,7 @@ fn leaf(hash: *const [64]u8, value: u8) [33]u8 {
     return result;
 }
 
-test "open a Tree" {
+test "open a Map" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
