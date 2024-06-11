@@ -1,7 +1,7 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
 const assert = std.debug.assert;
-const Sha256 = std.crypto.hash.sha2.Sha256;
+const Blake3 = std.crypto.hash.Blake3;
 
 const lmdb = @import("lmdb");
 
@@ -19,7 +19,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
         pub const Options = struct { log: ?std.fs.File.Writer = null };
 
         db: lmdb.Database,
-        hash_buffer: [Sha256.digest_length]u8 = undefined,
+        hash_buffer: [K]u8 = undefined,
         key_buffer: std.ArrayList(u8),
         value_buffer: std.ArrayList(u8),
         logger: ?std.fs.File.Writer,
@@ -74,7 +74,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
             assert(first_key[0] == level);
 
             try self.log("new digest staring with key null", .{});
-            var digest = Sha256.init(.{});
+            var digest = Blake3.init(.{});
 
             {
                 const value = try cursor.getCurrentValue();
@@ -96,16 +96,16 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
                 try self.log("key: {s}, hash: {s}, is_boundary: {any}", .{ hex(next_key), hex(hash), isBoundary(hash) });
                 if (isBoundary(hash)) {
                     digest.final(&self.hash_buffer);
-                    try self.log("digest.final() => {s}", .{hex(self.hash_buffer[0..K])});
+                    try self.log("digest.final() => {s}", .{hex(&self.hash_buffer)});
                     parent_count += 1;
-                    try self.log("setting parent {s} -> {s}", .{ hex(self.key_buffer.items), hex(self.hash_buffer[0..K]) });
-                    try self.db.set(self.key_buffer.items, self.hash_buffer[0..K]);
+                    try self.log("setting parent {s} -> {s}", .{ hex(self.key_buffer.items), hex(&self.hash_buffer) });
+                    try self.db.set(self.key_buffer.items, &self.hash_buffer);
 
                     const key = try cursor.getCurrentKey();
                     try self.setKey(level + 1, key[1..]);
 
                     try self.log("new digest staring with key {s}", .{hex(next_key)});
-                    digest = Sha256.init(.{});
+                    digest = Blake3.init(.{});
                     const next_value = try cursor.getCurrentValue();
                     const next_hash = try getNodeHash(next_value);
                     try self.log("digest.update({s})", .{hex(next_hash)});
@@ -123,7 +123,7 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
             }
 
             digest.final(&self.hash_buffer);
-            try self.db.set(self.key_buffer.items, self.hash_buffer[0..K]);
+            try self.db.set(self.key_buffer.items, &self.hash_buffer);
             return parent_count + 1;
         }
 

@@ -1,7 +1,7 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
 const assert = std.debug.assert;
-const Sha256 = std.crypto.hash.sha2.Sha256;
+const Blake3 = std.crypto.hash.Blake3;
 
 const lmdb = @import("lmdb");
 
@@ -196,8 +196,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         }
 
         fn getHash(self: *Self, level: u8, key: ?[]const u8, result: *[K]u8) Error!void {
-            var digest = Sha256.init(.{});
-            var hash_buffer: [Sha256.digest_length]u8 = undefined;
+            var digest = Blake3.init(.{});
 
             try self.cursor.goToNode(level - 1, key);
 
@@ -214,8 +213,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
                 }
             }
 
-            digest.final(&hash_buffer);
-            @memcpy(result, hash_buffer[0..K]);
+            digest.final(result);
         }
 
         fn getParent(self: *Self, allocator: std.mem.Allocator, level: u8, key: ?[]const u8) Error!?[]const u8 {
