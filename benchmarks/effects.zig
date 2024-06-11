@@ -3,7 +3,6 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
 const expectError = std.testing.expectError;
-const Sha256 = std.crypto.hash.sha2.Sha256;
 const allocator = std.heap.c_allocator;
 
 const lmdb = @import("lmdb");
