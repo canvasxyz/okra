@@ -15,51 +15,52 @@ var config = struct {
     key_encoding: utils.Encoding = .hex,
 }{};
 
-var path_arg = cli.PositionalArg{
-    .name = "path",
-    .help = "path to data directory",
-    .value_ref = cli.mkRef(&config.path),
-};
+pub fn command(r: *cli.AppRunner) !cli.Command {
+    const allocator = r.arena.allocator();
 
-var name_option = cli.Option{
-    .long_name = "name",
-    .short_alias = 'n',
-    .help = "select a named database",
-    .value_ref = cli.mkRef(&config.name),
-};
+    var args = std.ArrayList(cli.PositionalArg).init(allocator);
+    try args.append(.{
+        .name = "path",
+        .help = "path to data directory",
+        .value_ref = r.mkRef(&config.path),
+    });
 
-var level_option = cli.Option{
-    .long_name = "level",
-    .short_alias = 'l',
-    .help = "node level",
-    .value_ref = cli.mkRef(&config.level),
-};
+    var options = std.ArrayList(cli.Option).init(allocator);
+    try options.append(.{
+        .long_name = "name",
+        .short_alias = 'n',
+        .help = "select a named database",
+        .value_ref = r.mkRef(&config.name),
+    });
 
-var key_option = cli.Option{
-    .long_name = "key",
-    .short_alias = 'k',
-    .help = "node key",
-    .value_ref = cli.mkRef(&config.key),
-};
+    try options.append(.{
+        .long_name = "level",
+        .short_alias = 'l',
+        .help = "node level",
+        .value_ref = r.mkRef(&config.level),
+    });
 
-var key_encoding_option = cli.Option{
-    .long_name = "key-encoding",
-    .short_alias = 'K',
-    .help = "\"raw\" or \"hex\" (default \"hex\")",
-    .value_ref = cli.mkRef(&config.key_encoding),
-};
+    try options.append(.{
+        .long_name = "key",
+        .short_alias = 'k',
+        .help = "node key",
+        .value_ref = r.mkRef(&config.key),
+    });
 
-pub const command = &cli.Command{
-    .name = "ls",
-    .description = .{ .one_line = "list the children of an internal node" },
-    .target = .{ .action = .{ .exec = run, .positional_args = .{ .args = &.{&path_arg} } } },
-    .options = &.{
-        &name_option,
-        &level_option,
-        &key_option,
-        &key_encoding_option,
-    },
-};
+    try options.append(.{
+        .long_name = "key-encoding",
+        .short_alias = 'K',
+        .help = "\"raw\" or \"hex\" (default \"hex\")",
+        .value_ref = r.mkRef(&config.key_encoding),
+    });
+
+    return cli.Command{
+        .name = "ls",
+        .description = .{ .one_line = "list the children of an internal node" },
+        .target = .{ .action = .{ .exec = run, .positional_args = .{ .required = args.items } } },
+        .options = options.items,
+    };
+}
 
 fn run() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

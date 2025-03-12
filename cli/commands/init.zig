@@ -14,41 +14,43 @@ var config = struct {
     iota: u32 = 0,
 }{};
 
-var path_arg = cli.PositionalArg{
-    .name = "path",
-    .help = "path to data directory",
-    .value_ref = cli.mkRef(&config.path),
-};
+pub fn command(r: *cli.AppRunner) !cli.Command {
+    const allocator = r.arena.allocator();
 
-var databases_option = cli.Option{
-    .long_name = "databases",
-    .help = "Maximum number of named databases",
-    .value_ref = cli.mkRef(&config.databases),
-};
+    var args = std.ArrayList(cli.PositionalArg).init(allocator);
+    try args.append(.{
+        .name = "path",
+        .help = "path to data directory",
+        .value_ref = r.mkRef(&config.path),
+    });
 
-var name_option = cli.Option{
-    .long_name = "name",
-    .short_alias = 'n',
-    .help = "Select a named database",
-    .value_ref = cli.mkRef(&config.name),
-};
+    var options = std.ArrayList(cli.Option).init(allocator);
+    try options.append(.{
+        .long_name = "databases",
+        .help = "Maximum number of named databases",
+        .value_ref = r.mkRef(&config.databases),
+    });
 
-var iota_option = cli.Option{
-    .long_name = "iota",
-    .help = "Initialize the tree with hashes of the first iota positive integers as sample data",
-    .value_ref = cli.mkRef(&config.iota),
-};
+    try options.append(.{
+        .long_name = "name",
+        .short_alias = 'n',
+        .help = "Select a named database",
+        .value_ref = r.mkRef(&config.name),
+    });
 
-pub const command = &cli.Command{
-    .name = "init",
-    .description = .{ .one_line = "initialize an empty database environment" },
-    .target = .{ .action = .{ .exec = run, .positional_args = .{ .args = &.{&path_arg} } } },
-    .options = &.{
-        &databases_option,
-        &name_option,
-        &iota_option,
-    },
-};
+    try options.append(.{
+        .long_name = "iota",
+        .help = "Initialize the tree with hashes of the first iota positive integers as sample data",
+        .value_ref = r.mkRef(&config.iota),
+    });
+
+    return cli.Command{
+        .name = "init",
+        .description = .{ .one_line = "initialize an empty database environment" },
+        .target = .{ .action = .{ .exec = run, .positional_args = .{ .required = args.items } } },
+        .options = options.items,
+    };
+}
 
 fn run() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

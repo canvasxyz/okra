@@ -15,7 +15,7 @@ fn h(comptime value: *const [64]u8) [32]u8 {
     return buffer;
 }
 
-const empty_hash = h("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+const empty_hash = h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262");
 
 test "initialize a header in default database" {
     var tmp = std.testing.tmpDir(.{});

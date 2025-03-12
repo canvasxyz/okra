@@ -1,6 +1,5 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
-const allocator = std.heap.c_allocator;
 
 const cli = @import("zig-cli");
 const lmdb = @import("lmdb");
@@ -18,59 +17,59 @@ var config = struct {
     key_encoding: utils.Encoding = .hex,
 }{};
 
-var path_arg = cli.PositionalArg{
-    .name = "path",
-    .help = "path to data directory",
-    .value_ref = cli.mkRef(&config.path),
-};
+pub fn command(r: *cli.AppRunner) !cli.Command {
+    const allocator = r.arena.allocator();
 
-var name_option = cli.Option{
-    .long_name = "name",
-    .short_alias = 'n',
-    .help = "Select a named database",
-    .value_ref = cli.mkRef(&config.name),
-};
+    var args = std.ArrayList(cli.PositionalArg).init(allocator);
+    try args.append(.{
+        .name = "path",
+        .help = "path to data directory",
+        .value_ref = r.mkRef(&config.path),
+    });
 
-var depth_option = cli.Option{
-    .long_name = "depth",
-    .short_alias = 'd',
-    .help = "tree depth",
-    .value_ref = cli.mkRef(&config.depth),
-};
+    var options = std.ArrayList(cli.Option).init(allocator);
+    try options.append(.{
+        .long_name = "name",
+        .short_alias = 'n',
+        .help = "select a named database",
+        .value_ref = r.mkRef(&config.name),
+    });
 
-var height_option = cli.Option{
-    .long_name = "height",
-    .short_alias = 'h',
-    .help = "align to fixed height",
-    .value_ref = cli.mkRef(&config.height),
-};
+    try options.append(.{
+        .long_name = "depth",
+        .short_alias = 'd',
+        .help = "tree depth",
+        .value_ref = r.mkRef(&config.depth),
+    });
 
-// var key_option = cli.Option{
-//     .long_name = "key",
-//     .short_alias = 'k',
-//     .help = "node key",
-//     .value_ref = cli.mkRef(&config.key),
-// };
+    try options.append(.{
+        .long_name = "height",
+        .short_alias = 'h',
+        .help = "align to fixed height",
+        .value_ref = r.mkRef(&config.height),
+    });
 
-var key_encoding_option = cli.Option{
-    .long_name = "key-encoding",
-    .short_alias = 'K',
-    .help = "\"raw\" or \"hex\" (default \"hex\")",
-    .value_ref = cli.mkRef(&config.key_encoding),
-};
+    // try options.append(.{
+    //     .long_name = "key",
+    //     .short_alias = 'k',
+    //     .help = "node key",
+    //     .value_ref = r.mkRef(&config.key),
+    // });
 
-pub const command = &cli.Command{
-    .name = "tree",
-    .description = .{ .one_line = "print the tree structure" },
-    .target = .{ .action = .{ .exec = run, .positional_args = .{ .args = &.{&path_arg} } } },
-    .options = &.{
-        &name_option,
-        &depth_option,
-        &height_option,
-        // &key_option,
-        &key_encoding_option,
-    },
-};
+    // try options.append(.{
+    //     .long_name = "key-encoding",
+    //     .short_alias = 'K',
+    //     .help = "\"raw\" or \"hex\" (default \"hex\")",
+    //     .value_ref = r.mkRef(&config.key_encoding),
+    // });
+
+    return cli.Command{
+        .name = "tree",
+        .description = .{ .one_line = "print the tree structure" },
+        .target = .{ .action = .{ .exec = run, .positional_args = .{ .required = args.items } } },
+        .options = options.items,
+    };
+}
 
 fn run() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -105,10 +104,10 @@ fn run() !void {
 
     const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
-    var tree = try okra.Tree.init(allocator, db, .{});
+    var tree = try okra.Tree.init(gpa.allocator(), db, .{});
     defer tree.deinit();
 
-    var printer = try Printer.init(allocator, &tree, config.key_encoding);
+    var printer = try Printer.init(gpa.allocator(), &tree, config.key_encoding);
     defer printer.deinit();
 
     try printer.printRoot(

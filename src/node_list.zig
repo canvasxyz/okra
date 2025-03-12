@@ -17,9 +17,10 @@ pub fn NodeList(comptime K: u8, comptime Q: u32) type {
         pub fn deinit(self: *Self) void {
             for (self.nodes.items) |node| {
                 self.allocator.free(node.hash);
-                if (node.key) |key| {
+                if (node.key) |key|
                     self.allocator.free(key);
-                }
+                if (node.value) |value|
+                    self.allocator.free(value);
             }
 
             self.nodes.deinit(self.allocator);
@@ -28,9 +29,10 @@ pub fn NodeList(comptime K: u8, comptime Q: u32) type {
         pub fn clear(self: *Self) void {
             for (self.nodes.items) |node| {
                 self.allocator.free(node.hash);
-                if (node.key) |key| {
+                if (node.key) |key|
                     self.allocator.free(key);
-                }
+                if (node.value) |value|
+                    self.allocator.free(value);
             }
 
             self.nodes.clearRetainingCapacity();

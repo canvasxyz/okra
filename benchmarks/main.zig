@@ -8,7 +8,7 @@ const utils = @import("utils.zig");
 
 const value_size = 8;
 
-var prng = std.rand.DefaultPrng.init(0x0000000000000000);
+var prng = std.Random.DefaultPrng.init(0x0000000000000000);
 var random = prng.random();
 
 const ms: f64 = 1_000_000.0;

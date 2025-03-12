@@ -1,6 +1,5 @@
 const std = @import("std");
 const hex = std.fmt.fmtSliceHexLower;
-const allocator = std.heap.c_allocator;
 
 const cli = @import("zig-cli");
 const lmdb = @import("lmdb");
@@ -15,50 +14,52 @@ var config = struct {
     key_encoding: utils.Encoding = .hex,
 }{};
 
-var path_arg = cli.PositionalArg{
-    .name = "path",
-    .help = "path to data directory",
-    .value_ref = cli.mkRef(&config.path),
-};
+pub fn command(r: *cli.AppRunner) !cli.Command {
+    const allocator = r.arena.allocator();
 
-var name_option = cli.Option{
-    .long_name = "name",
-    .short_alias = 'n',
-    .help = "Select a named database",
-    .value_ref = cli.mkRef(&config.name),
-};
+    var args = std.ArrayList(cli.PositionalArg).init(allocator);
+    try args.append(.{
+        .name = "path",
+        .help = "path to data directory",
+        .value_ref = r.mkRef(&config.path),
+    });
 
-var key_option = cli.Option{
-    .long_name = "key",
-    .short_alias = 'k',
-    .help = "Entry key",
-    .value_ref = cli.mkRef(&config.key),
-    .required = true,
-};
+    var options = std.ArrayList(cli.Option).init(allocator);
+    try options.append(.{
+        .long_name = "name",
+        .short_alias = 'n',
+        .help = "select a named database",
+        .value_ref = r.mkRef(&config.name),
+    });
 
-var key_encoding_option = cli.Option{
-    .long_name = "key-encoding",
-    .short_alias = 'K',
-    .help = "\"raw\" or \"hex\" (default \"hex\")",
-    .value_ref = cli.mkRef(&config.key_encoding),
-};
+    try options.append(.{
+        .long_name = "key",
+        .short_alias = 'k',
+        .help = "Entry key",
+        .value_ref = r.mkRef(&config.key),
+        .required = true,
+    });
 
-pub const command = &cli.Command{
-    .name = "delete",
-    .description = .{ .one_line = "delete a value by key" },
-    .target = .{ .action = .{ .exec = run, .positional_args = .{ .args = &.{&path_arg} } } },
-    .options = &.{
-        &name_option,
-        &key_option,
-        &key_encoding_option,
-    },
-};
+    try options.append(.{
+        .long_name = "key-encoding",
+        .short_alias = 'K',
+        .help = "\"raw\" or \"hex\" (default \"hex\")",
+        .value_ref = r.mkRef(&config.key_encoding),
+    });
+
+    return cli.Command{
+        .name = "delete",
+        .description = .{ .one_line = "delete a value by key" },
+        .target = .{ .action = .{ .exec = run, .positional_args = .{ .required = args.items } } },
+        .options = options.items,
+    };
+}
 
 fn run() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(gpa.deinit() == .ok);
 
-    var key_buffer = std.ArrayList(u8).init(allocator);
+    var key_buffer = std.ArrayList(u8).init(gpa.allocator());
     defer key_buffer.deinit();
 
     switch (config.key_encoding) {
@@ -87,7 +88,7 @@ fn run() !void {
     const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
     {
-        var tree = try okra.Tree.init(allocator, db, .{});
+        var tree = try okra.Tree.init(gpa.allocator(), db, .{});
         defer tree.deinit();
 
         try tree.delete(key_buffer.items);
