@@ -5,7 +5,7 @@ const Error = @import("error.zig").Error;
 const Entry = @import("Entry.zig");
 const Tree = @import("./tree.zig").Tree;
 
-pub fn Map(comptime K: u8, comptime Q: u32) type {
+pub fn Index(comptime K: u8, comptime Q: u32) type {
     return struct {
         pub const Options = struct {
             log: ?std.fs.File.Writer = null,
@@ -24,20 +24,17 @@ pub fn Map(comptime K: u8, comptime Q: u32) type {
             self.tree.deinit();
         }
 
-        pub inline fn get(self: *Self, key: []const u8) Error!?[]const u8 {
+        pub inline fn get(self: *Self, key: []const u8) Error!?*const [K]u8 {
             const leaf = try self.tree.getLeaf(key) orelse return null;
             return leaf.value orelse return error.InvalidDatabase;
         }
 
-        pub inline fn set(self: *Self, key: []const u8, value: []const u8) Error!void {
-            var hash: [K]u8 = undefined;
-            Entry.hash(key, value, &hash);
-
+        pub inline fn set(self: *Self, key: []const u8, hash: *const [K]u8) Error!void {
             try self.tree.setLeaf(.{
                 .level = 0,
                 .key = key,
-                .hash = &hash,
-                .value = value,
+                .hash = hash,
+                .value = null,
             });
         }
 

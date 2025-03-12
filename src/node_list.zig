@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub fn NodeList(comptime K: u8, comptime Q: u32) type {
-    const Node = @import("node.zig").Node(K, Q);
+    const Node = @import("Node.zig").Node(K, Q);
 
     return struct {
         const Self = @This();

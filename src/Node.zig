@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const lmdb = @import("lmdb");
-const Key = @import("Key.zig");
+const keys = @import("keys.zig");
 
 pub fn Node(comptime K: u32, comptime Q: u8) type {
     return struct {
@@ -23,7 +23,7 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
 
         pub inline fn equal(self: Self, other: Self) bool {
             return self.level == other.level and
-                Key.equal(self.key, other.key) and
+                keys.equal(self.key, other.key) and
                 std.mem.eql(u8, self.hash, other.hash);
         }
 
@@ -31,7 +31,7 @@ pub fn Node(comptime K: u32, comptime Q: u8) type {
             if (actual) |actual_node| {
                 if (expected) |expected_node| {
                     try std.testing.expectEqual(expected_node.level, actual_node.level);
-                    try Key.expectEqual(expected_node.key, actual_node.key);
+                    try keys.expectEqual(expected_node.key, actual_node.key);
                     try std.testing.expectEqualSlices(u8, expected_node.hash, actual_node.hash);
                 } else {
                     return error.UnexpectedNode;

@@ -16,7 +16,7 @@ is_a_tty: bool,
 
 pub fn init(allocator: std.mem.Allocator, map: *okra.Map, encoding: utils.Encoding) !Printer {
     const stdout = std.io.getStdOut();
-    const iter = try okra.Iterator.init(allocator, map.db, .{ .level = 0 });
+    const iter = try okra.Iterator.init(allocator, map.tree.db, .{ .level = 0 });
     return .{
         .allocator = allocator,
         .map = map,
@@ -34,7 +34,7 @@ pub fn deinit(self: *Printer) void {
 }
 
 pub fn printRoot(self: *Printer, height: ?u8, depth: ?u8) !void {
-    const root = try self.map.getRoot();
+    const root = try self.map.tree.getRoot();
 
     var pad: u8 = 0;
     if (height) |h| {

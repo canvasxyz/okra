@@ -10,7 +10,7 @@ const K = 16;
 const Q = 4;
 
 const Iterator = @import("iterator.zig").Iterator(K, Q);
-const Node = @import("node.zig").Node(K, Q);
+const Node = @import("@import("Node.zig")").Node(K, Q);
 const Map = @import("map.zig").Map(K, Q);
 
 const utils = @import("utils.zig");

@@ -113,9 +113,9 @@ fn run() !void {
     defer map.deinit();
 
     const root = if (config.level == -1)
-        try map.getRoot()
+        try map.tree.getRoot()
     else
-        try map.getNode(@intCast(config.level), key_buffer.items) orelse
+        try map.tree.getNode(@intCast(config.level), key_buffer.items) orelse
             utils.fail("node not found", .{});
 
     try stdout.print("level | {s: <32} | key\n", .{"hash"});

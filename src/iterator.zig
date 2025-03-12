@@ -4,7 +4,7 @@ const expectEqual = std.testing.expectEqual;
 const lmdb = @import("lmdb");
 
 pub fn Iterator(comptime K: u8, comptime Q: u32) type {
-    const Node = @import("node.zig").Node(K, Q);
+    const Node = @import("Node.zig").Node(K, Q);
 
     return struct {
         pub const Bound = struct { key: ?[]const u8, inclusive: bool };

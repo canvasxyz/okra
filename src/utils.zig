@@ -5,7 +5,7 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const hex = std.fmt.fmtSliceHexLower;
 
 const lmdb = @import("lmdb");
-const Key = @import("Key.zig");
+const keys = @import("keys.zig");
 
 var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
 
@@ -52,12 +52,12 @@ pub fn expectEqualDatabases(expected: lmdb.Database, actual: lmdb.Database) !voi
 
     var expected_key = try expected_cursor.goToFirst();
     var actual_key = try actual_cursor.goToFirst();
-    try Key.expectEqual(expected_key, actual_key);
+    try keys.expectEqual(expected_key, actual_key);
 
     while (expected_key != null and actual_key != null) {
         expected_key = try expected_cursor.goToNext();
         actual_key = try actual_cursor.goToNext();
-        try Key.expectEqual(expected_key, actual_key);
+        try keys.expectEqual(expected_key, actual_key);
     }
 }
 

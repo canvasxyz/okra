@@ -12,7 +12,7 @@ const Q = 4;
 
 const Builder = @import("builder.zig").Builder(K, Q);
 const Map = @import("map.zig").Map(K, Q);
-const Key = @import("Key.zig");
+const keys = @import("keys.zig");
 const library = @import("library.zig");
 const utils = @import("utils.zig");
 
@@ -29,7 +29,7 @@ fn leaf(hash: *const [64]u8, value: u8) [33]u8 {
     return result;
 }
 
-test "open a Map" {
+test "open a Tree" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -72,10 +72,10 @@ test "basic get/set/delete operations" {
         try map.set("b", "bar");
         try map.set("c", "baz");
 
-        try Key.expectEqual("foo", try map.get("a"));
-        try Key.expectEqual("bar", try map.get("b"));
-        try Key.expectEqual("baz", try map.get("c"));
-        try Key.expectEqual(null, try map.get("d"));
+        try keys.expectEqual("foo", try map.get("a"));
+        try keys.expectEqual("bar", try map.get("b"));
+        try keys.expectEqual("baz", try map.get("c"));
+        try keys.expectEqual(null, try map.get("d"));
     }
 }
 
@@ -99,10 +99,10 @@ test "set empty values" {
         try map.set("b", "");
         try map.set("c", "");
 
-        try Key.expectEqual("", try map.get("a"));
-        try Key.expectEqual("", try map.get("b"));
-        try Key.expectEqual("", try map.get("c"));
-        try Key.expectEqual(null, try map.get("d"));
+        try keys.expectEqual("", try map.get("a"));
+        try keys.expectEqual("", try map.get("b"));
+        try keys.expectEqual("", try map.get("c"));
+        try keys.expectEqual(null, try map.get("d"));
     }
 }
 

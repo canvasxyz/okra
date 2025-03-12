@@ -11,7 +11,7 @@ const Q = 4;
 const Header = @import("cursor.zig").Header(K, Q);
 const Builder = @import("builder.zig").Builder(K, Q);
 const Cursor = @import("cursor.zig").Cursor(K, Q);
-const Key = @import("Key.zig");
+const keys = @import("keys.zig");
 const utils = @import("utils.zig");
 
 const allocator = std.heap.c_allocator;
@@ -46,19 +46,19 @@ test "basic cursor operations" {
 
     if (try cursor.seek(0, "a")) |node| {
         try expectEqual(0, node.level);
-        try Key.expectEqual("a", node.key);
-        try Key.expectEqual("foo", node.value);
+        try keys.expectEqual("a", node.key);
+        try keys.expectEqual("foo", node.value);
     } else return error.NotFound;
 
     if (try cursor.goToNext()) |node| {
         try expectEqual(0, node.level);
-        try Key.expectEqual("b", node.key);
-        try Key.expectEqual("bar", node.value);
+        try keys.expectEqual("b", node.key);
+        try keys.expectEqual("bar", node.value);
     } else return error.NotFound;
 
     if (try cursor.goToNext()) |node| {
         try expectEqual(0, node.level);
-        try Key.expectEqual("c", node.key);
-        try Key.expectEqual("baz", node.value);
+        try keys.expectEqual("c", node.key);
+        try keys.expectEqual("baz", node.value);
     } else return error.NotFound;
 }
