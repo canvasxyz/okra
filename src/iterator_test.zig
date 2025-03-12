@@ -36,13 +36,9 @@ test "Iterator(a, b, c)" {
     var map = try Map.init(allocator, db, .{});
     defer map.deinit();
 
-    try map.set("a", "\x00");
-    try map.set("b", "\x01");
-    try map.set("c", "\x02");
-
-    // try tree.set("a", "foo");
-    // try tree.set("b", "bar");
-    // try tree.set("c", "baz");
+    try map.set("a", "foo");
+    try map.set("b", "bar");
+    try map.set("c", "baz");
 
     // okay here we expect
     // L0 -----------------------------

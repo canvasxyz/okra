@@ -181,7 +181,6 @@ test "delete a leaf boundary" {
 
     const db = try txn.database(null, .{});
 
-
     {
         var map = try Map.init(allocator, db, .{ .log = null });
         defer map.deinit();
@@ -203,7 +202,6 @@ test "delete a leaf boundary" {
 
     //     try sl.delete("d");
     // }
-
 
     try utils.expectEqualEntries(db, &.{
         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
@@ -236,31 +234,29 @@ test "overwrite a leaf boundary with another boundary" {
 
     const db = try txn.database(null, .{});
 
-<<<<<<< HEAD:src/map_test.zig
-//     {
-//         var map = try Map.init(allocator, db, .{});
-//         defer map.deinit();
-
-//         for (library.tests[2].leaves) |entry| {
-//             try map.set(entry[0], entry[1]);
-//         }
-
-//         try map.delete("d");
-//         try map.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
-//     }
-=======
     {
-        var sl = try Tree.init(allocator, db, .{});
-        defer sl.deinit();
+        var map = try Map.init(allocator, db, .{});
+        defer map.deinit();
 
         for (library.tests[2].leaves) |entry| {
-            try sl.set(entry[0], entry[1]);
+            try map.set(entry[0], entry[1]);
         }
 
-        try sl.delete("d");
-        try sl.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
+        try map.delete("d");
+        try map.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
     }
->>>>>>> zig-0.14.0:src/tree_test.zig
+
+    // {
+    //     var sl = try Tree.init(allocator, db, .{});
+    //     defer sl.deinit();
+
+    //     for (library.tests[2].leaves) |entry| {
+    //         try sl.set(entry[0], entry[1]);
+    //     }
+
+    //     try sl.delete("d");
+    //     try sl.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
+    // }
 
     try utils.expectEqualEntries(db, &.{
         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
@@ -295,31 +291,29 @@ test "overwrite a leaf boundary with a non-boundary" {
 
     const db = try txn.database(null, .{});
 
-<<<<<<< HEAD:src/map_test.zig
-//     {
-//         var map = try Map.init(allocator, db, .{});
-//         defer map.deinit();
-
-//         for (library.tests[2].leaves) |entry| {
-//             try map.set(entry[0], entry[1]);
-//         }
-
-//         try map.delete("d");
-//         try map.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
-//     }
-=======
     {
-        var sl = try Tree.init(allocator, db, .{});
-        defer sl.deinit();
+        var map = try Map.init(allocator, db, .{});
+        defer map.deinit();
 
         for (library.tests[2].leaves) |entry| {
-            try sl.set(entry[0], entry[1]);
+            try map.set(entry[0], entry[1]);
         }
 
-        try sl.delete("d");
-        try sl.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
+        try map.delete("d");
+        try map.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
     }
->>>>>>> zig-0.14.0:src/tree_test.zig
+
+    // {
+    //     var sl = try Tree.init(allocator, db, .{});
+    //     defer sl.deinit();
+
+    //     for (library.tests[2].leaves) |entry| {
+    //         try sl.set(entry[0], entry[1]);
+    //     }
+
+    //     try sl.delete("d");
+    //     try sl.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
+    // }
 
     try utils.expectEqualEntries(db, &.{
         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
