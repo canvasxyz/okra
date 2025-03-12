@@ -8,7 +8,7 @@ const lmdb = @import("lmdb");
 
 const K = 32;
 const Q = 4;
-const Builder = @import("builder.zig").Builder(K, Q);
+const Builder = @import("Builder.zig").Builder(K, Q);
 const Cursor = @import("cursor.zig").Cursor(K, Q);
 const keys = @import("keys.zig");
 const utils = @import("utils.zig");
