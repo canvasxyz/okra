@@ -5,7 +5,7 @@ const lmdb = @import("lmdb");
 
 const K = 32;
 const Q = 4;
-const Header = @import("header.zig").Header(K, Q);
+const Header = @import("Header.zig").Header(K, Q);
 
 const utils = @import("utils.zig");
 

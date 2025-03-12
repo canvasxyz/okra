@@ -12,7 +12,7 @@ const Entry = @import("Entry.zig");
 /// Create a builder with Builder.open(allocator, env, options),
 /// insert as many leaves as you want, and then commit.
 pub fn Builder(comptime K: u8, comptime Q: u32) type {
-    const Header = @import("header.zig").Header(K, Q);
+    const Header = @import("Header.zig").Header(K, Q);
 
     return struct {
         const Self = @This();
