@@ -3,7 +3,7 @@ const lmdb = @import("lmdb");
 
 const Error = @import("error.zig").Error;
 const Entry = @import("Entry.zig");
-const Tree = @import("./tree.zig").Tree;
+const Tree = @import("./Tree.zig").Tree;
 
 pub fn Index(comptime K: u8, comptime Q: u32) type {
     return struct {
