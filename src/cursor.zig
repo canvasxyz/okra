@@ -6,7 +6,7 @@ const Error = @import("error.zig").Error;
 pub fn Cursor(comptime K: u8, comptime Q: u32) type {
     const Header = @import("Header.zig").Header(K, Q);
     const Node = @import("Node.zig").Node(K, Q);
-    const Encoder = @import("encoder.zig").Encoder(K, Q);
+    const Encoder = @import("Encoder.zig").Encoder(K, Q);
 
     return struct {
         const Self = @This();
