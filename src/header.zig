@@ -1,5 +1,5 @@
 const std = @import("std");
-const Sha256 = std.crypto.hash.sha2.Sha256;
+const Blake3 = std.crypto.hash.Blake3;
 
 const lmdb = @import("lmdb");
 
@@ -11,7 +11,7 @@ fn getFanoutDegree(comptime Q: u32) [4]u8 {
 
 pub fn Header(comptime K: u8, comptime Q: u32) type {
     return struct {
-        pub const ANCHOR_KEY = [1]u8{0x00};
+        pub const LEAF_ANCHOR_KEY = [1]u8{0x00};
         pub const METADATA_KEY = [1]u8{0xff};
 
         pub const DATABASE_VERSION = 0x02;
@@ -38,9 +38,9 @@ pub fn Header(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn write(db: lmdb.Database) !void {
-            var anchor_hash: [Sha256.digest_length]u8 = undefined;
-            Sha256.hash(&[0]u8{}, &anchor_hash, .{});
-            try db.set(&ANCHOR_KEY, anchor_hash[0..K]);
+            var leaf_anchor_hash: [K]u8 = undefined;
+            Blake3.hash(&[0]u8{}, &leaf_anchor_hash, .{});
+            try db.set(&LEAF_ANCHOR_KEY, &leaf_anchor_hash);
             try db.set(&METADATA_KEY, &header);
         }
 

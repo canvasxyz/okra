@@ -1,38 +1,43 @@
 const std = @import("std");
-const allocator = std.heap.c_allocator;
 
 const cli = @import("zig-cli");
 
-const init = @import("./commands/init.zig").command;
+const init = @import("./commands/init.zig");
 
-const cat = @import("./commands/cat.zig").command;
-const ls = @import("./commands/ls.zig").command;
-const tree = @import("./commands/tree.zig").command;
+const cat = @import("./commands/cat.zig");
+const ls = @import("./commands/ls.zig");
+const tree = @import("./commands/tree.zig");
 
-const get = @import("./commands/get.zig").command;
-const set = @import("./commands/set.zig").command;
-const delete = @import("./commands/delete.zig").command;
-
-var app = &cli.App{
-    .command = .{
-        .name = "okra",
-        .description = .{ .one_line = "okra is a deterministic pseudo-random merkle tree built on LMDB" },
-        .target = .{
-            .subcommands = &.{
-                init,
-
-                cat,
-                ls,
-                tree,
-
-                get,
-                set,
-                delete,
-            },
-        },
-    },
-};
+const get = @import("./commands/get.zig");
+const set = @import("./commands/set.zig");
+const delete = @import("./commands/delete.zig");
 
 pub fn main() !void {
-    return cli.run(app, allocator);
+    var r = try cli.AppRunner.init(std.heap.page_allocator);
+
+    const app = &cli.App{
+        .command = .{
+            .name = "okra",
+            .description = .{ .one_line = "okra is a deterministic pseudo-random merkle tree built on LMDB" },
+            .target = .{
+                .subcommands = &.{
+                    try init.command(&r),
+
+                    try cat.command(&r),
+                    try ls.command(&r),
+                    try tree.command(&r),
+
+                    try get.command(&r),
+                    try set.command(&r),
+                    try delete.command(&r),
+                },
+            },
+        },
+    };
+
+    return r.run(app);
 }
+
+// fn run_server() !void {
+//     std.log.info("blah blah lba", .{});
+// }

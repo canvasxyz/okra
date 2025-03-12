@@ -40,17 +40,21 @@ test "Iterator(a, b, c)" {
     try map.set("b", "\x01");
     try map.set("c", "\x02");
 
+    // try tree.set("a", "foo");
+    // try tree.set("b", "bar");
+    // try tree.set("c", "baz");
+
     // okay here we expect
     // L0 -----------------------------
-    // e3b0c44298fc1c149afbf4c8996fb924
-    // f39bd65e0288b1f54b1f9d0aed568987 "a"
-    // 89902f000cf47c6c01c66da838aadb70 "b"
-    // 0bcff62fc85f03c136c9cb7fbd358216 "c"
+    // af1349b9f5f9a1a6a0404dea36dcc949
+    // 2f26b85f65eb9f7a8ac11e79e710148d "a"
+    // 684f1047a178e6cf9fff759ba1edec2d "b"
+    // 56cb13c78823525b08d471b6c1201360 "c"
     // L1 -----------------------------
-    // c690df2a79dd4867260d5812d3abd9b4
-    // fbe9d2ee084505176765652f9191c5ee "c"
+    // 6c5483c477697c881f6b03dc23a52c7f
+    // d139f1b3444bc84fd46cbd56f7fe2fb5 "a"
     // L2 -----------------------------
-    // a1d0d977083450f6935a1465e503da22
+    // 2453a3811e50851b4fc0bb95e1415b07
 
     var iter = try Iterator.init(allocator, db, .{ .level = 2 });
     defer iter.deinit();
@@ -58,7 +62,7 @@ test "Iterator(a, b, c)" {
     try Node.expectEqual(.{
         .level = 2,
         .key = null,
-        .hash = &h("a1d0d977083450f6935a1465e503da22"),
+        .hash = &h("2453a3811e50851b4fc0bb95e1415b07"),
     }, try iter.next());
     try Node.expectEqual(null, try iter.next());
     try Node.expectEqual(null, try iter.next());
@@ -67,12 +71,12 @@ test "Iterator(a, b, c)" {
     try Node.expectEqual(.{
         .level = 1,
         .key = null,
-        .hash = &h("c690df2a79dd4867260d5812d3abd9b4"),
+        .hash = &h("6c5483c477697c881f6b03dc23a52c7f"),
     }, try iter.next());
     try Node.expectEqual(.{
         .level = 1,
-        .key = "c",
-        .hash = &h("fbe9d2ee084505176765652f9191c5ee"),
+        .key = "a",
+        .hash = &h("d139f1b3444bc84fd46cbd56f7fe2fb5"),
     }, try iter.next());
     try Node.expectEqual(null, try iter.next());
     try Node.expectEqual(null, try iter.next());
@@ -81,22 +85,22 @@ test "Iterator(a, b, c)" {
     try Node.expectEqual(.{
         .level = 0,
         .key = null,
-        .hash = &h("e3b0c44298fc1c149afbf4c8996fb924"),
+        .hash = &h("af1349b9f5f9a1a6a0404dea36dcc949"),
     }, try iter.next());
     try Node.expectEqual(.{
         .level = 0,
         .key = "a",
-        .hash = &h("f39bd65e0288b1f54b1f9d0aed568987"),
+        .hash = &h("2f26b85f65eb9f7a8ac11e79e710148d"),
     }, try iter.next());
     try Node.expectEqual(.{
         .level = 0,
         .key = "b",
-        .hash = &h("89902f000cf47c6c01c66da838aadb70"),
+        .hash = &h("684f1047a178e6cf9fff759ba1edec2d"),
     }, try iter.next());
     try Node.expectEqual(.{
         .level = 0,
         .key = "c",
-        .hash = &h("0bcff62fc85f03c136c9cb7fbd358216"),
+        .hash = &h("56cb13c78823525b08d471b6c1201360"),
     }, try iter.next());
     try Node.expectEqual(null, try iter.next());
     try Node.expectEqual(null, try iter.next());
@@ -110,8 +114,8 @@ test "Iterator(a, b, c)" {
     try iter.reset(.{ .level = 1, .lower_bound = .{ .key = null, .inclusive = false } });
     try Node.expectEqual(.{
         .level = 1,
-        .key = "c",
-        .hash = &h("fbe9d2ee084505176765652f9191c5ee"),
+        .key = "a",
+        .hash = &h("d139f1b3444bc84fd46cbd56f7fe2fb5"),
     }, try iter.next());
     try Node.expectEqual(null, try iter.next());
 
@@ -123,7 +127,7 @@ test "Iterator(a, b, c)" {
     try Node.expectEqual(.{
         .level = 0,
         .key = "b",
-        .hash = &h("89902f000cf47c6c01c66da838aadb70"),
+        .hash = &h("684f1047a178e6cf9fff759ba1edec2d"),
     }, try iter.next());
     try Node.expectEqual(null, try iter.next());
 
@@ -135,12 +139,12 @@ test "Iterator(a, b, c)" {
     try Node.expectEqual(.{
         .level = 0,
         .key = "b",
-        .hash = &h("89902f000cf47c6c01c66da838aadb70"),
+        .hash = &h("684f1047a178e6cf9fff759ba1edec2d"),
     }, try iter.next());
     try Node.expectEqual(.{
         .level = 0,
         .key = "c",
-        .hash = &h("0bcff62fc85f03c136c9cb7fbd358216"),
+        .hash = &h("56cb13c78823525b08d471b6c1201360"),
     }, try iter.next());
     try Node.expectEqual(null, try iter.next());
 
@@ -152,7 +156,7 @@ test "Iterator(a, b, c)" {
     try Node.expectEqual(.{
         .level = 0,
         .key = "a",
-        .hash = &h("f39bd65e0288b1f54b1f9d0aed568987"),
+        .hash = &h("2f26b85f65eb9f7a8ac11e79e710148d"),
     }, try iter.next());
     try Node.expectEqual(null, try iter.next());
 
@@ -164,12 +168,12 @@ test "Iterator(a, b, c)" {
     try Node.expectEqual(.{
         .level = 0,
         .key = "a",
-        .hash = &h("f39bd65e0288b1f54b1f9d0aed568987"),
+        .hash = &h("2f26b85f65eb9f7a8ac11e79e710148d"),
     }, try iter.next());
     try Node.expectEqual(.{
         .level = 0,
         .key = null,
-        .hash = &h("e3b0c44298fc1c149afbf4c8996fb924"),
+        .hash = &h("af1349b9f5f9a1a6a0404dea36dcc949"),
     }, try iter.next());
     try Node.expectEqual(null, try iter.next());
 
@@ -182,7 +186,7 @@ test "Iterator(a, b, c)" {
     try Node.expectEqual(.{
         .level = 0,
         .key = "a",
-        .hash = &h("f39bd65e0288b1f54b1f9d0aed568987"),
+        .hash = &h("2f26b85f65eb9f7a8ac11e79e710148d"),
     }, try iter.next());
     try Node.expectEqual(null, try iter.next());
 
@@ -208,13 +212,13 @@ test "Iterator(a, b, c)" {
     });
     try Node.expectEqual(.{
         .level = 1,
-        .key = "c",
-        .hash = &h("fbe9d2ee084505176765652f9191c5ee"),
+        .key = "a",
+        .hash = &h("d139f1b3444bc84fd46cbd56f7fe2fb5"),
     }, try iter.next());
     try Node.expectEqual(.{
         .level = 1,
         .key = null,
-        .hash = &h("c690df2a79dd4867260d5812d3abd9b4"),
+        .hash = &h("6c5483c477697c881f6b03dc23a52c7f"),
     }, try iter.next());
     try Node.expectEqual(null, try iter.next());
 
@@ -225,8 +229,8 @@ test "Iterator(a, b, c)" {
     });
     try Node.expectEqual(.{
         .level = 1,
-        .key = "c",
-        .hash = &h("fbe9d2ee084505176765652f9191c5ee"),
+        .key = "a",
+        .hash = &h("d139f1b3444bc84fd46cbd56f7fe2fb5"),
     }, try iter.next());
     try Node.expectEqual(null, try iter.next());
 }

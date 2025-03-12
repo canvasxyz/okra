@@ -46,7 +46,7 @@ test "open a Map" {
         defer map.deinit();
 
         try utils.expectEqualEntries(db, &.{
-            .{ &[_]u8{0}, &h("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") },
+            .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
             .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
         });
     }
@@ -166,63 +166,77 @@ test "set the same entry twice" {
     }
 }
 
-// test "delete a leaf boundary" {
-//     const log = std.io.getStdErr().writer();
-//     try log.writeByte('\n');
+test "delete a leaf boundary" {
+    const log = std.io.getStdErr().writer();
+    try log.writeByte('\n');
 
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-//     const env = try utils.open(tmp.dir, .{});
-//     defer env.deinit();
+    const env = try utils.open(tmp.dir, .{});
+    defer env.deinit();
 
-//     const txn = try env.transaction(.{ .mode = .ReadWrite });
-//     defer txn.abort();
+    const txn = try env.transaction(.{ .mode = .ReadWrite });
+    defer txn.abort();
 
-//     const db = try txn.database(null, .{});
+    const db = try txn.database(null, .{});
 
-//     {
-//         var map = try Map.init(allocator, db, .{ .log = null });
-//         defer map.deinit();
 
-//         for (library.tests[2].leaves) |entry| {
-//             try map.set(entry[0], entry[1]);
-//         }
+    {
+        var map = try Map.init(allocator, db, .{ .log = null });
+        defer map.deinit();
 
-//         try map.delete("d");
-//     }
+        for (library.tests[2].leaves) |entry| {
+            try map.set(entry[0], entry[1]);
+        }
 
-//     try utils.expectEqualEntries(db, &.{
-//         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-//         .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
-//         .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
-//         .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
-//         .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
-//         .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
-//         .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
-//         .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
-//         .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
-//         .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
-//         .{ &[_]u8{1}, &h("7ba4b9fd7a5b818f342615616c0a5697735b01e2fe6297a44a576a8d0286a670") },
-//         .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
-//         .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
-//         .{ &[_]u8{2}, &h("4124354b00d608e230b707504173482baf7b11636c62a8ec3abb0471e7ce89ed") },
-//         .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
-//     });
-// }
+        try map.delete("d");
+    }
 
-// test "overwrite a leaf boundary with another boundary" {
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
+    // {
+    //     var sl = try Tree.init(allocator, db, .{ .log = null });
+    //     defer sl.deinit();
 
-//     const env = try utils.open(tmp.dir, .{});
-//     defer env.deinit();
+    //     for (library.tests[2].leaves) |entry| {
+    //         try sl.set(entry[0], entry[1]);
+    //     }
 
-//     const txn = try env.transaction(.{ .mode = .ReadWrite });
-//     defer txn.abort();
+    //     try sl.delete("d");
+    // }
 
-//     const db = try txn.database(null, .{});
 
+    try utils.expectEqualEntries(db, &.{
+        .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
+        .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
+        .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
+        .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
+        .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
+        .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
+        .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
+        .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
+        .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
+        .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
+        .{ &[_]u8{1}, &h("7ba4b9fd7a5b818f342615616c0a5697735b01e2fe6297a44a576a8d0286a670") },
+        .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
+        .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
+        .{ &[_]u8{2}, &h("4124354b00d608e230b707504173482baf7b11636c62a8ec3abb0471e7ce89ed") },
+        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
+    });
+}
+
+test "overwrite a leaf boundary with another boundary" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const env = try utils.open(tmp.dir, .{});
+    defer env.deinit();
+
+    const txn = try env.transaction(.{ .mode = .ReadWrite });
+    defer txn.abort();
+
+    const db = try txn.database(null, .{});
+
+<<<<<<< HEAD:src/map_test.zig
 //     {
 //         var map = try Map.init(allocator, db, .{});
 //         defer map.deinit();
@@ -234,40 +248,54 @@ test "set the same entry twice" {
 //         try map.delete("d");
 //         try map.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
 //     }
+=======
+    {
+        var sl = try Tree.init(allocator, db, .{});
+        defer sl.deinit();
 
-//     try utils.expectEqualEntries(db, &.{
-//         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-//         .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
-//         .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
-//         .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
-//         .{ &[_]u8{ 0, 'd' }, &leaf("0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2", 0x0c) },
-//         .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
-//         .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
-//         .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
-//         .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
-//         .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
-//         .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
-//         .{ &[_]u8{1}, &h("70ff616136e6ca5726aa564f5db211806ee00a5beb72bbe8d5ce29e95351e092") },
-//         .{ &[_]u8{ 1, 'd' }, &h("8c2f38a49b3e3b3e0bf4914ce5c87e4992be4c98b1df18638787cba6437b0287") },
-//         .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
-//         .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
-//         .{ &[_]u8{2}, &h("14953d0fc005ee26c8bfbc3757b4f2642d9936a7b3a99eb6d6d7347b7ec2cd97") },
-//         .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
-//     });
-// }
+        for (library.tests[2].leaves) |entry| {
+            try sl.set(entry[0], entry[1]);
+        }
 
-// test "overwrite a leaf boundary with a non-boundary" {
-//     var tmp = std.testing.tmpDir(.{});
-//     defer tmp.cleanup();
+        try sl.delete("d");
+        try sl.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
+    }
+>>>>>>> zig-0.14.0:src/tree_test.zig
 
-//     const env = try utils.open(tmp.dir, .{});
-//     defer env.deinit();
+    try utils.expectEqualEntries(db, &.{
+        .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
+        .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
+        .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
+        .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
+        .{ &[_]u8{ 0, 'd' }, &leaf("0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2", 0x0c) },
+        .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
+        .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
+        .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
+        .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
+        .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
+        .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
+        .{ &[_]u8{1}, &h("70ff616136e6ca5726aa564f5db211806ee00a5beb72bbe8d5ce29e95351e092") },
+        .{ &[_]u8{ 1, 'd' }, &h("8c2f38a49b3e3b3e0bf4914ce5c87e4992be4c98b1df18638787cba6437b0287") },
+        .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
+        .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
+        .{ &[_]u8{2}, &h("14953d0fc005ee26c8bfbc3757b4f2642d9936a7b3a99eb6d6d7347b7ec2cd97") },
+        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
+    });
+}
 
-//     const txn = try lmdb.Transaction.init(env, .{ .mode = .ReadWrite });
-//     defer txn.abort();
+test "overwrite a leaf boundary with a non-boundary" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
 
-//     const db = try txn.database(null, .{});
+    const env = try utils.open(tmp.dir, .{});
+    defer env.deinit();
 
+    const txn = try lmdb.Transaction.init(env, .{ .mode = .ReadWrite });
+    defer txn.abort();
+
+    const db = try txn.database(null, .{});
+
+<<<<<<< HEAD:src/map_test.zig
 //     {
 //         var map = try Map.init(allocator, db, .{});
 //         defer map.deinit();
@@ -279,26 +307,39 @@ test "set the same entry twice" {
 //         try map.delete("d");
 //         try map.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
 //     }
+=======
+    {
+        var sl = try Tree.init(allocator, db, .{});
+        defer sl.deinit();
 
-//     try utils.expectEqualEntries(db, &.{
-//         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-//         .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
-//         .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
-//         .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
-//         .{ &[_]u8{ 0, 'd' }, &leaf("ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542", 0x00) },
-//         .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
-//         .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
-//         .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
-//         .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
-//         .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
-//         .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
-//         .{ &[_]u8{1}, &h("16ca86834b817987b8b75bd54ab477d938d494f012c8f86ce564e201df19e125") },
-//         .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
-//         .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
-//         .{ &[_]u8{2}, &h("733469f093b400276d5f804fc7f698e4a5a6d608bd4e75190f5917e1ff6663b1") },
-//         .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 1, 32, 0, 0, 0, 4 } },
-//     });
-// }
+        for (library.tests[2].leaves) |entry| {
+            try sl.set(entry[0], entry[1]);
+        }
+
+        try sl.delete("d");
+        try sl.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
+    }
+>>>>>>> zig-0.14.0:src/tree_test.zig
+
+    try utils.expectEqualEntries(db, &.{
+        .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
+        .{ &[_]u8{ 0, 'a' }, &leaf("a0568b6bb51648ab5b2df66ca897ffa4c58ed956cdbcf846d914b269ff182e02", 0x00) },
+        .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
+        .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
+        .{ &[_]u8{ 0, 'd' }, &leaf("ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542", 0x00) },
+        .{ &[_]u8{ 0, 'e' }, &leaf("e754a835f3376cb88e9409bbd32171ed35a7fba438046562140fe6611b9b9c19", 0x04) },
+        .{ &[_]u8{ 0, 'f' }, &leaf("3036e350f1987268c6b3b0e3d77ab42bd231a63a59747b420aa27b7531b612e1", 0x05) },
+        .{ &[_]u8{ 0, 'g' }, &leaf("1205bde66f06562c541fc2da7a0520522140dc9e79c726774d548809ce13f387", 0x06) },
+        .{ &[_]u8{ 0, 'h' }, &leaf("9f6a45a8ad078a5d6e26d841a5cda5bc7a6a45e431b9569c7d4a190b7e329514", 0x07) },
+        .{ &[_]u8{ 0, 'i' }, &leaf("7b3ab478e1555bcfb823e59f7c3d2b7fda3e268876aead5d664cdfd57441b89a", 0x08) },
+        .{ &[_]u8{ 0, 'j' }, &leaf("661ebf57575dfc3d87a8d7ad0cb9f9eb9f6f20aa0f004ae4282d7a8d172e4a5d", 0x09) },
+        .{ &[_]u8{1}, &h("16ca86834b817987b8b75bd54ab477d938d494f012c8f86ce564e201df19e125") },
+        .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
+        .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
+        .{ &[_]u8{2}, &h("733469f093b400276d5f804fc7f698e4a5a6d608bd4e75190f5917e1ff6663b1") },
+        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
+    });
+}
 
 const PermutationOptions = struct {
     log: ?std.fs.File.Writer = null,
@@ -318,14 +359,14 @@ fn testPseudoRandomPermutations(
 
     var permutations: [N][P]u16 = undefined;
 
-    var prng = std.rand.DefaultPrng.init(0x0000000000000000);
+    var prng = std.Random.DefaultPrng.init(0x0000000000000000);
     const random = prng.random();
 
     var n: u16 = 0;
     while (n < N) : (n += 1) {
         var p: u16 = 0;
         while (p < P) : (p += 1) permutations[n][p] = p;
-        std.rand.Random.shuffle(random, u16, &permutations[n]);
+        std.Random.shuffle(random, u16, &permutations[n]);
     }
 
     var key: [2]u8 = undefined;

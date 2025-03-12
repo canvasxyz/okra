@@ -1,15 +1,17 @@
 .{
-    .name = "zig-okra",
+    .name = .okra,
+    .fingerprint = 0x213f5632c193137b,
     .paths = .{ "src", "build.zig", "build.zig.zon" },
-    .version = "0.1.0",
+    .version = "0.2.0",
+    .minimum_zig_version = "0.14.0",
     .dependencies = .{
-        .@"zig-lmdb" = .{
-            .url = "https://github.com/canvasxyz/zig-lmdb/archive/refs/tags/v0.1.0.tar.gz",
-            .hash = "1220d5ca02660a791ea022d60a032ae56b629002d3930117d8047ecf615f012044f7",
+        .lmdb = .{
+            .url = "https://github.com/canvasxyz/zig-lmdb/archive/refs/tags/v0.2.0.tar.gz",
+            .hash = "lmdb-0.2.0-6TpzoBU9AAAUrfZe7EG6aF1Iyl_dR9IqyGu5njxCJ2Jf",
         },
-        .@"zig-cli" = .{
-            .url = "https://github.com/sam701/zig-cli/archive/8c7a798c0f7fa0358d7ab41106fc872fca4cd995.tar.gz",
-            .hash = "1220c008492d9460c3be2b209600a948181e6efb3bf0d79a1633def499632e708f4b",
+        .cli = .{
+            .url = "https://github.com/sam701/zig-cli/archive/7dcc9fa4dbfe77673c97a0be6b814f208373f54c.tar.gz",
+            .hash = "cli-0.9.0-2eKe_8D2AACsJeXkYpgqPjp7vhpWpGP5d5rdQ4Y1WBnP",
         },
     },
 }

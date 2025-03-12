@@ -4,10 +4,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const lmdb_dep = b.dependency("zig-lmdb", .{});
+    const lmdb_dep = b.dependency("lmdb", .{});
     const lmdb = lmdb_dep.module("lmdb");
 
-    const cli_dep = b.dependency("zig-cli", .{});
+    const cli_dep = b.dependency("cli", .{});
 
     const okra = b.addModule("okra", .{
         .root_source_file = b.path("src/lib.zig"),
