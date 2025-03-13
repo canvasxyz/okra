@@ -11,6 +11,7 @@ const keys = @import("keys.zig");
 
 pub fn Tree(comptime K: u8, comptime Q: u32) type {
     const Header = @import("Header.zig").Header(K, Q);
+    const Mode = @import("Header.zig").Mode;
     const Node = @import("Node.zig").Node(K, Q);
     const Cursor = @import("Cursor.zig").Cursor(K, Q);
     const Encoder = @import("Encoder.zig").Encoder(K, Q);
@@ -23,19 +24,36 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
         const Self = @This();
 
         arena: std.heap.ArenaAllocator,
+        mode: Mode,
         db: lmdb.Database,
         cursor: Cursor,
         encoder: Encoder,
         logger: ?std.fs.File.Writer,
 
-        pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) Error!Self {
-            try Header.initialize(db);
+        pub fn open(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) Error!Self {
+            const metadata_value = try db.get(&Header.METADATA_KEY) orelse return error.Uninitialized;
+            const mode = try Header.validate(metadata_value, null);
+            const cursor = try Cursor.init(allocator, db);
+
+            return .{
+                .arena = std.heap.ArenaAllocator.init(allocator),
+                .db = db,
+                .mode = mode,
+                .cursor = cursor,
+                .encoder = Encoder.init(allocator),
+                .logger = options.log,
+            };
+        }
+
+        pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, mode: Mode, options: Options) Error!Self {
+            try Header.initialize(db, mode);
 
             const cursor = try Cursor.init(allocator, db);
 
             return .{
                 .arena = std.heap.ArenaAllocator.init(allocator),
                 .db = db,
+                .mode = mode,
                 .cursor = cursor,
                 .encoder = Encoder.init(allocator),
                 .logger = options.log,
@@ -77,7 +95,7 @@ pub fn Tree(comptime K: u8, comptime Q: u32) type {
             try self.updateNode(allocator, 1, old_parent_key);
         }
 
-        pub fn delete(self: *Self, key: []const u8) Error!void {
+        pub fn deleteLeaf(self: *Self, key: []const u8) Error!void {
             const allocator = self.arena.allocator();
             defer assert(self.arena.reset(.free_all));
 

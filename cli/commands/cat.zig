@@ -75,6 +75,9 @@ fn run() !void {
 
     const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
+    var tree = try okra.Tree.open(gpa.allocator(), db, .{});
+    defer tree.deinit();
+
     const range = okra.Iterator.Range{
         .level = 0,
         .lower_bound = .{ .key = null, .inclusive = false },
@@ -89,9 +92,15 @@ fn run() !void {
             .hex => try stdout.print("{s}\t", .{hex(node.key.?)}),
         }
 
-        switch (config.value_encoding) {
-            .raw => try stdout.print("{s}\n", .{node.value.?}),
-            .hex => try stdout.print("{s}\n", .{hex(node.value.?)}),
+        switch (tree.mode) {
+            .Index => try stdout.print("{s}\n", .{hex(node.hash)}),
+            .Store => {
+                const value = node.value orelse @panic("internal error");
+                switch (config.value_encoding) {
+                    .raw => try stdout.print("{s}\n", .{value}),
+                    .hex => try stdout.print("{s}\n", .{hex(value)}),
+                }
+            },
         }
     }
 }

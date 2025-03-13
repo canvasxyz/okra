@@ -11,7 +11,7 @@ const Q = 4;
 
 const Iterator = @import("Iterator.zig").Iterator(K, Q);
 const Node = @import("Node.zig").Node(K, Q);
-const Map = @import("Map.zig").Map(K, Q);
+const Store = @import("Store.zig").Store(K, Q);
 
 const utils = @import("utils.zig");
 
@@ -33,12 +33,12 @@ test "Iterator(a, b, c)" {
 
     const db = try txn.database(null, .{});
 
-    var map = try Map.init(allocator, db, .{});
-    defer map.deinit();
+    var store = try Store.init(allocator, db, .{});
+    defer store.deinit();
 
-    try map.set("a", "foo");
-    try map.set("b", "bar");
-    try map.set("c", "baz");
+    try store.set("a", "foo");
+    try store.set("b", "bar");
+    try store.set("c", "baz");
 
     // okay here we expect
     // L0 -----------------------------

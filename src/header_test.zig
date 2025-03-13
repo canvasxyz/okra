@@ -29,12 +29,23 @@ test "initialize a header in default database" {
 
     const db = try txn.database(null, .{});
 
-    try Header.write(db);
+    {
+        try Header.write(db, .Index);
 
-    try utils.expectEqualEntries(db, &.{
-        .{ &[_]u8{0x00}, &empty_hash },
-        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
-    });
+        try utils.expectEqualEntries(db, &.{
+            .{ &[_]u8{0x00}, &empty_hash },
+            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 3, 32, 0, 0, 0, 4, 0 } },
+        });
+    }
+
+    {
+        try Header.write(db, .Store);
+
+        try utils.expectEqualEntries(db, &.{
+            .{ &[_]u8{0x00}, &empty_hash },
+            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 3, 32, 0, 0, 0, 4, 1 } },
+        });
+    }
 }
 
 test "initialize a header in named databases" {
@@ -50,12 +61,12 @@ test "initialize a header in named databases" {
     const db_a = try txn.database("a", .{ .create = true });
     const db_b = try txn.database("b", .{ .create = true });
 
-    try Header.write(db_a);
-    try Header.write(db_b);
+    try Header.write(db_a, .Store);
+    try Header.write(db_b, .Index);
 
     try if (try db_a.get(&[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
-    try if (try db_a.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
+    try if (try db_a.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 3, 32, 0, 0, 0, 4, 1 }, value) else error.KeyNotFound;
 
     try if (try db_b.get(&[_]u8{0x00})) |value| expectEqualSlices(u8, &empty_hash, value) else error.KeyNotFound;
-    try if (try db_b.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 }, value) else error.KeyNotFound;
+    try if (try db_b.get(&[_]u8{0xFF})) |value| expectEqualSlices(u8, &[_]u8{ 'o', 'k', 'r', 'a', 3, 32, 0, 0, 0, 4, 0 }, value) else error.KeyNotFound;
 }

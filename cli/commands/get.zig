@@ -100,18 +100,21 @@ fn run() !void {
 
     const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
-    var map = try okra.Map.init(gpa.allocator(), db, .{});
-    defer map.deinit();
+    var tree = try okra.Tree.open(gpa.allocator(), db, .{});
+    defer tree.deinit();
 
-    if (try map.get(key_buffer.items)) |value| {
-        const stdout = std.io.getStdOut().writer();
-        switch (config.value_encoding) {
-            .raw => {
-                try stdout.print("{s}\n", .{value});
-            },
-            .hex => {
-                try stdout.print("{s}\n", .{hex(value)});
-            },
-        }
+    const node = try tree.getNode(0, key_buffer.items) orelse return;
+
+    const stdout = std.io.getStdOut().writer();
+
+    switch (tree.mode) {
+        .Index => try stdout.print("{s}\n", .{hex(node.hash)}),
+        .Store => {
+            const value = node.value orelse @panic("internal error");
+            switch (config.value_encoding) {
+                .raw => try stdout.print("{s}\n", .{value}),
+                .hex => try stdout.print("{s}\n", .{hex(value)}),
+            }
+        },
     }
 }

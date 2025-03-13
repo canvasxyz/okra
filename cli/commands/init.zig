@@ -12,6 +12,7 @@ var config = struct {
     databases: usize = 0,
     name: []const u8 = "",
     iota: u32 = 0,
+    mode: okra.Mode = .Store,
 }{};
 
 pub fn command(r: *cli.AppRunner) !cli.Command {
@@ -44,6 +45,13 @@ pub fn command(r: *cli.AppRunner) !cli.Command {
         .value_ref = r.mkRef(&config.iota),
     });
 
+    try options.append(.{
+        .long_name = "mode",
+        .short_alias = 'm',
+        .help = "\"Store\" or \"Index\" (default \"Store\")",
+        .value_ref = r.mkRef(&config.mode),
+    });
+
     return cli.Command{
         .name = "init",
         .description = .{ .one_line = "initialize an empty database environment" },
@@ -69,15 +77,16 @@ fn run() !void {
 
     const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
-    var builder = try okra.Builder.init(gpa.allocator(), db, .{});
+    var builder = try okra.Builder.init(gpa.allocator(), db, .{ .mode = config.mode });
     defer builder.deinit();
 
     var key: [4]u8 = undefined;
-    var value = [4]u8{ 0xff, 0xff, 0xff, 0xff };
+    var value: [okra.K]u8 = undefined;
 
     var i: u32 = 0;
     while (i < config.iota) : (i += 1) {
         std.mem.writeInt(u32, &key, i, .big);
+        std.crypto.hash.Blake3.hash(&key, &value, .{});
         try builder.set(&key, &value);
     }
 

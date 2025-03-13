@@ -10,7 +10,7 @@ d88' `88b  888 .8P'   `888""8P `P  )88b
 
 Okra is a Prolly tree written in Zig and built on top of LMDB.
 
-You can use Okra as a persistent key/value store. Internally, it has a special merkle skip-list structure that **enables a new class of efficient p2p syncing algorithms**. For example, if you have a peer-to-peer network in which peers publish CRDT operations but occasionally go offline and miss operations, two peers can use Okra to quickly identify missing operations (ie set reconciliation) without relying on version vectors.
+You can use Okra as a persistent key/value store. Internally, it has a special merkle skip-list structure that enables a new class of efficient p2p syncing algorithms. For example, two peers can use Okra to quickly identify missing operations (ie set reconciliation) without relying on version vectors.
 
 Read more about the motivation and design of Okra in [this blog post](https://docs.canvas.xyz/blog/2023-05-04-merklizing-the-key-value-store.html).
 

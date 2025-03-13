@@ -14,6 +14,7 @@ var config = struct {
     key_encoding: utils.Encoding = .hex,
     value: []const u8 = "",
     value_encoding: utils.Encoding = .hex,
+    mode: okra.Mode = .Store,
 }{};
 
 pub fn command(r: *cli.AppRunner) !cli.Command {
@@ -64,6 +65,13 @@ pub fn command(r: *cli.AppRunner) !cli.Command {
         .value_ref = r.mkRef(&config.value_encoding),
     });
 
+    try options.append(.{
+        .long_name = "mode",
+        .short_alias = 'm',
+        .help = "\"Store\" or \"Index\" (default \"Store\")",
+        .value_ref = r.mkRef(&config.mode),
+    });
+
     return cli.Command{
         .name = "set",
         .description = .{ .one_line = "set a value by key" },
@@ -85,9 +93,8 @@ fn run() !void {
             @memcpy(key_buffer.items, config.key);
         },
         .hex => {
-            if (config.key.len % 2 != 0) {
+            if (config.key.len % 2 != 0)
                 utils.fail("invalid hex input", .{});
-            }
 
             try key_buffer.resize(config.key.len / 2);
             _ = try std.fmt.hexToBytes(key_buffer.items, config.key);
@@ -103,9 +110,8 @@ fn run() !void {
             @memcpy(value_buffer.items, config.value);
         },
         .hex => {
-            if (config.value.len % 2 != 0) {
+            if (config.value.len % 2 != 0)
                 utils.fail("invalid hex input", .{});
-            }
 
             try value_buffer.resize(config.value.len / 2);
             _ = try std.fmt.hexToBytes(value_buffer.items, config.value);
@@ -123,11 +129,24 @@ fn run() !void {
 
     const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
-    {
-        var map = try okra.Map.init(gpa.allocator(), db, .{});
-        defer map.deinit();
+    switch (config.mode) {
+        .Index => {
+            if (config.value_encoding != .hex)
+                utils.fail("expected hex input - the database is an Index, which only stores hashes", .{});
+            if (value_buffer.items.len != okra.K)
+                utils.fail("invalid hash value - expected {d} hex bytes", .{okra.K});
 
-        try map.set(key_buffer.items, value_buffer.items);
+            var index = try okra.Index.init(gpa.allocator(), db, .{});
+            defer index.deinit();
+
+            try index.set(key_buffer.items, value_buffer.items[0..okra.K]);
+        },
+        .Store => {
+            var store = try okra.Store.init(gpa.allocator(), db, .{});
+            defer store.deinit();
+
+            try store.set(key_buffer.items, value_buffer.items);
+        },
     }
 
     try txn.commit();

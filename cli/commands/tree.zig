@@ -104,10 +104,10 @@ fn run() !void {
 
     const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
-    var map = try okra.Map.init(gpa.allocator(), db, .{});
-    defer map.deinit();
+    var tree = try okra.Tree.open(gpa.allocator(), db, .{});
+    defer tree.deinit();
 
-    var printer = try Printer.init(gpa.allocator(), &map, config.key_encoding);
+    var printer = try Printer.init(gpa.allocator(), &tree, config.key_encoding);
 
     defer printer.deinit();
 

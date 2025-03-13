@@ -12,26 +12,32 @@ const Entry = @import("Entry.zig");
 /// Create a builder with Builder.open(allocator, env, options),
 /// insert as many leaves as you want, and then commit.
 pub fn Builder(comptime K: u8, comptime Q: u32) type {
+    const Mode = @import("Header.zig").Mode;
     const Header = @import("Header.zig").Header(K, Q);
 
     return struct {
         const Self = @This();
-        pub const Options = struct { log: ?std.fs.File.Writer = null };
+        pub const Options = struct {
+            log: ?std.fs.File.Writer = null,
+            mode: Mode = .Store,
+        };
 
         db: lmdb.Database,
         hash_buffer: [K]u8 = undefined,
         key_buffer: std.ArrayList(u8),
         value_buffer: std.ArrayList(u8),
         logger: ?std.fs.File.Writer,
+        mode: Mode,
 
         pub fn init(allocator: std.mem.Allocator, db: lmdb.Database, options: Options) !Self {
-            try Header.write(db);
+            try Header.write(db, options.mode);
 
             return .{
                 .db = db,
                 .key_buffer = std.ArrayList(u8).init(allocator),
                 .value_buffer = std.ArrayList(u8).init(allocator),
                 .logger = options.log,
+                .mode = options.mode,
             };
         }
 
@@ -41,7 +47,21 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn set(self: *Self, key: []const u8, value: []const u8) !void {
-            try self.setNode(key, value);
+            try self.setKey(0, key);
+
+            switch (self.mode) {
+                .Index => {
+                    if (value.len != K) return error.InvalidHash;
+                    try self.value_buffer.resize(K);
+                    @memcpy(self.value_buffer.items, value);
+                },
+                .Store => {
+                    try self.value_buffer.resize(K + value.len);
+                    Entry.hash(key, value, self.value_buffer.items[0..K]);
+                    @memcpy(self.value_buffer.items[K..], value);
+                },
+            }
+
             try self.db.set(self.key_buffer.items, self.value_buffer.items);
         }
 
@@ -131,13 +151,6 @@ pub fn Builder(comptime K: u8, comptime Q: u32) type {
             try self.key_buffer.resize(1 + key.len);
             self.key_buffer.items[0] = level;
             @memcpy(self.key_buffer.items[1..], key);
-        }
-
-        fn setNode(self: *Self, key: []const u8, value: []const u8) !void {
-            try self.setKey(0, key);
-            try self.value_buffer.resize(K + value.len);
-            Entry.hash(key, value, self.value_buffer.items[0..K]);
-            @memcpy(self.value_buffer.items[K..], value);
         }
 
         inline fn log(self: Self, comptime format: []const u8, args: anytype) std.fs.File.WriteError!void {

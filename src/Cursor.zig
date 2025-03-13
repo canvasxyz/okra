@@ -33,9 +33,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         pub fn goToRoot(self: *Self) Error!Node {
             try self.cursor.goToKey(&Header.METADATA_KEY);
             if (try self.cursor.goToPrevious()) |root| {
-                if (root.len != 1) {
-                    return error.InvalidDatabase;
-                }
+                if (root.len != 1) return error.InvalidDatabase;
 
                 self.level = root[0];
                 return try self.getCurrentNode();
@@ -51,9 +49,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn goToNext(self: *Self) Error!?Node {
-            if (self.level == 0xFF) {
-                return error.Uninitialized;
-            }
+            if (self.level == 0xFF) return error.Uninitialized;
 
             if (try self.cursor.goToNext()) |entry_key| {
                 if (entry_key.len == 0) {
@@ -68,9 +64,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn goToPrevious(self: *Self) Error!?Node {
-            if (self.level == 0xFF) {
-                return error.Uninitialized;
-            }
+            if (self.level == 0xFF) return error.Uninitialized;
 
             if (try self.cursor.goToPrevious()) |entry_key| {
                 if (entry_key.len == 0) {
@@ -105,9 +99,7 @@ pub fn Cursor(comptime K: u8, comptime Q: u32) type {
         }
 
         pub fn getCurrentNode(self: Self) Error!Node {
-            if (self.level == 0xFF) {
-                return error.Uninitialized;
-            }
+            if (self.level == 0xFF) return error.Uninitialized;
 
             const entry = try self.cursor.getCurrentEntry();
             return try Node.parse(entry.key, entry.value);

@@ -11,6 +11,7 @@ const tree = @import("./commands/tree.zig");
 const get = @import("./commands/get.zig");
 const set = @import("./commands/set.zig");
 const delete = @import("./commands/delete.zig");
+const stat = @import("./commands/stat.zig");
 
 pub fn main() !void {
     var r = try cli.AppRunner.init(std.heap.page_allocator);
@@ -30,6 +31,8 @@ pub fn main() !void {
                     try get.command(&r),
                     try set.command(&r),
                     try delete.command(&r),
+
+                    try stat.command(&r),
                 },
             },
         },

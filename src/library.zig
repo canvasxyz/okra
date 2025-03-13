@@ -13,7 +13,7 @@ pub const tests = [_]Test{
         .leaves = &.{},
         .entries = &.{
             .{ &[_]u8{0}, &node("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
+            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 3, 32, 0, 0, 0, 4, 1 } },
         },
     },
     .{
@@ -28,7 +28,7 @@ pub const tests = [_]Test{
             .{ &[_]u8{ 0, 'b' }, &leaf("d21fa5d709077fd5594f180a8825852aae07c2f32ab269cfece930978f72c7f9", 0x01) },
             .{ &[_]u8{ 0, 'c' }, &leaf("690b688439b13abeb843a1d7a24d0ea7f40ee1cb038a26bcf16acdab50de9192", 0x02) },
             .{ &[_]u8{1}, &node("70ff616136e6ca5726aa564f5db211806ee00a5beb72bbe8d5ce29e95351e092") },
-            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
+            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 3, 32, 0, 0, 0, 4, 1 } },
         },
     },
     .{
@@ -61,7 +61,7 @@ pub const tests = [_]Test{
             .{ &[_]u8{ 1, 'f' }, &node("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
             .{ &[_]u8{ 1, 'g' }, &node("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
             .{ &[_]u8{2}, &node("2e5d52802433b30f1bf5ed26d55c4b2cf2df1ac40db1639a44c213e612878cff") },
-            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
+            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 3, 32, 0, 0, 0, 4, 1 } },
         },
     },
 };

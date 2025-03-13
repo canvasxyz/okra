@@ -109,13 +109,13 @@ fn run() !void {
 
     const db = try utils.openDB(gpa.allocator(), txn, config.name, .{});
 
-    var map = try okra.Map.init(gpa.allocator(), db, .{});
-    defer map.deinit();
+    var tree = try okra.Tree.open(gpa.allocator(), db, .{});
+    defer tree.deinit();
 
     const root = if (config.level == -1)
-        try map.tree.getRoot()
+        try tree.getRoot()
     else
-        try map.tree.getNode(@intCast(config.level), key_buffer.items) orelse
+        try tree.getNode(@intCast(config.level), key_buffer.items) orelse
             utils.fail("node not found", .{});
 
     try stdout.print("level | {s: <32} | key\n", .{"hash"});
@@ -144,8 +144,8 @@ fn run() !void {
     }
 }
 
-fn getNode(map: *okra.Map, level: u8, key: ?[]const u8) !okra.Node {
-    return try map.getNode(level, key) orelse utils.fail("node not found", .{});
+fn getNode(tree: *okra.Tree, level: u8, key: ?[]const u8) !okra.Node {
+    return try tree.getNode(level, key) orelse utils.fail("node not found", .{});
 }
 
 fn printNode(writer: std.fs.File.Writer, node: okra.Node) !void {

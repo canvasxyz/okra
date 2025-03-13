@@ -11,7 +11,7 @@ const K = 32;
 const Q = 4;
 
 const Builder = @import("Builder.zig").Builder(K, Q);
-const Map = @import("Map.zig").Map(K, Q);
+const Store = @import("Store.zig").Store(K, Q);
 const keys = @import("keys.zig");
 const library = @import("library.zig");
 const utils = @import("utils.zig");
@@ -42,12 +42,12 @@ test "open a Tree" {
     const db = try txn.database(null, .{});
 
     {
-        var map = try Map.init(allocator, db, .{});
-        defer map.deinit();
+        var store = try Store.init(allocator, db, .{});
+        defer store.deinit();
 
         try utils.expectEqualEntries(db, &.{
             .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
-            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
+            .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 3, 32, 0, 0, 0, 4, 1 } },
         });
     }
 }
@@ -65,17 +65,17 @@ test "basic get/set/delete operations" {
     const db = try txn.database(null, .{});
 
     {
-        var map = try Map.init(allocator, db, .{});
-        defer map.deinit();
+        var store = try Store.init(allocator, db, .{});
+        defer store.deinit();
 
-        try map.set("a", "foo");
-        try map.set("b", "bar");
-        try map.set("c", "baz");
+        try store.set("a", "foo");
+        try store.set("b", "bar");
+        try store.set("c", "baz");
 
-        try keys.expectEqual("foo", try map.get("a"));
-        try keys.expectEqual("bar", try map.get("b"));
-        try keys.expectEqual("baz", try map.get("c"));
-        try keys.expectEqual(null, try map.get("d"));
+        try keys.expectEqual("foo", try store.get("a"));
+        try keys.expectEqual("bar", try store.get("b"));
+        try keys.expectEqual("baz", try store.get("c"));
+        try keys.expectEqual(null, try store.get("d"));
     }
 }
 
@@ -92,17 +92,17 @@ test "set empty values" {
     const db = try txn.database(null, .{});
 
     {
-        var map = try Map.init(allocator, db, .{});
-        defer map.deinit();
+        var store = try Store.init(allocator, db, .{});
+        defer store.deinit();
 
-        try map.set("a", "");
-        try map.set("b", "");
-        try map.set("c", "");
+        try store.set("a", "");
+        try store.set("b", "");
+        try store.set("c", "");
 
-        try keys.expectEqual("", try map.get("a"));
-        try keys.expectEqual("", try map.get("b"));
-        try keys.expectEqual("", try map.get("c"));
-        try keys.expectEqual(null, try map.get("d"));
+        try keys.expectEqual("", try store.get("a"));
+        try keys.expectEqual("", try store.get("b"));
+        try keys.expectEqual("", try store.get("c"));
+        try keys.expectEqual(null, try store.get("d"));
     }
 }
 
@@ -132,14 +132,13 @@ test "library tests" {
         }
 
         {
-            var map = try Map.init(allocator, actual, .{ .log = null });
-            defer map.deinit();
+            var store = try Store.init(allocator, actual, .{ .log = null });
+            defer store.deinit();
 
-            for (t.leaves) |entry| try map.set(entry[0], entry[1]);
+            for (t.leaves) |entry| try store.set(entry[0], entry[1]);
         }
 
         try utils.expectEqualDatabases(expected, actual);
-        // try expectEqual(@as(usize, 0), try utils.compareDatabases(expected, actual, .{ .log = log }));
     }
 }
 
@@ -156,13 +155,13 @@ test "set the same entry twice" {
     const db = try txn.database(null, .{});
 
     {
-        var map = try Map.init(allocator, db, .{});
-        defer map.deinit();
+        var store = try Store.init(allocator, db, .{});
+        defer store.deinit();
 
-        try map.set("a", "foo");
-        try map.set("a", "foo");
+        try store.set("a", "foo");
+        try store.set("a", "foo");
 
-        try if (try map.get("a")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
+        try if (try store.get("a")) |value| expectEqualSlices(u8, "foo", value) else error.KeyNotFound;
     }
 }
 
@@ -182,26 +181,15 @@ test "delete a leaf boundary" {
     const db = try txn.database(null, .{});
 
     {
-        var map = try Map.init(allocator, db, .{ .log = null });
-        defer map.deinit();
+        var store = try Store.init(allocator, db, .{ .log = null });
+        defer store.deinit();
 
         for (library.tests[2].leaves) |entry| {
-            try map.set(entry[0], entry[1]);
+            try store.set(entry[0], entry[1]);
         }
 
-        try map.delete("d");
+        try store.delete("d");
     }
-
-    // {
-    //     var sl = try Tree.init(allocator, db, .{ .log = null });
-    //     defer sl.deinit();
-
-    //     for (library.tests[2].leaves) |entry| {
-    //         try sl.set(entry[0], entry[1]);
-    //     }
-
-    //     try sl.delete("d");
-    // }
 
     try utils.expectEqualEntries(db, &.{
         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
@@ -218,7 +206,7 @@ test "delete a leaf boundary" {
         .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
         .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
         .{ &[_]u8{2}, &h("4124354b00d608e230b707504173482baf7b11636c62a8ec3abb0471e7ce89ed") },
-        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 3, 32, 0, 0, 0, 4, 1 } },
     });
 }
 
@@ -235,28 +223,16 @@ test "overwrite a leaf boundary with another boundary" {
     const db = try txn.database(null, .{});
 
     {
-        var map = try Map.init(allocator, db, .{});
-        defer map.deinit();
+        var store = try Store.init(allocator, db, .{});
+        defer store.deinit();
 
         for (library.tests[2].leaves) |entry| {
-            try map.set(entry[0], entry[1]);
+            try store.set(entry[0], entry[1]);
         }
 
-        try map.delete("d");
-        try map.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
+        try store.delete("d");
+        try store.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
     }
-
-    // {
-    //     var sl = try Tree.init(allocator, db, .{});
-    //     defer sl.deinit();
-
-    //     for (library.tests[2].leaves) |entry| {
-    //         try sl.set(entry[0], entry[1]);
-    //     }
-
-    //     try sl.delete("d");
-    //     try sl.set("d", "\x0c"); // 0fbcd74bb6796c5ee4fb2103c7fc26aba1d07a495b6d961c0f9d3b21e959c8c2
-    // }
 
     try utils.expectEqualEntries(db, &.{
         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
@@ -275,7 +251,7 @@ test "overwrite a leaf boundary with another boundary" {
         .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
         .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
         .{ &[_]u8{2}, &h("14953d0fc005ee26c8bfbc3757b4f2642d9936a7b3a99eb6d6d7347b7ec2cd97") },
-        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 3, 32, 0, 0, 0, 4, 1 } },
     });
 }
 
@@ -292,28 +268,16 @@ test "overwrite a leaf boundary with a non-boundary" {
     const db = try txn.database(null, .{});
 
     {
-        var map = try Map.init(allocator, db, .{});
-        defer map.deinit();
+        var store = try Store.init(allocator, db, .{});
+        defer store.deinit();
 
         for (library.tests[2].leaves) |entry| {
-            try map.set(entry[0], entry[1]);
+            try store.set(entry[0], entry[1]);
         }
 
-        try map.delete("d");
-        try map.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
+        try store.delete("d");
+        try store.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
     }
-
-    // {
-    //     var sl = try Tree.init(allocator, db, .{});
-    //     defer sl.deinit();
-
-    //     for (library.tests[2].leaves) |entry| {
-    //         try sl.set(entry[0], entry[1]);
-    //     }
-
-    //     try sl.delete("d");
-    //     try sl.set("d", "\x00"); // ad102c3188252e5ed321ea5a06231f6054c8a3e9e23a8dc7461f615688b0a542
-    // }
 
     try utils.expectEqualEntries(db, &.{
         .{ &[_]u8{0}, &h("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262") },
@@ -331,7 +295,7 @@ test "overwrite a leaf boundary with a non-boundary" {
         .{ &[_]u8{ 1, 'f' }, &h("578f1b9cca1874716a2d51a9c7eaed0ad56398398f55e4cbd73b99ddd6a38401") },
         .{ &[_]u8{ 1, 'g' }, &h("e5abbf8e6e3e589a0c6174861d7f8f9ea56e05d3d67ef4b4a65c4c7f21cfe32f") },
         .{ &[_]u8{2}, &h("733469f093b400276d5f804fc7f698e4a5a6d608bd4e75190f5917e1ff6663b1") },
-        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 2, 32, 0, 0, 0, 4 } },
+        .{ &[_]u8{0xFF}, &[_]u8{ 'o', 'k', 'r', 'a', 3, 32, 0, 0, 0, 4, 1 } },
     });
 }
 
@@ -403,8 +367,8 @@ fn testPseudoRandomPermutations(
         }
 
         {
-            var map = try Map.init(allocator, actual, .{ .log = options.log });
-            defer map.deinit();
+            var store = try Store.init(allocator, actual, .{ .log = options.log });
+            defer store.deinit();
 
             {
                 for (permutation, 0..) |i, j| {
@@ -413,12 +377,12 @@ fn testPseudoRandomPermutations(
 
                     std.mem.writeInt(u16, &key, i, .big);
                     Sha256.hash(&key, &value, .{});
-                    try map.set(&key, &value);
+                    try store.set(&key, &value);
                 }
 
                 for (permutations[(p + 1) % N][0..R]) |i| {
                     std.mem.writeInt(u16, &key, i, .big);
-                    try map.delete(&key);
+                    try store.delete(&key);
                 }
             }
         }
@@ -432,20 +396,14 @@ fn testPseudoRandomPermutations(
         // }
 
         try utils.expectEqualDatabases(expected, actual);
-        // try expectEqual(@as(usize, 0), try utils.compareDatabases(expected, actual, .{ .log = options.log }));
     }
 }
 
 test "1 pseudo-random permutations of 10, deleting 0" {
-    // const log = std.io.getStdErr().writer();
-    // try log.writeByte('\n');
     try testPseudoRandomPermutations(1, 10, 0, .{ .log = null });
 }
 
 test "100 pseudo-random permutations of 50, deleting 0" {
-    // const log = std.io.getStdErr().writer();
-    // try log.writeByte('\n');
-    // try testPseudoRandomPermutations(100, 50, 0, .{ .log = log });
     try testPseudoRandomPermutations(100, 50, 0, .{ .log = null });
 }
 
