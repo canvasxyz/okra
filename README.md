@@ -49,9 +49,11 @@ COMMANDS:
   get      get a value by key
   set      set a value by key
   delete   delete a value by key
+  stat     print database stats
 
 OPTIONS:
-  -h, --help   Prints help information
+  -h, --help            Show this help output.
+      --color <VALUE>   When to use colors (*auto*, never, always).
 ```
 
 ## Design
